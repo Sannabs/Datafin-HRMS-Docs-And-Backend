@@ -612,14 +612,17 @@ graph TB
 
 ### Recommended Approach
 
-For Datafin HRMS, a **Hybrid Deployment Model** is recommended:
-- **Cloud-hosted** for web frontend and API servers (public access)
-- **On-premise** for database and sensitive integrations (corporate network)
-- **VPN/Private Cloud** for secure communication between tiers
+For Datafin HRMS, a **Cloud Deployment Model** is implemented:
+- **Frontend**: Vercel (hosting React web application with global CDN)
+- **Backend**: Render (hosting Express.js API servers)
+- **Database**: Render PostgreSQL (cloud-hosted with automatic backups)
+- **Cache**: Redis (managed by Render or cloud provider)
 
 This model provides:
 - Accessibility for employees from anywhere
-- Security for sensitive HR data
-- Flexibility to scale web tier independently
-- Compliance with data residency requirements
+- Automatic scaling and high availability
+- Security with HTTPS/SSL encryption
+- Cost-effective managed services
+- Global CDN for fast frontend delivery
+- Easy deployment and maintenance
 

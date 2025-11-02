@@ -47,7 +47,10 @@ This documentation is organized into the following sections:
 - **Database**: PostgreSQL 15+
 - **Cache**: Redis 7+
 - **Authentication**: Better Auth
-- **Deployment**: Hybrid (Cloud + On-Premise)
+- **Deployment**: 
+  - **Frontend**: Vercel (Cloud-hosted)
+  - **Backend**: Render (Cloud-hosted)
+  - **Database**: Render PostgreSQL (Cloud-hosted)
 
 ## Core Modules
 

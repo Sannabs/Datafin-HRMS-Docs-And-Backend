@@ -22,8 +22,8 @@ The Datafin HRMS API is a RESTful API that provides programmatic access to all H
 
 The API uses URL-based versioning:
 - Current version: `v1`
-- Production endpoint: `https://api.datafinhrms.com/v1`
-- Development endpoint: `https://dev-api.datafinhrms.com/v1`
+- Production endpoint: `https://datafin-hrms-api.onrender.com/v1` (Render hosted)
+- Development endpoint: `https://datafin-hrms-api-dev.onrender.com/v1` (Render hosted)
 
 ### Supported HTTP Methods
 
@@ -41,9 +41,11 @@ The API uses URL-based versioning:
 
 | Environment | Base URL | Purpose |
 |-------------|----------|---------|
-| Production | `https://api.datafinhrms.com/v1` | Live system |
-| Staging | `https://staging-api.datafinhrms.com/v1` | Pre-production testing |
-| Development | `https://dev-api.datafinhrms.com/v1` | Development and testing |
+| Production | `https://datafin-hrms-api.onrender.com/v1` | Live system (Render) |
+| Staging | `https://datafin-hrms-api-staging.onrender.com/v1` | Pre-production testing (Render) |
+| Development | `https://datafin-hrms-api-dev.onrender.com/v1` | Development and testing (Render) |
+
+**Note**: These are example URLs. Actual URLs will be provided by your Render deployment configuration.
 
 ### Content-Type
 

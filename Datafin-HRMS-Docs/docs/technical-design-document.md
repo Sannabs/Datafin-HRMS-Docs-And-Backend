@@ -117,43 +117,46 @@ The selected technology stack balances performance, developer productivity, and 
   - *Rationale*: Point-in-time recovery, automated backups
 
 #### 2.2.4 Deployment & DevOps
-- **Containerization**: Docker
-  - *Rationale*: Consistent environments, easy deployment, orchestration support
-- **Orchestration**: Docker Compose (development), Kubernetes (production)
-  - *Rationale*: Local development simplicity, production scalability
-- **CI/CD**: GitHub Actions
-  - *Rationale*: Integration with repository, automated testing and deployment
-- **Monitoring**: Prometheus + Grafana
-  - *Rationale*: Metrics collection, visualization, alerting
-- **Logging**: Winston + ELK Stack
-  - *Rationale*: Structured logging, centralized log management
+- **Frontend Hosting**: Vercel
+  - *Rationale*: Zero-config deployment, global CDN, automatic SSL, optimized for React
+- **Backend Hosting**: Render
+  - *Rationale*: Simple deployment, automatic HTTPS, managed PostgreSQL and Redis, built-in CI/CD
+- **CI/CD**: GitHub Actions + Render/Vercel Auto-Deploy
+  - *Rationale*: Automated testing on GitHub, automatic deployment on push
+- **Monitoring**: Render built-in logs + external monitoring
+  - *Rationale*: Built-in monitoring and alerting, structured logging
+- **Logging**: Winston for structured logging
+  - *Rationale*: Structured logging, easy to integrate with monitoring
 
 ### 2.3 Deployment Architecture
 
-#### 2.3.1 Hybrid Deployment Model
-The HRMS is designed for **hybrid deployment** supporting both cloud and on-premise deployment scenarios:
+#### 2.3.1 Cloud Deployment Model
+The HRMS is deployed using a **fully cloud-based architecture**:
 
-**Cloud Tier (Public Access)**
-- Web application hosting (CDN delivery)
-- API servers (load-balanced)
-- File storage (S3/Azure Blob)
+**Frontend Tier (Vercel)**
+- React web application with global CDN delivery
+- Automatic SSL/HTTPS encryption
+- Edge network for low latency
+- Automatic deployments from Git
 
-**On-Premise Tier (Corporate Network)**
-- Primary database (sensitive data)
-- Backup systems
-- Biometric system integration
+**Backend Tier (Render)**
+- Express.js API servers with auto-scaling
+- Managed PostgreSQL database with automatic backups
+- Redis cache for session management and performance
+- Load balancing and health checks built-in
+- File storage for documents and payslips
 
-**Communication**
-- VPN/Private Cloud for secure data transfer
-- API gateway for request routing
-- Message queue for asynchronous operations
+**External Services**
+- Email service (SMTP) for notifications
+- Biometric system integration via secure APIs
+- Reporting and analytics services
 
 #### 2.3.2 Scalability Strategy
-- **Horizontal Scaling**: Stateless API servers scale independently
-- **Vertical Scaling**: Database can be scaled with read replicas
-- **Caching**: Redis cache for frequently accessed data
-- **Load Balancing**: Round-robin or weighted load balancing
-- **Database Sharding**: Future consideration for large datasets
+- **Horizontal Scaling**: Stateless API servers scale automatically on Render
+- **Vertical Scaling**: Database resources can be upgraded on demand
+- **Caching**: Redis cache reduces database load for frequently accessed data
+- **CDN**: Vercel's global edge network ensures fast content delivery
+- **Load Balancing**: Automatic distribution across multiple instances
 
 ### 2.4 Component Architecture
 
