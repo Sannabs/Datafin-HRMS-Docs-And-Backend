@@ -34,7 +34,7 @@ This documentation is organized into the following sections:
 ## Quick Start
 
 1. **Important**: Read [Diagram Viewing Guide](./DIAGRAM_VIEWING_GUIDE.md) to set up tools for viewing visual diagrams
-2. Start with the **[System Architecture](./architecture/system-architecture.md)** to understand the overall system design.
+2. Start with the **[System Architecture](./architecture/system-architecture.md)** to understand the overall system's design.
 3. Review the **[Database Schema](./database/schema.md)** to understand data structures.
 4. Read the **[Technical Design Document](./technical-design-document.md)** for comprehensive design specifications.
 5. Consult the **[API Overview](./api/api-overview.md)** before implementing any API integration.
