@@ -8,3 +8,80 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  HR_ADMIN
+  HR_STAFF
+  EMPLOYEE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  TERMINATED
+}
+
+model Tenant {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  users     User[]     @relation(onDelete: Cascade)
+  employees Employee[] @relation(onDelete: Cascade)
+}
+
+model User {
+  id           String        @id @default(uuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email        String
+  passwordHash String
+  role         UserRole      @default(EMPLOYEE)
+  isActive     Boolean       @default(true)
+  lastLogin    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  employee     Employee?     @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeId   String?       @unique // link to Employee
+
+  createdEmployees Employee[] @relation("EmployeeCreator")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+}
+
+model Employee {
+  id           String          @id @default(uuid())
+  tenantId     String
+  tenant       Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  employeeId   String          // business employee ID
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  hireDate     DateTime?
+  jobTitle     String?
+  avatarUrl    String?
+  status       EmployeeStatus  @default(ACTIVE)
+
+  createdBy    String?
+  createdByUser User?          @relation("EmployeeCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  user         User?
+  deletedAt    DateTime?
+
+  @@unique([tenantId, employeeId])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, lastName])
+  @@index([tenantId, status])
+  @@index([email])
+  @@index([status])
+}
