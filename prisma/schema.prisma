@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -134,6 +135,8 @@ model Position {
   @@index([tenantId, departmentId])
 }
 
+
+
 model User {
   id String @id @default(uuid())
 
@@ -152,6 +155,7 @@ model User {
   // Creator relation (for employee creation tracking)
   createdBy     String?
   createdByUser User?   @relation("UserCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdUsers  User[]  @relation("UserCreator")
 
   // Managed departments
   managedDepartments Department[]      @relation("DepartmentManager")
@@ -160,20 +164,21 @@ model User {
   payslips           Payslip[]
 
   // Authentication fields
-  email        String
-  passwordHash String
-  role         UserRole  @default(EMPLOYEE)
-  isActive     Boolean   @default(true)
-  lastLogin    DateTime?
+  email         String
+  password      String? // Better Auth - password (nullable, required for email/password auth)
+  name          String? // Better Auth - display name (optional, can map to firstName)
+  emailVerified DateTime? // Better Auth - email verification timestamp (required for email verification)
+  image         String? // Better Auth - profile image URL (optional, can map to avatarUrl)
+  role          UserRole  @default(EMPLOYEE)
+  isDeleted     Boolean   @default(false)
+  lastLogin     DateTime?
 
   // Employee fields (optional - not all users are employees)
   employeeId     String
-  firstName      String?
-  lastName       String?
   gender         Gender?         @default(PREFER_NOT_TO_SAY)
   phone          String?
   hireDate       DateTime?
-  avatarUrl      String?
+  address        String?
   status         EmployeeStatus? @default(ACTIVE)
   employmentType EmploymentType? @default(FULL_TIME)
 
@@ -181,21 +186,76 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  // Reverse relations
-  createdUsers User[] @relation("UserCreator")
+  sessions Session[]
+  accounts Account[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
   @@index([tenantId])
   @@index([tenantId, departmentId])
   @@index([tenantId, positionId])
-  @@index([tenantId, lastName])
   @@index([tenantId, status])
   @@index([email])
   @@index([role])
-  @@index([isActive])
+  @@index([isDeleted])
   @@index([status])
+  @@map("User")
 }
+
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+
+
+
+
+// 
 
 // ------------------------------------------------------------
 // Payroll & Benefits Management
@@ -388,3 +448,4 @@ model Payslip {
   @@index([payrollRunId])
   @@index([userId])
 }
+
