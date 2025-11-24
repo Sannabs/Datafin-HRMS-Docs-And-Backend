@@ -17,6 +17,21 @@ enum UserRole {
 enum EmployeeStatus {
   ACTIVE
   TERMINATED
+  RESIGNED
+  ON_LEAVE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  PREFER_NOT_TO_SAY
 }
 
 model Tenant {
@@ -75,18 +90,20 @@ model Employee {
   createdByUser User?   @relation("EmployeeCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   // Employee fields
-  employeeId String // business employee ID
-  firstName  String
-  lastName   String
-  email      String?
-  phone      String?
-  hireDate   DateTime?
-  jobTitle   String?
-  avatarUrl  String?
-  status     EmployeeStatus @default(ACTIVE)
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-  deletedAt  DateTime?
+  employeeId     String // business employee ID
+  firstName      String
+  lastName       String
+  email          String?
+  gender         Gender         @default(PREFER_NOT_TO_SAY)
+  phone          String?
+  hireDate       DateTime?
+  jobTitle       String?
+  avatarUrl      String?
+  status         EmployeeStatus @default(ACTIVE)
+  employmentType EmploymentType @default(FULL_TIME)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
 
   @@unique([tenantId, employeeId])
   @@unique([tenantId, email])
