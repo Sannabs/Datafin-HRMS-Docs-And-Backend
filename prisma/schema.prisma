@@ -3,6 +3,10 @@ generator client {
   output   = "../generated/prisma"
 }
 
+datasource db {
+  provider = "postgresql"
+}
+
 // ------------------------------------------------------------
 // Enums & Types
 // ------------------------------------------------------------
@@ -66,7 +70,6 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   users            User[]
-  employees        Employee[]
   departments      Department[]
   positions        Position[]
   salaryStructures SalaryStructure[]
@@ -85,7 +88,7 @@ model Department {
 
   // Manager relation
   managerId String?
-  manager   Employee? @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  manager   User?   @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
 
   // Department fields
   code        String?
@@ -96,7 +99,7 @@ model Department {
   deletedAt   DateTime?
 
   // Reverse relations
-  employees Employee[]
+  employees User[]
   positions Position[]
 
   @@unique([tenantId, name])
@@ -123,7 +126,7 @@ model Position {
   deletedAt DateTime?
 
   // Reverse relations
-  employees Employee[]
+  employees User[]
 
   @@unique([tenantId, title])
   @@unique([tenantId, code])
@@ -138,36 +141,6 @@ model User {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  // Employee relation
-  employeeId String?   @unique // link to Employee
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-
-  // User fields
-  email        String
-  passwordHash String
-  role         UserRole  @default(EMPLOYEE)
-  isActive     Boolean   @default(true)
-  lastLogin    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  // Reverse relations
-  createdEmployees Employee[] @relation("EmployeeCreator")
-
-  @@unique([tenantId, email])
-  @@index([tenantId])
-  @@index([email])
-  @@index([role])
-  @@index([isActive])
-}
-
-model Employee {
-  id String @id @default(uuid())
-
-  // Tenant relation
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
   // Department relation
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -176,12 +149,9 @@ model Employee {
   positionId String?
   position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
-  // User relation
-  user User?
-
-  // Creator relation
+  // Creator relation (for employee creation tracking)
   createdBy     String?
-  createdByUser User?   @relation("EmployeeCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdByUser User?   @relation("UserCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   // Managed departments
   managedDepartments Department[]      @relation("DepartmentManager")
@@ -189,29 +159,41 @@ model Employee {
   processedPayrolls  PayrollRun[]      @relation("PayrollRunProcessor")
   payslips           Payslip[]
 
-  // Employee fields
-  employeeId     String // business employee ID
-  firstName      String
-  lastName       String
-  email          String?
-  gender         Gender         @default(PREFER_NOT_TO_SAY)
+  // Authentication fields
+  email        String
+  passwordHash String
+  role         UserRole  @default(EMPLOYEE)
+  isActive     Boolean   @default(true)
+  lastLogin    DateTime?
+
+  // Employee fields (optional - not all users are employees)
+  employeeId     String
+  firstName      String?
+  lastName       String?
+  gender         Gender?         @default(PREFER_NOT_TO_SAY)
   phone          String?
   hireDate       DateTime?
   avatarUrl      String?
-  status         EmployeeStatus @default(ACTIVE)
-  employmentType EmploymentType @default(FULL_TIME)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  deletedAt      DateTime?
+  status         EmployeeStatus? @default(ACTIVE)
+  employmentType EmploymentType? @default(FULL_TIME)
 
-  @@unique([tenantId, employeeId])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Reverse relations
+  createdUsers User[] @relation("UserCreator")
+
   @@unique([tenantId, email])
+  @@unique([tenantId, employeeId])
   @@index([tenantId])
   @@index([tenantId, departmentId])
   @@index([tenantId, positionId])
   @@index([tenantId, lastName])
   @@index([tenantId, status])
   @@index([email])
+  @@index([role])
+  @@index([isActive])
   @@index([status])
 }
 
@@ -226,9 +208,9 @@ model SalaryStructure {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  // Employee relation
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  // User relation
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Salary fields
   baseSalary    Float     @default(0)
@@ -244,8 +226,8 @@ model SalaryStructure {
   deductions Deduction[]
 
   @@index([tenantId])
-  @@index([tenantId, employeeId])
-  @@index([employeeId, effectiveDate])
+  @@index([tenantId, userId])
+  @@index([userId, effectiveDate])
 }
 
 model AllowanceType {
@@ -375,7 +357,7 @@ model PayrollRun {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  processor Employee? @relation("PayrollRunProcessor", fields: [processedBy], references: [id], onDelete: SetNull)
+  processor User?     @relation("PayrollRunProcessor", fields: [processedBy], references: [id], onDelete: SetNull)
   payslips  Payslip[]
 
   @@index([tenantId])
@@ -390,9 +372,9 @@ model Payslip {
   payrollRunId String
   payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
 
-  // Employee relation
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  // User relation
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   grossSalary     Float    @default(0)
   totalAllowances Float    @default(0)
@@ -402,7 +384,7 @@ model Payslip {
   generatedAt     DateTime @default(now())
   createdAt       DateTime @default(now())
 
-  @@unique([payrollRunId, employeeId])
+  @@unique([payrollRunId, userId])
   @@index([payrollRunId])
-  @@index([employeeId])
+  @@index([userId])
 }
