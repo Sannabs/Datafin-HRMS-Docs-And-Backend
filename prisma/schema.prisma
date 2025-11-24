@@ -3,10 +3,9 @@ generator client {
   output   = "../generated/prisma"
 }
 
-// datasource db {
-//   provider = "postgresql"
-//   url      = env("DATABASE_URL")
-// }
+// ------------------------------------------------------------
+// Enums & Types
+// ------------------------------------------------------------
 
 enum UserRole {
   HR_ADMIN
@@ -35,6 +34,30 @@ enum Gender {
   PREFER_NOT_TO_SAY
 }
 
+enum CalculationMethod {
+  FIXED
+  PERCENTAGE
+  CONDITIONAL
+}
+
+enum PayPeriodStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  CLOSED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ------------------------------------------------------------
+// Authentication & Employee Information Management
+// ------------------------------------------------------------
+
 model Tenant {
   id        String   @id @default(uuid())
   code      String   @unique
@@ -42,9 +65,15 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  employees   Employee[]
-  departments Department[]
+  users            User[]
+  employees        Employee[]
+  departments      Department[]
+  positions        Position[]
+  salaryStructures SalaryStructure[]
+  allowanceTypes   AllowanceType[]
+  deductionTypes   DeductionType[]
+  payPeriods       PayPeriod[]
+  payrollRuns      PayrollRun[]
 }
 
 model Department {
@@ -68,10 +97,38 @@ model Department {
 
   // Reverse relations
   employees Employee[]
+  positions Position[]
 
   @@unique([tenantId, name])
   @@unique([tenantId, code])
   @@index([tenantId])
+}
+
+model Position {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Department relation
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  // Position fields
+  code      String?
+  title     String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Reverse relations
+  employees Employee[]
+
+  @@unique([tenantId, title])
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, departmentId])
 }
 
 model User {
@@ -115,6 +172,10 @@ model Employee {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
+  // Position relation
+  positionId String?
+  position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
   // User relation
   user User?
 
@@ -123,7 +184,10 @@ model Employee {
   createdByUser User?   @relation("EmployeeCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   // Managed departments
-  managedDepartments Department[] @relation("DepartmentManager")
+  managedDepartments Department[]      @relation("DepartmentManager")
+  salaryStructures   SalaryStructure[]
+  processedPayrolls  PayrollRun[]      @relation("PayrollRunProcessor")
+  payslips           Payslip[]
 
   // Employee fields
   employeeId     String // business employee ID
@@ -133,7 +197,6 @@ model Employee {
   gender         Gender         @default(PREFER_NOT_TO_SAY)
   phone          String?
   hireDate       DateTime?
-  jobTitle       String?
   avatarUrl      String?
   status         EmployeeStatus @default(ACTIVE)
   employmentType EmploymentType @default(FULL_TIME)
@@ -145,8 +208,201 @@ model Employee {
   @@unique([tenantId, email])
   @@index([tenantId])
   @@index([tenantId, departmentId])
+  @@index([tenantId, positionId])
   @@index([tenantId, lastName])
   @@index([tenantId, status])
   @@index([email])
   @@index([status])
+}
+
+// ------------------------------------------------------------
+// Payroll & Benefits Management
+// ------------------------------------------------------------
+
+model SalaryStructure {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Employee relation
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // Salary fields
+  baseSalary    Float     @default(0)
+  grossSalary   Float     @default(0)
+  effectiveDate DateTime
+  endDate       DateTime?
+  currency      String    @default("USD")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Reverse relations
+  allowances Allowance[]
+  deductions Deduction[]
+
+  @@index([tenantId])
+  @@index([tenantId, employeeId])
+  @@index([employeeId, effectiveDate])
+}
+
+model AllowanceType {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  code        String
+  description String?
+  isTaxable   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allowances Allowance[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model Allowance {
+  id String @id @default(uuid())
+
+  // Salary Structure relation
+  salaryStructureId String
+  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+
+  // Allowance type relation
+  allowanceTypeId String
+  allowanceType   AllowanceType @relation(fields: [allowanceTypeId], references: [id], onDelete: Restrict)
+
+  amount            Float             @default(0)
+  calculationMethod CalculationMethod @default(FIXED)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([salaryStructureId])
+  @@index([allowanceTypeId])
+}
+
+model DeductionType {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  code        String
+  description String?
+  isStatutory Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deductions Deduction[]
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model Deduction {
+  id String @id @default(uuid())
+
+  // Salary Structure relation
+  salaryStructureId String
+  salaryStructure   SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+
+  // Deduction type relation
+  deductionTypeId String
+  deductionType   DeductionType @relation(fields: [deductionTypeId], references: [id], onDelete: Restrict)
+
+  amount            Float             @default(0)
+  calculationMethod CalculationMethod @default(FIXED)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([salaryStructureId])
+  @@index([deductionTypeId])
+}
+
+model PayPeriod {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  periodName    String
+  startDate     DateTime
+  endDate       DateTime
+  calendarMonth Int
+  calendarYear  Int
+  status        PayPeriodStatus @default(DRAFT)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  payrollRuns PayrollRun[]
+
+  @@unique([tenantId, periodName])
+  @@unique([tenantId, calendarYear, calendarMonth])
+  @@index([tenantId])
+}
+
+model PayrollRun {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Pay period relation
+  payPeriodId String
+  payPeriod   PayPeriod @relation(fields: [payPeriodId], references: [id], onDelete: Restrict)
+
+  runDate         DateTime         @default(now())
+  totalEmployees  Int              @default(0)
+  totalGrossPay   Float            @default(0)
+  totalDeductions Float            @default(0)
+  totalNetPay     Float            @default(0)
+  status          PayrollRunStatus @default(DRAFT)
+  processedBy     String?
+  processedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  processor Employee? @relation("PayrollRunProcessor", fields: [processedBy], references: [id], onDelete: SetNull)
+  payslips  Payslip[]
+
+  @@index([tenantId])
+  @@index([tenantId, payPeriodId])
+  @@index([status, runDate])
+}
+
+model Payslip {
+  id String @id @default(uuid())
+
+  // Payroll run relation
+  payrollRunId String
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+
+  // Employee relation
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  grossSalary     Float    @default(0)
+  totalAllowances Float    @default(0)
+  totalDeductions Float    @default(0)
+  netSalary       Float    @default(0)
+  filePath        String?
+  generatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([payrollRunId, employeeId])
+  @@index([payrollRunId])
+  @@index([employeeId])
 }
