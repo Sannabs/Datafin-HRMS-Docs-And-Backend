@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -69,6 +68,10 @@ model Tenant {
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  address   String?
+  phone     String?
+  email     String?
+  website   String?
 
   users            User[]
   departments      Department[]
@@ -78,6 +81,10 @@ model Tenant {
   deductionTypes   DeductionType[]
   payPeriods       PayPeriod[]
   payrollRuns      PayrollRun[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([website])
 }
 
 model Department {
@@ -134,8 +141,6 @@ model Position {
   @@index([tenantId])
   @@index([tenantId, departmentId])
 }
-
-
 
 model User {
   id String @id @default(uuid())
@@ -202,7 +207,6 @@ model User {
   @@map("User")
 }
 
-
 model Session {
   id        String   @id
   expiresAt DateTime
@@ -250,10 +254,6 @@ model Verification {
   @@index([identifier])
   @@map("verification")
 }
-
-
-
-
 
 // 
 
@@ -448,4 +448,3 @@ model Payslip {
   @@index([payrollRunId])
   @@index([userId])
 }
-

@@ -12,13 +12,17 @@ export const auth = betterAuth({
     modelName: "User",
     fields: {
       email: "email",
-      name: "name", // Better Auth expects 'name' - we added this field
-      image: "image", // Better Auth expects 'image' - we added this field, can also map to avatarUrl
-      emailVerified: "emailVerified", // Better Auth expects 'emailVerified' - we added this field
-      password: "password", // Better Auth expects 'password' - we added this field
+      name: "name",
+      image: "image",
+      emailVerified: "emailVerified",
+      password: "password",
     },
+    // When adding new fields to the User model:
+    // 1. Add field to prisma/schema.prisma
+    // 2. Run: npx prisma migrate dev --name add_field_name
+    // 3. Run: npx prisma generate
+    // 4. Add field here in additionalFields (if you want Better Auth to recognize it)
     additionalFields: {
-      // Include all your custom fields so Better Auth knows about them
       tenantId: {
         type: "string",
         required: true,
