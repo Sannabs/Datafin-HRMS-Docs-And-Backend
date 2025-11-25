@@ -38,6 +38,7 @@ app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
 
+
 app.all("/api/auth/*", toNodeHandler(auth));
 
 app.use(errorHandler);
