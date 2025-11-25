@@ -64,7 +64,7 @@ enum PayrollRunStatus {
 
 model Tenant {
   id        String   @id @default(uuid())
-  code      String   @unique
+  code      String
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -179,13 +179,14 @@ model User {
   lastLogin     DateTime?
 
   // Employee fields (optional - not all users are employees)
-  employeeId     String
-  gender         Gender?         @default(PREFER_NOT_TO_SAY)
-  phone          String?
-  hireDate       DateTime?
-  address        String?
-  status         EmployeeStatus? @default(ACTIVE)
-  employmentType EmploymentType? @default(FULL_TIME)
+  employeeId       String
+  gender           Gender?         @default(PREFER_NOT_TO_SAY)
+  phone            String?
+  hireDate         DateTime?
+  address          String?
+  emergencyContact String?
+  status           EmployeeStatus? @default(ACTIVE)
+  employmentType   EmploymentType? @default(FULL_TIME)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

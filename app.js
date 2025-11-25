@@ -4,15 +4,19 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import logger from "./utils/logger.js";
+import { errorHandler } from "./middlewares/errorHandler.middleware.js";
+import { auth } from "./utils/auth.js";
+import { toNodeHandler } from "better-auth/node";
+import authRoutes from "./routes/auth.routes.js";
 
 dotenv.config();
 
 const app = express();
 
-// middlewares
 app.use(morgan(process.env.NODE_ENV === "development" ? "dev" : "combined"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 const allowedOrigins = ["http://localhost:3000", process.env.CLIENT_URL];
 app.use(
   cors({
@@ -32,6 +36,10 @@ app.use(
 );
 app.use(cookieParser());
 
+app.use("/api/auth", authRoutes);
 
+app.all("/api/auth/*", toNodeHandler(auth));
+
+app.use(errorHandler);
 
 export default app;
