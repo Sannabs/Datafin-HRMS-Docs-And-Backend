@@ -69,7 +69,7 @@ export const getAllEmployees = async (req, res) => {
     }
 };
 
-// get employee by id (current authenticated user)
+// get employee by id
 export const getEmployeeById = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
@@ -144,6 +144,630 @@ export const getEmployeeById = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch employee",
+        });
+    }
+};
+
+// update employee
+export const updateEmployee = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+        const updateData = req.body;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        // allowed fields to update
+        const allowedFields = [
+            "name",
+            "phone",
+            "address",
+            "gender",
+            "image",
+            "departmentId",
+            "positionId",
+            "status",
+            "employmentType",
+            "hireDate",
+        ];
+
+        // Filter out disallowed fields and build update object
+        const filteredData = {};
+        for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+                filteredData[field] = updateData[field];
+            }
+        }
+
+        // If no valid fields to update
+        if (Object.keys(filteredData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No valid fields to update",
+            });
+        }
+
+        // Validate departmentId and positionId if provided
+        if (filteredData.departmentId) {
+            const department = await prisma.department.findFirst({
+                where: {
+                    id: filteredData.departmentId,
+                    tenantId,
+                    deletedAt: null,
+                },
+            });
+
+            if (!department) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Invalid department ID",
+                });
+            }
+        }
+
+        if (filteredData.positionId) {
+            const position = await prisma.position.findFirst({
+                where: {
+                    id: filteredData.positionId,
+                    tenantId,
+                    deletedAt: null,
+                },
+            });
+
+            if (!position) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Invalid position ID",
+                });
+            }
+        }
+
+        // Update employee
+        const updatedEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+            data: filteredData,
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        description: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                        code: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = updatedEmployee;
+
+        logger.info(`Updated employee with ID: ${id}`);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee updated successfully",
+        });
+    } catch (error) {
+        // Handle Prisma unique constraint errors
+        if (error.code === "P2002") {
+            logger.warn(`Unique constraint violation: ${error.meta?.target}`);
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "A record with this value already exists",
+            });
+        }
+
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for update`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error updating employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update employee",
+        });
+    }
+};
+
+// terminate employee
+export const terminateEmployee = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        if (!tenantId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        // Check if employee exists and belongs to the same tenant
+        const employee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+        });
+
+        if (!employee) {
+            logger.warn(`Employee not found for termination with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        // Check if employee is already terminated
+        if (employee.status === "TERMINATED") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee is already terminated",
+            });
+        }
+
+        // Terminate employee (set status to TERMINATED)
+        const terminatedEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+            },
+            data: {
+                status: "TERMINATED",
+            },
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        description: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                        code: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = terminatedEmployee;
+
+        logger.info(`Terminated employee with ID: ${id}`);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee terminated successfully",
+        });
+    } catch (error) {
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for termination`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error terminating employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to terminate employee",
+        });
+    }
+};
+
+// reactivate employee
+export const reactivateEmployee = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        if (!tenantId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        // Check if employee exists and belongs to the same tenant
+        const employee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+        });
+
+        if (!employee) {
+            logger.warn(`Employee not found for reactivation with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        // Check if employee is already active
+        if (employee.status === "ACTIVE") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee is already active",
+            });
+        }
+
+        // Reactivate employee (set status to ACTIVE)
+        const reactivatedEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+            },
+            data: {
+                status: "ACTIVE",
+            },
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        description: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                        code: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = reactivatedEmployee;
+
+        logger.info(`Reactivated employee with ID: ${id}`);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee reactivated successfully",
+        });
+    } catch (error) {
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for reactivation`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error reactivating employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to reactivate employee",
+        });
+    }
+};
+
+// archive employee
+export const archiveEmployee = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        if (!tenantId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        // Check if employee exists and belongs to the same tenant
+        const employee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+        });
+
+        if (!employee) {
+            logger.warn(`Employee not found for archiving with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        // Check if employee is already archived
+        if (employee.isDeleted) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee is already archived",
+            });
+        }
+
+        // Archive employee (soft delete - set isDeleted to true and deletedAt timestamp)
+        const archivedEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+            },
+            data: {
+                isDeleted: true,
+                deletedAt: new Date(),
+            },
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        description: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                        code: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = archivedEmployee;
+
+        logger.info(`Archived employee with ID: ${id}`);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee archived successfully",
+        });
+    } catch (error) {
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for archiving`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error archiving employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to archive employee",
+        });
+    }
+};
+
+// restore employee (unarchive)
+export const restoreEmployee = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        if (!tenantId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        // Check if employee exists and belongs to the same tenant (including archived ones)
+        const employee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+        });
+
+        if (!employee) {
+            logger.warn(`Employee not found for restoration with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        // Check if employee is already restored (not archived)
+        if (!employee.isDeleted) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee is not archived",
+            });
+        }
+
+        // Restore employee (unarchive - set isDeleted to false and clear deletedAt)
+        const restoredEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+            },
+            data: {
+                isDeleted: false,
+                deletedAt: null,
+            },
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        description: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                        code: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = restoredEmployee;
+
+        logger.info(`Restored employee with ID: ${id}`);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee restored successfully",
+        });
+    } catch (error) {
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for restoration`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error restoring employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to restore employee",
         });
     }
 };
