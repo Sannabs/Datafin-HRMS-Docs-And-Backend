@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import logger from "./utils/logger.js";
+import employeeRoutes from "./routes/employee.route.js";
 
 dotenv.config();
 
@@ -20,11 +21,11 @@ app.use(
       if (!origin) return callback(null, origin);
 
       if (allowedOrigins.indexOf(origin) !== -1) {
-        logger.info(`✅Allowed by CORS: ${origin}`);
+        logger.info(`Allowed by CORS: ${origin}`);
         callback(null, origin);
       } else {
-        logger.warn(`❌Not allowed by CORS: ${origin}`);
-        callback(new Error(`❌Not allowed by CORS: ${origin}`));
+        logger.warn(`Not allowed by CORS: ${origin}`);
+        callback(new Error(`Not allowed by CORS: ${origin}`));
       }
     },
     credentials: true,
@@ -32,6 +33,7 @@ app.use(
 );
 app.use(cookieParser());
 
-
+// Routes
+app.use("/api/employees", employeeRoutes);
 
 export default app;
