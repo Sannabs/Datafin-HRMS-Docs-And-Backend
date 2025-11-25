@@ -82,7 +82,6 @@ export const getEmployeeById = async (req, res) => {
             });
         }
 
-        // Build where clause - filter by tenant if available
         const where = {
             id,
             isDeleted: false,
