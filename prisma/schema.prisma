@@ -256,7 +256,6 @@ model Verification {
   @@map("verification")
 }
 
-// 
 
 // ------------------------------------------------------------
 // Payroll & Benefits Management

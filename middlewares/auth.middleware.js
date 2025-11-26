@@ -21,6 +21,7 @@ export const requireAuth = async (req, res, next) => {
       select: {
         id: true,
         role: true,
+        tenantId: true,
       },
     });
 
