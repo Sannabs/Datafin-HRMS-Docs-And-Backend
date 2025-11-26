@@ -7,6 +7,8 @@ export const getEmployeeSalaryStructure = async (req, res) => {
         const { id: employeeId } = req.params;
         const { id: userId, tenantId, role } = req.user;
 
+        // Data access control: Employees can only view their own salary structure
+        // HR roles can view any employee's salary structure
         if (role === "EMPLOYEE" && employeeId !== userId) {
             return res.status(403).json({
                 success: false,
@@ -16,6 +18,7 @@ export const getEmployeeSalaryStructure = async (req, res) => {
         }
 
         const today = new Date();
+        // Find active salary structure: effective date <= today AND (no end date OR end date >= today)
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
                 userId: employeeId,
@@ -195,6 +198,8 @@ export const createSalaryStructure = async (req, res) => {
         const effective = new Date(effectiveDate);
         const end = endDate ? new Date(endDate) : null;
 
+        // Business rule: Prevent overlapping salary structure periods
+        // Check if new structure dates overlap with any existing structure
         const overlapping = await prisma.salaryStructure.findFirst({
             where: {
                 userId: employeeId,
@@ -228,6 +233,9 @@ export const createSalaryStructure = async (req, res) => {
             });
         }
 
+        // Business rule: Only one active salary structure per employee
+        // If creating a new active structure (no end date or end date in future),
+        // automatically end the previous active structure
         if (!end || end >= today) {
             const activeStructure = await prisma.salaryStructure.findFirst({
                 where: {
@@ -242,6 +250,7 @@ export const createSalaryStructure = async (req, res) => {
             });
 
             if (activeStructure) {
+                // Set end date to day before new structure starts to prevent gaps
                 await prisma.salaryStructure.update({
                     where: { id: activeStructure.id },
                     data: {
@@ -251,6 +260,8 @@ export const createSalaryStructure = async (req, res) => {
             }
         }
 
+        // Calculate initial gross salary (without deductions for now)
+        // Will recalculate after all allowances and deductions are added
         const { grossSalary } = recalculateSalary(
             baseSalary,
             allowances || [],
@@ -311,12 +322,15 @@ export const createSalaryStructure = async (req, res) => {
             },
         });
 
+        // Recalculate with all allowances and deductions now that they're saved
+        // This ensures gross salary accounts for all percentage-based calculations
         const { grossSalary: finalGross, netSalary } = recalculateSalary(
             updatedStructure.baseSalary,
             updatedStructure.allowances,
             updatedStructure.deductions
         );
 
+        // Update with final calculated gross salary
         const finalStructure = await prisma.salaryStructure.update({
             where: { id: salaryStructure.id },
             data: {
@@ -424,6 +438,8 @@ export const updateSalaryStructure = async (req, res) => {
             });
         }
 
+        // Recalculate gross salary if base salary changed
+        // Base salary change affects percentage-based allowances
         if (baseSalary !== undefined) {
             const { grossSalary } = recalculateSalary(
                 baseSalary,
@@ -511,6 +527,8 @@ export const deleteSalaryStructure = async (req, res) => {
             });
         }
 
+        // Soft delete: Set endDate to today to deactivate the structure
+        // Preserves historical data for audit and payroll processing
         const deleted = await prisma.salaryStructure.update({
             where: { id },
             data: {
@@ -614,6 +632,7 @@ export const addAllowanceToStructure = async (req, res) => {
             },
         });
 
+        // Recalculate gross salary with new allowance included
         const updatedAllowances = [...salaryStructure.allowances, allowance];
         const { grossSalary } = recalculateSalary(
             salaryStructure.baseSalary,
@@ -804,6 +823,8 @@ export const addDeductionToStructure = async (req, res) => {
             },
         });
 
+        // Recalculate gross salary (deductions don't affect gross, but we recalculate for consistency)
+        // This ensures the structure is always in sync with its components
         const updatedDeductions = [...salaryStructure.deductions, deduction];
         const { grossSalary } = recalculateSalary(
             salaryStructure.baseSalary,

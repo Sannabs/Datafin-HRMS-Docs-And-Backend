@@ -217,6 +217,8 @@ export const deleteDeductionType = async (req, res) => {
             });
         }
 
+        // Prevent deletion if deduction type is used in active salary structures
+        // Active structure = no endDate (currently in use)
         const activeUsage = await prisma.deduction.findFirst({
             where: {
                 deductionTypeId: id,

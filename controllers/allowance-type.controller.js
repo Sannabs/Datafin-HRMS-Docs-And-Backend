@@ -217,6 +217,8 @@ export const deleteAllowanceType = async (req, res) => {
             });
         }
 
+        // Prevent deletion if allowance type is used in active salary structures
+        // Active structure = no endDate (currently in use)
         const activeUsage = await prisma.allowance.findFirst({
             where: {
                 allowanceTypeId: id,

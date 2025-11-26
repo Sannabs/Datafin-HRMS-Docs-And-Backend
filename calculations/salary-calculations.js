@@ -12,6 +12,7 @@ export const calculateAllowanceAmount = (allowance, baseSalary) => {
             return amount;
 
         case "PERCENTAGE":
+            // Amount represents percentage (e.g., 20 means 20% of base salary)
             return (baseSalary * amount) / 100;
 
         case "CONDITIONAL":
@@ -40,6 +41,7 @@ export const calculateDeductionAmount = (deduction, grossSalary, baseSalary) => 
             return amount;
 
         case "PERCENTAGE":
+            // Amount represents percentage (e.g., 15 means 15% of gross salary)
             return (grossSalary * amount) / 100;
 
         case "CONDITIONAL":
@@ -95,7 +97,8 @@ export const calculateNetSalary = (grossSalary, deductions = [], baseSalary = 0)
 
     const netSalary = grossSalary - totalDeductions;
 
-    // Ensure net salary is not negative (or handle negative scenarios as needed)
+    // Business rule: Net salary cannot be negative
+    // If deductions exceed gross, return 0 (may need manual review in production)
     return Math.max(0, netSalary);
 };
 
