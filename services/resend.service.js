@@ -14,11 +14,11 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       ...(text && { text: text }),
     });
 
-    logger.info(`✅ Email sent successfully to ${to}:`, result.id);
+    logger.info(`Email sent successfully to ${to}:`, result.id);
 
     return { success: true, messageId: result.id };
   } catch (error) {
-    logger.error(`❌ Error sending email to ${to}:`, error.message);
+    logger.error(`Error sending email to ${to}:`, error.message);
     throw error;
   }
 };

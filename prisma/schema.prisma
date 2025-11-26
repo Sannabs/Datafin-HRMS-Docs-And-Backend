@@ -44,6 +44,11 @@ enum CalculationMethod {
   CONDITIONAL
 }
 
+enum RuleType {
+  ALLOWANCE
+  DEDUCTION
+}
+
 enum PayPeriodStatus {
   DRAFT
   PROCESSING
@@ -81,6 +86,7 @@ model Tenant {
   deductionTypes   DeductionType[]
   payPeriods       PayPeriod[]
   payrollRuns      PayrollRun[]
+  calculationRules CalculationRule[]
 
   @@index([phone])
   @@index([email])
@@ -306,6 +312,7 @@ model AllowanceType {
   deletedAt   DateTime?
 
   allowances Allowance[]
+  calculationRules CalculationRule[]
 
   @@unique([tenantId, name])
   @@unique([tenantId, code])
@@ -348,6 +355,7 @@ model DeductionType {
   deletedAt   DateTime?
 
   deductions Deduction[]
+  calculationRules CalculationRule[]
 
   @@unique([tenantId, name])
   @@unique([tenantId, code])
@@ -371,6 +379,52 @@ model Deduction {
   updatedAt         DateTime          @updatedAt
 
   @@index([salaryStructureId])
+  @@index([deductionTypeId])
+}
+
+model CalculationRule {
+  id String @id @default(uuid())
+
+  // Tenant relation
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Rule identification
+  name        String
+  description String?
+
+  // Rule type and target
+  ruleType        RuleType
+  allowanceTypeId String?
+  allowanceType   AllowanceType? @relation(fields: [allowanceTypeId], references: [id], onDelete: Restrict)
+  deductionTypeId String?
+  deductionType   DeductionType? @relation(fields: [deductionTypeId], references: [id], onDelete: Restrict)
+
+  // Rule conditions (JSONB)
+  conditions Json // Stores condition tree: {operator: "AND"|"OR", conditions: [...]}
+
+  // Rule action (JSONB)
+  action Json // Stores action: {type: "FIXED"|"PERCENTAGE"|"FORMULA", value: number, base: "baseSalary"|"grossSalary"}
+
+  // Rule priority (higher = evaluated first)
+  priority Int @default(0)
+
+  // Rule status
+  isActive Boolean @default(true)
+
+  // Rule validity period
+  effectiveDate DateTime
+  endDate       DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@index([tenantId, ruleType])
+  @@index([allowanceTypeId])
   @@index([deductionTypeId])
 }
 
