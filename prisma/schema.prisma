@@ -81,6 +81,7 @@ model Tenant {
   deductionTypes   DeductionType[]
   payPeriods       PayPeriod[]
   payrollRuns      PayrollRun[]
+  auditLogs        AuditLog[]
 
   @@index([phone])
   @@index([email])
@@ -192,8 +193,9 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  sessions Session[]
-  accounts Account[]
+  sessions  Session[]
+  accounts  Account[]
+  auditLogs AuditLog[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -256,7 +258,6 @@ model Verification {
   @@map("verification")
 }
 
-
 // ------------------------------------------------------------
 // Payroll & Benefits Management
 // ------------------------------------------------------------
@@ -300,9 +301,9 @@ model AllowanceType {
   name        String
   code        String
   description String?
-  isTaxable   Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isTaxable   Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
   allowances Allowance[]
@@ -342,9 +343,9 @@ model DeductionType {
   name        String
   code        String
   description String?
-  isStatutory Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isStatutory Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
   deductions Deduction[]
@@ -449,4 +450,35 @@ model Payslip {
   @@unique([payrollRunId, userId])
   @@index([payrollRunId])
   @@index([userId])
+}
+
+// ------------------------------------------------------------
+// Audit Trail Management and Notification System
+// ------------------------------------------------------------
+
+model AuditLog {
+  id         String     @id @default(uuid())
+  userId     String
+  tenantId   String
+  timestamp  DateTime   @default(now())
+  action     ActionEnum
+  entityType String
+  entityId   String
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([entityId, entityType])
+  @@index([timestamp])
+}
+
+enum ActionEnum {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  OTHER
 }
