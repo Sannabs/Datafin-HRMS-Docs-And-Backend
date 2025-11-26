@@ -303,6 +303,7 @@ model AllowanceType {
   isTaxable   Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
   allowances Allowance[]
 
@@ -344,6 +345,7 @@ model DeductionType {
   isStatutory Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
   deductions Deduction[]
 

@@ -9,6 +9,9 @@ import { auth } from "./utils/auth.js";
 import { toNodeHandler } from "better-auth/node";
 import authRoutes from "./routes/auth.routes.js";
 import employeeRoutes from "./routes/employee.route.js";
+import allowanceTypeRoutes from "./routes/allowance-type.route.js";
+import deductionTypeRoutes from "./routes/deduction-type.route.js";
+import salaryStructureRoutes from "./routes/salary-structure.route.js";
 
 dotenv.config();
 
@@ -40,6 +43,9 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/employees", employeeRoutes);
+app.use("/api/allowance-types", allowanceTypeRoutes);
+app.use("/api/deduction-types", deductionTypeRoutes);
+app.use("/api/salary-structures", salaryStructureRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
 
