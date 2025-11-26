@@ -184,6 +184,14 @@ export const createSalaryStructure = async (req, res) => {
                 tenantId,
                 isDeleted: false,
             },
+            select: {
+                id: true,
+                departmentId: true,
+                positionId: true,
+                employmentType: true,
+                status: true,
+                hireDate: true,
+            },
         });
 
         if (!employee) {
@@ -193,6 +201,16 @@ export const createSalaryStructure = async (req, res) => {
                 message: "Employee not found",
             });
         }
+
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: employee.departmentId,
+            positionId: employee.positionId,
+            employmentType: employee.employmentType,
+            baseSalary: baseSalary,
+            status: employee.status,
+            hireDate: employee.hireDate,
+        };
 
         const today = new Date();
         const effective = new Date(effectiveDate);
@@ -262,10 +280,12 @@ export const createSalaryStructure = async (req, res) => {
 
         // Calculate initial gross salary (without deductions for now)
         // Will recalculate after all allowances and deductions are added
-        const { grossSalary } = recalculateSalary(
+        const { grossSalary } = await recalculateSalary(
             baseSalary,
             allowances || [],
-            []
+            [],
+            employeeContext,
+            tenantId
         );
 
         const salaryStructure = await prisma.salaryStructure.create({
@@ -324,10 +344,12 @@ export const createSalaryStructure = async (req, res) => {
 
         // Recalculate with all allowances and deductions now that they're saved
         // This ensures gross salary accounts for all percentage-based calculations
-        const { grossSalary: finalGross, netSalary } = recalculateSalary(
+        const { grossSalary: finalGross, netSalary } = await recalculateSalary(
             updatedStructure.baseSalary,
             updatedStructure.allowances,
-            updatedStructure.deductions
+            updatedStructure.deductions,
+            employeeContext,
+            tenantId
         );
 
         // Update with final calculated gross salary
@@ -441,10 +463,12 @@ export const updateSalaryStructure = async (req, res) => {
         // Recalculate gross salary if base salary changed
         // Base salary change affects percentage-based allowances
         if (baseSalary !== undefined) {
-            const { grossSalary } = recalculateSalary(
+            const { grossSalary } = await recalculateSalary(
                 baseSalary,
                 salaryStructure.allowances,
-                salaryStructure.deductions
+                salaryStructure.deductions,
+                employeeContext,
+                tenantId
             );
             updateData.grossSalary = grossSalary;
         }
@@ -576,6 +600,16 @@ export const addAllowanceToStructure = async (req, res) => {
                 tenantId,
             },
             include: {
+                user: {
+                    select: {
+                        id: true,
+                        departmentId: true,
+                        positionId: true,
+                        employmentType: true,
+                        status: true,
+                        hireDate: true,
+                    },
+                },
                 allowances: {
                     include: {
                         allowanceType: true,
@@ -596,6 +630,16 @@ export const addAllowanceToStructure = async (req, res) => {
                 message: "Salary structure not found",
             });
         }
+
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: salaryStructure.user?.departmentId,
+            positionId: salaryStructure.user?.positionId,
+            employmentType: salaryStructure.user?.employmentType,
+            baseSalary: salaryStructure.baseSalary,
+            status: salaryStructure.user?.status,
+            hireDate: salaryStructure.user?.hireDate,
+        };
 
         const allowanceType = await prisma.allowanceType.findFirst({
             where: {
@@ -634,10 +678,12 @@ export const addAllowanceToStructure = async (req, res) => {
 
         // Recalculate gross salary with new allowance included
         const updatedAllowances = [...salaryStructure.allowances, allowance];
-        const { grossSalary } = recalculateSalary(
+        const { grossSalary } = await recalculateSalary(
             salaryStructure.baseSalary,
             updatedAllowances,
-            salaryStructure.deductions
+            salaryStructure.deductions,
+            employeeContext,
+            tenantId
         );
 
         await prisma.salaryStructure.update({
@@ -676,6 +722,16 @@ export const removeAllowanceFromStructure = async (req, res) => {
                 tenantId,
             },
             include: {
+                user: {
+                    select: {
+                        id: true,
+                        departmentId: true,
+                        positionId: true,
+                        employmentType: true,
+                        status: true,
+                        hireDate: true,
+                    },
+                },
                 allowances: {
                     include: {
                         allowanceType: true,
@@ -697,6 +753,16 @@ export const removeAllowanceFromStructure = async (req, res) => {
             });
         }
 
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: salaryStructure.user?.departmentId,
+            positionId: salaryStructure.user?.positionId,
+            employmentType: salaryStructure.user?.employmentType,
+            baseSalary: salaryStructure.baseSalary,
+            status: salaryStructure.user?.status,
+            hireDate: salaryStructure.user?.hireDate,
+        };
+
         const allowance = await prisma.allowance.findFirst({
             where: {
                 id: allowanceId,
@@ -717,10 +783,12 @@ export const removeAllowanceFromStructure = async (req, res) => {
         });
 
         const updatedAllowances = salaryStructure.allowances.filter(a => a.id !== allowanceId);
-        const { grossSalary } = recalculateSalary(
+        const { grossSalary } = await recalculateSalary(
             salaryStructure.baseSalary,
             updatedAllowances,
-            salaryStructure.deductions
+            salaryStructure.deductions,
+            employeeContext,
+            tenantId
         );
 
         await prisma.salaryStructure.update({
@@ -767,6 +835,16 @@ export const addDeductionToStructure = async (req, res) => {
                 tenantId,
             },
             include: {
+                user: {
+                    select: {
+                        id: true,
+                        departmentId: true,
+                        positionId: true,
+                        employmentType: true,
+                        status: true,
+                        hireDate: true,
+                    },
+                },
                 allowances: {
                     include: {
                         allowanceType: true,
@@ -787,6 +865,16 @@ export const addDeductionToStructure = async (req, res) => {
                 message: "Salary structure not found",
             });
         }
+
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: salaryStructure.user?.departmentId,
+            positionId: salaryStructure.user?.positionId,
+            employmentType: salaryStructure.user?.employmentType,
+            baseSalary: salaryStructure.baseSalary,
+            status: salaryStructure.user?.status,
+            hireDate: salaryStructure.user?.hireDate,
+        };
 
         const deductionType = await prisma.deductionType.findFirst({
             where: {
@@ -826,10 +914,12 @@ export const addDeductionToStructure = async (req, res) => {
         // Recalculate gross salary (deductions don't affect gross, but we recalculate for consistency)
         // This ensures the structure is always in sync with its components
         const updatedDeductions = [...salaryStructure.deductions, deduction];
-        const { grossSalary } = recalculateSalary(
+        const { grossSalary } = await recalculateSalary(
             salaryStructure.baseSalary,
             salaryStructure.allowances,
-            updatedDeductions
+            updatedDeductions,
+            employeeContext,
+            tenantId
         );
 
         await prisma.salaryStructure.update({
@@ -868,6 +958,16 @@ export const removeDeductionFromStructure = async (req, res) => {
                 tenantId,
             },
             include: {
+                user: {
+                    select: {
+                        id: true,
+                        departmentId: true,
+                        positionId: true,
+                        employmentType: true,
+                        status: true,
+                        hireDate: true,
+                    },
+                },
                 allowances: {
                     include: {
                         allowanceType: true,
@@ -889,6 +989,16 @@ export const removeDeductionFromStructure = async (req, res) => {
             });
         }
 
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: salaryStructure.user?.departmentId,
+            positionId: salaryStructure.user?.positionId,
+            employmentType: salaryStructure.user?.employmentType,
+            baseSalary: salaryStructure.baseSalary,
+            status: salaryStructure.user?.status,
+            hireDate: salaryStructure.user?.hireDate,
+        };
+
         const deduction = await prisma.deduction.findFirst({
             where: {
                 id: deductionId,
@@ -909,10 +1019,12 @@ export const removeDeductionFromStructure = async (req, res) => {
         });
 
         const updatedDeductions = salaryStructure.deductions.filter(d => d.id !== deductionId);
-        const { grossSalary } = recalculateSalary(
+        const { grossSalary } = await recalculateSalary(
             salaryStructure.baseSalary,
             salaryStructure.allowances,
-            updatedDeductions
+            updatedDeductions,
+            employeeContext,
+            tenantId
         );
 
         await prisma.salaryStructure.update({
