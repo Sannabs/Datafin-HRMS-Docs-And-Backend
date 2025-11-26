@@ -9,32 +9,19 @@ import {
     restoreEmployee,
 } from "../controllers/employee.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
+import { requireRole } from "../middlewares/rbac.middleware.js";
 
 const router = express.Router();
 
-// All employee routes require authentication
 router.use(requireAuth);
 
-// GET /api/employees - Get all employees
-router.get("/", getAllEmployees);
-
-// GET /api/employees/:id - Get employee by id
+router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllEmployees);
 router.get("/:id", getEmployeeById);
-
-// PUT /api/employees/:id - Update employee by id
 router.put("/:id", updateEmployee);
-
-// POST /api/employees/:id/terminate - Terminate employee by id
-router.post("/:id/terminate", terminateEmployee);
-
-// POST /api/employees/:id/reactivate - Reactivate employee by id
-router.post("/:id/reactivate", reactivateEmployee);
-
-// POST /api/employees/:id/archive - Archive employee by id
-router.post("/:id/archive", archiveEmployee);
-
-// POST /api/employees/:id/restore - Restore employee by id
-router.post("/:id/restore", restoreEmployee);
+router.post("/:id/terminate", requireRole(["HR_ADMIN", "HR_STAFF"]), terminateEmployee);
+router.post("/:id/reactivate", requireRole(["HR_ADMIN", "HR_STAFF"]), reactivateEmployee);
+router.post("/:id/archive", requireRole(["HR_ADMIN", "HR_STAFF"]), archiveEmployee);
+router.post("/:id/restore", requireRole(["HR_ADMIN", "HR_STAFF"]), restoreEmployee);
 
 export default router;
 
