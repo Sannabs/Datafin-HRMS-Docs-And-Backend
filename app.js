@@ -13,6 +13,8 @@ import allowanceTypeRoutes from "./routes/allowance-type.route.js";
 import deductionTypeRoutes from "./routes/deduction-type.route.js";
 import salaryStructureRoutes from "./routes/salary-structure.route.js";
 import calculationRuleRoutes from "./routes/calculation-rule.route.js";
+import payPeriodRoutes from "./routes/pay-period.route.js";
+import payrollRunRoutes from "./routes/payroll-run.route.js";
 
 dotenv.config();
 
@@ -48,6 +50,8 @@ app.use("/api/allowance-types", allowanceTypeRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
 app.use("/api/salary-structures", salaryStructureRoutes);
 app.use("/api/calculation-rules", calculationRuleRoutes);
+app.use("/api/pay-periods", payPeriodRoutes);
+app.use("/api/payroll-runs", payrollRunRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
 

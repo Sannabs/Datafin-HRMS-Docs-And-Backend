@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllAllowanceTypes = async (req, res) => {
     try {
@@ -92,7 +93,7 @@ export const getAllowanceTypeById = async (req, res) => {
 
 export const createAllowanceType = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, code, description, isTaxable } = req.body;
 
         if (!name || !code) {
@@ -114,6 +115,13 @@ export const createAllowanceType = async (req, res) => {
         });
 
         logger.info(`Created allowance type with ID: ${allowanceType.id}`);
+        const changes = {
+            name: { before: null, after: allowanceType.name },
+            code: { before: null, after: allowanceType.code },
+            description: { before: null, after: allowanceType.description },
+            isTaxable: { before: null, after: allowanceType.isTaxable },
+        };
+        await addLog(userId, tenantId, "CREATE", "AllowanceType", allowanceType.id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -136,7 +144,7 @@ export const createAllowanceType = async (req, res) => {
 export const updateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, code, description, isTaxable } = req.body;
 
         const existing = await prisma.allowanceType.findFirst({
@@ -176,6 +184,8 @@ export const updateAllowanceType = async (req, res) => {
         });
 
         logger.info(`Updated allowance type with ID: ${id}`);
+        const changes = getChangesDiff(existing, allowanceType);
+        await addLog(userId, tenantId, "UPDATE", "AllowanceType", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -198,7 +208,7 @@ export const updateAllowanceType = async (req, res) => {
 export const deleteAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const allowanceType = await prisma.allowanceType.findFirst({
             where: {
@@ -264,6 +274,8 @@ export const deleteAllowanceType = async (req, res) => {
         });
 
         logger.info(`Soft deleted allowance type with ID: ${id}`);
+        const changes = getChangesDiff(allowanceType, deleted);
+        await addLog(userId, tenantId, "DELETE", "AllowanceType", id, changes, req);
 
         return res.status(200).json({
             success: true,
