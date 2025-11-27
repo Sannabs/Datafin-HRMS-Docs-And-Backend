@@ -1,0 +1,227 @@
+import prisma from "../config/prisma.config.js";
+import logger from "../utils/logger.js";
+import {
+    recalculateSalary,
+    calculateAllowanceAmount,
+    calculateDeductionAmount,
+} from "../calculations/salary-calculations.js";
+
+/**
+ * Process payroll for a single employee and generate payslip
+ * @param {string} employeeId - Employee ID
+ * @param {string} payPeriodId - Pay period ID
+ * @param {string} tenantId - Tenant ID
+ * @returns {Promise<Object>} Payslip data
+ */
+export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) => {
+    try {
+        // Get employee with active salary structure
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: employeeId,
+                tenantId,
+                isDeleted: false,
+                status: "ACTIVE",
+            },
+            select: {
+                id: true,
+                name: true,
+                departmentId: true,
+                positionId: true,
+                employmentType: true,
+                status: true,
+                hireDate: true,
+            },
+        });
+
+        if (!employee) {
+            throw new Error(`Employee ${employeeId} not found or not active`);
+        }
+
+        // Get pay period to check dates
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: {
+                id: payPeriodId,
+                tenantId,
+            },
+        });
+
+        if (!payPeriod) {
+            throw new Error(`Pay period ${payPeriodId} not found`);
+        }
+
+        // Get active salary structure for the pay period
+        const salaryStructure = await prisma.salaryStructure.findFirst({
+            where: {
+                userId: employeeId,
+                tenantId,
+                effectiveDate: { lte: payPeriod.endDate },
+                OR: [
+                    { endDate: null },
+                    { endDate: { gte: payPeriod.startDate } },
+                ],
+            },
+            include: {
+                allowances: {
+                    include: {
+                        allowanceType: true,
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: true,
+                    },
+                },
+            },
+            orderBy: {
+                effectiveDate: "desc",
+            },
+        });
+
+        if (!salaryStructure) {
+            throw new Error(`No active salary structure found for employee ${employeeId}`);
+        }
+
+        // Build employee context for conditional calculations
+        const employeeContext = {
+            departmentId: employee.departmentId,
+            positionId: employee.positionId,
+            employmentType: employee.employmentType,
+            baseSalary: salaryStructure.baseSalary,
+            status: employee.status,
+            hireDate: employee.hireDate,
+        };
+
+        // Calculate gross and net salary
+        const { grossSalary, netSalary } = await recalculateSalary(
+            salaryStructure.baseSalary,
+            salaryStructure.allowances,
+            salaryStructure.deductions,
+            employeeContext,
+            tenantId
+        );
+
+        // Calculate total allowances and deductions
+        let totalAllowances = 0;
+        for (const allowance of salaryStructure.allowances) {
+            const amount = await calculateAllowanceAmount(
+                allowance,
+                salaryStructure.baseSalary,
+                employeeContext,
+                grossSalary,
+                tenantId
+            );
+            totalAllowances += amount;
+        }
+
+        let totalDeductions = 0;
+        for (const deduction of salaryStructure.deductions) {
+            const amount = await calculateDeductionAmount(
+                deduction,
+                grossSalary,
+                salaryStructure.baseSalary,
+                employeeContext,
+                tenantId
+            );
+            totalDeductions += amount;
+        }
+
+        return {
+            employeeId: employee.id,
+            grossSalary,
+            totalAllowances,
+            totalDeductions,
+            netSalary,
+        };
+    } catch (error) {
+        logger.error(`Error processing payroll for employee ${employeeId}: ${error.message}`, {
+            error: error.stack,
+            employeeId,
+            payPeriodId,
+            tenantId,
+        });
+        throw error;
+    }
+};
+
+/**
+ * Process payroll run for multiple employees
+ * @param {string} payrollRunId - Payroll run ID
+ * @param {Array<string>} employeeIds - Array of employee IDs to process
+ * @returns {Promise<Object>} Processing results
+ */
+export const processPayrollRun = async (payrollRunId, employeeIds) => {
+    try {
+        const payrollRun = await prisma.payrollRun.findUnique({
+            where: { id: payrollRunId },
+            include: {
+                payPeriod: true,
+            },
+        });
+
+        if (!payrollRun) {
+            throw new Error(`Payroll run ${payrollRunId} not found`);
+        }
+
+        const { tenantId, payPeriodId } = payrollRun;
+        const results = {
+            processed: 0,
+            failed: 0,
+            errors: [],
+            payslips: [],
+        };
+
+        // Process each employee
+        for (const employeeId of employeeIds) {
+            try {
+                const payslipData = await processEmployeePayroll(employeeId, payPeriodId, tenantId);
+
+                // Create payslip record
+                const payslip = await prisma.payslip.create({
+                    data: {
+                        payrollRunId,
+                        userId: employeeId,
+                        grossSalary: payslipData.grossSalary,
+                        totalAllowances: payslipData.totalAllowances,
+                        totalDeductions: payslipData.totalDeductions,
+                        netSalary: payslipData.netSalary,
+                    },
+                });
+
+                results.payslips.push(payslip);
+                results.processed += 1;
+            } catch (error) {
+                results.failed += 1;
+                results.errors.push({
+                    employeeId,
+                    error: error.message,
+                });
+                logger.error(`Failed to process employee ${employeeId}: ${error.message}`);
+            }
+        }
+
+        // Update payroll run totals
+        const totalGrossPay = results.payslips.reduce((sum, p) => sum + p.grossSalary, 0);
+        const totalDeductions = results.payslips.reduce((sum, p) => sum + p.totalDeductions, 0);
+        const totalNetPay = results.payslips.reduce((sum, p) => sum + p.netSalary, 0);
+
+        await prisma.payrollRun.update({
+            where: { id: payrollRunId },
+            data: {
+                totalEmployees: results.processed,
+                totalGrossPay,
+                totalDeductions,
+                totalNetPay,
+            },
+        });
+
+        return results;
+    } catch (error) {
+        logger.error(`Error processing payroll run ${payrollRunId}: ${error.message}`, {
+            error: error.stack,
+            payrollRunId,
+        });
+        throw error;
+    }
+};
+

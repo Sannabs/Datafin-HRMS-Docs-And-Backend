@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 // get all employees
 export const getAllEmployees = async (req, res) => {
@@ -152,6 +153,7 @@ export const getEmployeeById = async (req, res) => {
 export const updateEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
+        const actorId = id;
         const updateData = req.body;
 
         if (!id) {
@@ -159,6 +161,23 @@ export const updateEmployee = async (req, res) => {
                 success: false,
                 error: "Unauthorized",
                 message: "User not authenticated",
+            });
+        }
+
+        const existingEmployee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+        });
+
+        if (!existingEmployee) {
+            logger.warn(`Employee not found for update with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
             });
         }
 
@@ -268,6 +287,8 @@ export const updateEmployee = async (req, res) => {
         const { password, ...sanitizedEmployee } = updatedEmployee;
 
         logger.info(`Updated employee with ID: ${id}`);
+        const changes = getChangesDiff(existingEmployee, updatedEmployee);
+        await addLog(actorId, tenantId, "UPDATE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -311,6 +332,7 @@ export const updateEmployee = async (req, res) => {
 export const terminateEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
+        const actorId = id;
 
         if (!id) {
             return res.status(401).json({
@@ -394,6 +416,8 @@ export const terminateEmployee = async (req, res) => {
         const { password, ...sanitizedEmployee } = terminatedEmployee;
 
         logger.info(`Terminated employee with ID: ${id}`);
+        const changes = getChangesDiff(employee, terminatedEmployee);
+        await addLog(actorId, tenantId, "TERMINATE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -427,6 +451,7 @@ export const terminateEmployee = async (req, res) => {
 export const reactivateEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
+        const actorId = id;
 
         if (!id) {
             return res.status(401).json({
@@ -510,6 +535,8 @@ export const reactivateEmployee = async (req, res) => {
         const { password, ...sanitizedEmployee } = reactivatedEmployee;
 
         logger.info(`Reactivated employee with ID: ${id}`);
+        const changes = getChangesDiff(employee, reactivatedEmployee);
+        await addLog(actorId, tenantId, "REACTIVATE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -543,6 +570,7 @@ export const reactivateEmployee = async (req, res) => {
 export const archiveEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
+        const actorId = id;
 
         if (!id) {
             return res.status(401).json({
@@ -627,6 +655,8 @@ export const archiveEmployee = async (req, res) => {
         const { password, ...sanitizedEmployee } = archivedEmployee;
 
         logger.info(`Archived employee with ID: ${id}`);
+        const changes = getChangesDiff(employee, archivedEmployee);
+        await addLog(actorId, tenantId, "ARCHIVE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -660,6 +690,7 @@ export const archiveEmployee = async (req, res) => {
 export const restoreEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
+        const actorId = id;
 
         if (!id) {
             return res.status(401).json({
@@ -743,6 +774,8 @@ export const restoreEmployee = async (req, res) => {
         const { password, ...sanitizedEmployee } = restoredEmployee;
 
         logger.info(`Restored employee with ID: ${id}`);
+        const changes = getChangesDiff(employee, restoredEmployee);
+        await addLog(actorId, tenantId, "RESTORE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,

@@ -80,6 +80,27 @@ enum PayrollRunStatus {
   FAILED
 }
 
+enum ActionEnum {
+  CREATE
+  TERMINATE
+  REACTIVATE
+  ADD_ALLOWANCE
+  REMOVE_ALLOWANCE
+  ADD_DEDUCTION
+  REMOVE_DEDUCTION
+  START_PAYROLL_RUN
+  PROCESS
+  PAUSE
+  RESUME
+  ARCHIVE
+  RESTORE
+  UPDATE
+  DELETE
+  VIEW
+  OTHER
+}
+
+
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -546,12 +567,4 @@ model AuditLog {
   @@index([userId])
   @@index([entityId, entityType])
   @@index([timestamp])
-}
-
-enum ActionEnum {
-  CREATE
-  UPDATE
-  DELETE
-  VIEW
-  OTHER
 }

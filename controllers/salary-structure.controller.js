@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getEmployeeSalaryStructure = async (req, res) => {
     try {
@@ -167,7 +168,7 @@ export const getEmployeeSalaryStructures = async (req, res) => {
 export const createSalaryStructure = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { baseSalary, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         if (!baseSalary || !effectiveDate) {
@@ -394,6 +395,14 @@ export const createSalaryStructure = async (req, res) => {
         });
 
         logger.info(`Created salary structure with ID: ${salaryStructure.id} for employee: ${employeeId}`);
+        const changes = {
+            baseSalary: { before: null, after: finalStructure.baseSalary },
+            grossSalary: { before: null, after: finalStructure.grossSalary },
+            effectiveDate: { before: null, after: finalStructure.effectiveDate },
+            endDate: { before: null, after: finalStructure.endDate },
+            currency: { before: null, after: finalStructure.currency },
+        };
+        await addLog(userId, tenantId, "CREATE", "SalaryStructure", finalStructure.id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -416,7 +425,7 @@ export const createSalaryStructure = async (req, res) => {
 export const updateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { baseSalary, effectiveDate, endDate, currency } = req.body;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -512,6 +521,8 @@ export const updateSalaryStructure = async (req, res) => {
         });
 
         logger.info(`Updated salary structure with ID: ${id}`);
+        const changes = getChangesDiff(salaryStructure, updated);
+        await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -534,7 +545,7 @@ export const updateSalaryStructure = async (req, res) => {
 export const deleteSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -561,6 +572,8 @@ export const deleteSalaryStructure = async (req, res) => {
         });
 
         logger.info(`Soft deleted salary structure with ID: ${id}`);
+        const changes = getChangesDiff(salaryStructure, deleted);
+        await addLog(userId, tenantId, "DELETE", "SalaryStructure", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -583,7 +596,7 @@ export const deleteSalaryStructure = async (req, res) => {
 export const addAllowanceToStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { allowanceTypeId, amount, calculationMethod } = req.body;
 
         if (!allowanceTypeId || amount === undefined) {
@@ -692,6 +705,18 @@ export const addAllowanceToStructure = async (req, res) => {
         });
 
         logger.info(`Added allowance to salary structure: ${id}`);
+        const changes = {
+            allowance: {
+                before: null,
+                after: {
+                    id: allowance.id,
+                    allowanceTypeId: allowance.allowanceTypeId,
+                    amount: allowance.amount,
+                    calculationMethod: allowance.calculationMethod,
+                },
+            },
+        };
+        await addLog(userId, tenantId, "ADD_ALLOWANCE", "SalaryStructure", id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -714,7 +739,7 @@ export const addAllowanceToStructure = async (req, res) => {
 export const removeAllowanceFromStructure = async (req, res) => {
     try {
         const { id, allowanceId } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -797,6 +822,18 @@ export const removeAllowanceFromStructure = async (req, res) => {
         });
 
         logger.info(`Removed allowance from salary structure: ${id}`);
+        const changes = {
+            allowance: {
+                before: {
+                    id: allowance.id,
+                    allowanceTypeId: allowance.allowanceTypeId,
+                    amount: allowance.amount,
+                    calculationMethod: allowance.calculationMethod,
+                },
+                after: null,
+            },
+        };
+        await addLog(userId, tenantId, "REMOVE_ALLOWANCE", "SalaryStructureAllowance", allowance.id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -818,7 +855,7 @@ export const removeAllowanceFromStructure = async (req, res) => {
 export const addDeductionToStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { deductionTypeId, amount, calculationMethod } = req.body;
 
         if (!deductionTypeId || amount === undefined) {
@@ -928,6 +965,18 @@ export const addDeductionToStructure = async (req, res) => {
         });
 
         logger.info(`Added deduction to salary structure: ${id}`);
+        const changes = {
+            deduction: {
+                before: null,
+                after: {
+                    id: deduction.id,
+                    deductionTypeId: deduction.deductionTypeId,
+                    amount: deduction.amount,
+                    calculationMethod: deduction.calculationMethod,
+                },
+            },
+        };
+        await addLog(userId, tenantId, "ADD_DEDUCTION", "SalaryStructureDeduction", deduction.id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -950,7 +999,7 @@ export const addDeductionToStructure = async (req, res) => {
 export const removeDeductionFromStructure = async (req, res) => {
     try {
         const { id, deductionId } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -1033,6 +1082,18 @@ export const removeDeductionFromStructure = async (req, res) => {
         });
 
         logger.info(`Removed deduction from salary structure: ${id}`);
+        const changes = {
+            deduction: {
+                before: {
+                    id: deduction.id,
+                    deductionTypeId: deduction.deductionTypeId,
+                    amount: deduction.amount,
+                    calculationMethod: deduction.calculationMethod,
+                },
+                after: null,
+            },
+        };
+        await addLog(userId, tenantId, "REMOVE_DEDUCTION", "SalaryStructureDeduction", deduction.id, changes, req);
 
         return res.status(200).json({
             success: true,
