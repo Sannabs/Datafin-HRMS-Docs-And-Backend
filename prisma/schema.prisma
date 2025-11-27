@@ -30,18 +30,29 @@ enum EmploymentType {
   INTERN
 }
 
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
 model Invitation {
-  id        String   @id @default(uuid())
-  senderId  String
-  tenantId  String
-  email     String
-  token     String   @unique
-  expiresAt DateTime
-  role      UserRole @default(EMPLOYEE)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id           String      @id @default(uuid())
+  senderId     String
+  tenantId     String
+  departmentId String?
+  email        String
+  token        String      @unique
+  status       InvitationStatus @default(PENDING)
+  positionId   String?
+  expiresAt    DateTime
+  role         UserRole    @default(EMPLOYEE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  sender       User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  position     Position?   @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([email])
@@ -100,7 +111,6 @@ enum ActionEnum {
   OTHER
 }
 
-
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -153,8 +163,9 @@ model Department {
   deletedAt   DateTime?
 
   // Reverse relations
-  employees User[]
-  positions Position[]
+  employees   User[]
+  positions   Position[]
+  invitations Invitation[]
 
   @@unique([tenantId, name])
   @@unique([tenantId, code])
@@ -172,6 +183,7 @@ model Position {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
+
   // Position fields
   code      String?
   title     String
@@ -180,7 +192,8 @@ model Position {
   deletedAt DateTime?
 
   // Reverse relations
-  employees User[]
+  employees   User[]
+  invitations Invitation[]
 
   @@unique([tenantId, title])
   @@unique([tenantId, code])

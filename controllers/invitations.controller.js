@@ -10,7 +10,7 @@ import { generateEmployeeId } from "../utils/generateEmployeeId.js";
  */
 export const sendInvitation = async (req, res, next) => {
   try {
-    const { email, role } = req.body;
+    const { email, role, departmentId, positionId } = req.body;
     const tenantId = req.user.tenantId;
     const senderId = req.user.id;
     const senderRole = req.user.role;
@@ -62,6 +62,42 @@ export const sendInvitation = async (req, res, next) => {
       });
     }
 
+    // Validate department if provided
+    if (departmentId) {
+      const department = await prisma.department.findFirst({
+        where: {
+          id: departmentId,
+          tenantId,
+          deletedAt: null,
+        },
+      });
+
+      if (!department) {
+        return res.status(404).json({
+          success: false,
+          message: "Department not found or does not belong to this tenant",
+        });
+      }
+    }
+
+    // Validate position if provided
+    if (positionId) {
+      const position = await prisma.position.findFirst({
+        where: {
+          id: positionId,
+          tenantId,
+          deletedAt: null,
+        },
+      });
+
+      if (!position) {
+        return res.status(404).json({
+          success: false,
+          message: "Position not found or does not belong to this tenant",
+        });
+      }
+    }
+
     // Check if user already exists in this tenant
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -107,8 +143,26 @@ export const sendInvitation = async (req, res, next) => {
         tenantId,
         email,
         role,
+        departmentId: departmentId || null,
+        positionId: positionId || null,
         token,
         expiresAt: expiryDate,
+      },
+      include: {
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        position: {
+          select: {
+            id: true,
+            title: true,
+            code: true,
+          },
+        },
       },
     });
 
@@ -123,85 +177,13 @@ export const sendInvitation = async (req, res, next) => {
         invitationId: newInvitation.id,
         email: newInvitation.email,
         role: newInvitation.role,
+        department: newInvitation.department,
+        position: newInvitation.position,
         expiresAt: newInvitation.expiresAt,
       },
     });
   } catch (error) {
     logger.error(`Error in sendInvitation controller: ${error.message}`, {
-      stack: error.stack,
-    });
-    next(error);
-  }
-};
-
-export const getInvitations = async (req, res, next) => {
-  try {
-    const tenantId = req.user.tenantId;
-    const userRole = req.user.role;
-
-    if (!tenantId) {
-      return res.status(400).json({
-        success: false,
-        message: "Tenant ID is required",
-      });
-    }
-
-    // Build query based on role
-    const where = {
-      tenantId,
-    };
-
-    // HR_STAFF and EMPLOYEE can only see invitations sent to them
-    if (userRole !== "HR_ADMIN") {
-      where.email = req.user.email;
-    }
-
-    const invitations = await prisma.invitation.findMany({
-      where,
-      include: {
-        sender: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-          },
-        },
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    // Filter out expired invitations for non-admin users
-    const now = new Date();
-    const filteredInvitations = invitations.map((invitation) => {
-      const isExpired = invitation.expiresAt < now;
-      return {
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role,
-        expiresAt: invitation.expiresAt,
-        isExpired,
-        createdAt: invitation.createdAt,
-        sender: invitation.sender,
-        tenant: invitation.tenant,
-      };
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Invitations retrieved successfully",
-      data: filteredInvitations,
-    });
-  } catch (error) {
-    logger.error(`Error in getInvitations controller: ${error.message}`, {
       stack: error.stack,
     });
     next(error);
@@ -245,6 +227,20 @@ export const acceptInvitation = async (req, res, next) => {
             name: true,
           },
         },
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        position: {
+          select: {
+            id: true,
+            title: true,
+            code: true,
+          },
+        },
       },
     });
 
@@ -255,8 +251,23 @@ export const acceptInvitation = async (req, res, next) => {
       });
     }
 
+    // Check if invitation is already accepted
+    if (invitation.status === "ACCEPTED") {
+      return res.status(400).json({
+        success: false,
+        message: "This invitation has already been accepted",
+      });
+    }
+
     // Check if invitation is expired
     if (invitation.expiresAt < new Date()) {
+      // Update status to EXPIRED if not already set
+      if (invitation.status !== "EXPIRED") {
+        await prisma.invitation.update({
+          where: { id: invitation.id },
+          data: { status: "EXPIRED" },
+        });
+      }
       return res.status(400).json({
         success: false,
         message: "Invitation has expired",
@@ -273,9 +284,10 @@ export const acceptInvitation = async (req, res, next) => {
     });
 
     if (existingUser) {
-      // Delete the invitation since user already exists
-      await prisma.invitation.delete({
+      // Update invitation status since user already exists
+      await prisma.invitation.update({
         where: { id: invitation.id },
+        data: { status: "ACCEPTED" },
       });
 
       return res.status(409).json({
@@ -301,6 +313,8 @@ export const acceptInvitation = async (req, res, next) => {
           tenantId: invitation.tenantId,
           role: invitation.role,
           employeeId: employeeId,
+          departmentId: invitation.departmentId || null,
+          positionId: invitation.positionId || null,
           status: "ACTIVE",
           employmentType: "FULL_TIME",
         },
@@ -327,9 +341,10 @@ export const acceptInvitation = async (req, res, next) => {
       });
     }
 
-    // Delete the invitation after successful account creation
-    await prisma.invitation.delete({
+    // Update invitation status to ACCEPTED after successful account creation
+    await prisma.invitation.update({
       where: { id: invitation.id },
+      data: { status: "ACCEPTED" },
     });
 
     logger.info(
@@ -351,10 +366,174 @@ export const acceptInvitation = async (req, res, next) => {
           name: invitation.tenant.name,
           code: invitation.tenant.code,
         },
+        department: invitation.department,
+        position: invitation.position,
       },
     });
   } catch (error) {
     logger.error(`Error in acceptInvitation controller: ${error.message}`, {
+      stack: error.stack,
+    });
+    next(error);
+  }
+};
+
+/**
+ * Get all invitations for the current tenant with filtering and pagination
+ * Only authenticated users can view invitations
+ */
+export const getInvitations = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const tenantId = req.user.tenantId;
+    const userRole = req.user.role;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Pagination
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 10, 100); // Max 100 per page
+    const skip = (page - 1) * limit;
+
+    // Filtering
+    const search = req.query.search?.trim() || "";
+    const email = req.query.email?.trim();
+    const role = req.query.role;
+    const departmentId = req.query.departmentId;
+    const positionId = req.query.positionId;
+
+    // Build where clause
+    const where = {
+      tenantId, // Always filter by tenant
+    };
+
+    // Role-based filtering: Non-admins can only see their own invitations
+    if (userRole !== "HR_ADMIN") {
+      where.email = req.user.email;
+    }
+
+    // Search by email (case-insensitive)
+    if (search) {
+      where.email = {
+        contains: search,
+        mode: "insensitive",
+      };
+    } else if (email) {
+      where.email = email;
+    }
+
+    // Filter by role
+    if (role) {
+      const validRoles = ["HR_ADMIN", "HR_STAFF", "EMPLOYEE"];
+      if (validRoles.includes(role)) {
+        where.role = role;
+      }
+    }
+
+    // Filter by department
+    if (departmentId) {
+      where.departmentId = departmentId;
+    }
+
+    // Filter by position
+    if (positionId) {
+      where.positionId = positionId;
+    }
+
+    // Filter by status
+    if (req.query.status) {
+      const validStatuses = ["PENDING", "ACCEPTED", "EXPIRED"];
+      if (validStatuses.includes(req.query.status.toUpperCase())) {
+        where.status = req.query.status.toUpperCase();
+      }
+    }
+
+    // Sorting
+    const sortOrder =
+      req.query.sortOrder?.toLowerCase() === "asc" ? "asc" : "desc";
+    const sortBy = req.query.sortBy || "createdAt";
+    const validSortFields = [
+      "createdAt",
+      "expiresAt",
+      "email",
+      "role",
+      "status",
+    ];
+    const orderByField = validSortFields.includes(sortBy)
+      ? sortBy
+      : "createdAt";
+
+    // Execute query
+    const [invitations, total] = await Promise.all([
+      prisma.invitation.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          sender: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+          department: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          position: {
+            select: {
+              id: true,
+              title: true,
+              code: true,
+            },
+          },
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+        orderBy: {
+          [orderByField]: sortOrder,
+        },
+      }),
+      prisma.invitation.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      message: "Invitations retrieved successfully",
+      data: invitations,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error in getInvitations controller: ${error.message}`, {
       stack: error.stack,
     });
     next(error);
