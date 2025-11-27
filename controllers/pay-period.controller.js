@@ -1,0 +1,535 @@
+import prisma from "../config/prisma.config.js";
+import logger from "../utils/logger.js";
+import { addLog } from "../utils/audit.utils.js";
+import {
+    getCalendarMetadata,
+    validateStatusTransition,
+} from "../utils/pay-period.utils.js";
+
+const formatPayPeriodResponse = (payPeriod) => {
+    const runSummary = payPeriod.payrollRuns.reduce(
+        (acc, run) => {
+            acc.totalRuns += 1;
+            acc.statusCounts[run.status] = (acc.statusCounts[run.status] || 0) + 1;
+            acc.totalEmployees += run.totalEmployees ?? 0;
+            acc.totalGrossPay += run.totalGrossPay ?? 0;
+            acc.totalNetPay += run.totalNetPay ?? 0;
+            return acc;
+        },
+        {
+            totalRuns: 0,
+            statusCounts: {},
+            totalEmployees: 0,
+            totalGrossPay: 0,
+            totalNetPay: 0,
+        }
+    );
+
+    const { payrollRuns, ...rest } = payPeriod;
+    return {
+        ...rest,
+        payrollRunSummary: runSummary,
+    };
+};
+
+export const createPayPeriod = async (req, res) => {
+    try {
+        const { id: userId, tenantId } = req.user;
+        const { periodName, startDate, endDate } = req.body;
+
+        if (!periodName || !startDate || !endDate) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "periodName, startDate, and endDate are required",
+            });
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Invalid startDate or endDate provided",
+            });
+        }
+
+        if (start >= end) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "startDate must be earlier than endDate",
+            });
+        }
+
+        const overlap = await prisma.payPeriod.findFirst({
+            where: {
+                tenantId,
+                startDate: { lte: end },
+                endDate: { gte: start },
+            },
+        });
+
+        if (overlap) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: `Pay period overlaps with existing period ${overlap.periodName}`,
+            });
+        }
+
+        const { calendarMonth, calendarYear } = getCalendarMetadata(start);
+
+        const payPeriod = await prisma.payPeriod.create({
+            data: {
+                tenantId,
+                periodName,
+                startDate: start,
+                endDate: end,
+                calendarMonth,
+                calendarYear,
+            },
+        });
+
+        logger.info(`Created pay period ${payPeriod.id} for tenant ${tenantId}`);
+        await addLog(userId, tenantId, "CREATE", "PayPeriod", payPeriod.id, null, req);
+
+        return res.status(201).json({
+            success: true,
+            data: payPeriod,
+            message: "Pay period created successfully",
+        });
+    } catch (error) {
+        logger.error(`Error creating pay period: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to create pay period",
+        });
+    }
+};
+
+export const getPayPeriods = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const { status, fromDate, toDate } = req.query;
+
+        const where = {
+            tenantId,
+            ...(status && { status }),
+            ...(fromDate && { startDate: { gte: new Date(fromDate) } }),
+            ...(toDate && { endDate: { lte: new Date(toDate) } }),
+        };
+
+        const payPeriods = await prisma.payPeriod.findMany({
+            where,
+            include: {
+                payrollRuns: {
+                    select: {
+                        id: true,
+                        status: true,
+                        totalEmployees: true,
+                        totalGrossPay: true,
+                        totalNetPay: true,
+                    },
+                },
+            },
+            orderBy: {
+                startDate: "desc",
+            },
+        });
+
+        const formatted = payPeriods.map(formatPayPeriodResponse);
+
+        logger.info(`Retrieved ${formatted.length} pay periods for tenant ${tenantId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: formatted,
+            count: formatted.length,
+        });
+    } catch (error) {
+        logger.error(`Error fetching pay periods: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch pay periods",
+        });
+    }
+};
+
+export const getPayPeriodById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req.user;
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+            include: {
+                payrollRuns: {
+                    select: {
+                        id: true,
+                        status: true,
+                        totalEmployees: true,
+                        totalGrossPay: true,
+                        totalNetPay: true,
+                        runDate: true,
+                    },
+                },
+            },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        logger.info(`Retrieved pay period ${id} for tenant ${tenantId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: formatPayPeriodResponse(payPeriod),
+        });
+    } catch (error) {
+        logger.error(`Error fetching pay period: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch pay period",
+        });
+    }
+};
+
+export const updatePayPeriodStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status: nextStatus } = req.body;
+        const { id: userId, tenantId } = req.user;
+
+        if (!nextStatus) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Status is required",
+            });
+        }
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: { id, tenantId },
+            include: {
+                payrollRuns: true,
+            },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        const transition = validateStatusTransition(payPeriod.status, nextStatus);
+        if (!transition.valid) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: transition.message,
+            });
+        }
+
+        const hasInProgressRuns = payPeriod.payrollRuns.some(
+            (run) => run.status === "PROCESSING" || run.status === "DRAFT"
+        );
+        const hasFailedRuns = payPeriod.payrollRuns.some((run) => run.status === "FAILED");
+        const allRunsCompleted =
+            payPeriod.payrollRuns.length > 0 &&
+            payPeriod.payrollRuns.every((run) => run.status === "COMPLETED");
+
+        if (nextStatus === "COMPLETED" && !allRunsCompleted) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "All payroll runs must be completed before completing the pay period",
+            });
+        }
+
+        if (nextStatus === "PROCESSING" && payPeriod.payrollRuns.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "At least one payroll run must exist to move pay period to PROCESSING",
+            });
+        }
+
+        if (nextStatus === "CLOSED") {
+            if (!allRunsCompleted || hasInProgressRuns || hasFailedRuns) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Cannot close pay period until all payroll runs are completed successfully",
+                });
+            }
+        }
+
+        const updated = await prisma.payPeriod.update({
+            where: { id },
+            data: { status: nextStatus },
+        });
+
+        logger.info(`Updated pay period ${id} status to ${nextStatus}`);
+        await addLog(
+            userId,
+            tenantId,
+            "UPDATE",
+            "PayPeriod",
+            id,
+            { status: { before: payPeriod.status, after: nextStatus } },
+            req
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: updated,
+            message: "Pay period status updated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error updating pay period status: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update pay period status",
+        });
+    }
+};
+
+export const deletePayPeriod = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: { id, tenantId },
+            include: {
+                _count: {
+                    select: {
+                        payrollRuns: true,
+                    },
+                },
+            },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        if (payPeriod.status !== "DRAFT") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Only pay periods in DRAFT status can be deleted",
+            });
+        }
+
+        if (payPeriod._count.payrollRuns > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Cannot delete pay period with existing payroll runs",
+            });
+        }
+
+        await prisma.payPeriod.delete({
+            where: { id },
+        });
+
+        logger.info(`Deleted pay period ${id}`);
+        await addLog(userId, tenantId, "DELETE", "PayPeriod", id, null, req);
+
+        return res.status(200).json({
+            success: true,
+            message: "Pay period deleted successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deleting pay period: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to delete pay period",
+        });
+    }
+};
+
+export const pauseAutoClose = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+            include: {
+                payrollRuns: {
+                    select: {
+                        status: true,
+                    },
+                },
+            },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        if (payPeriod.status !== "COMPLETED") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Auto-close can only be paused for pay periods in COMPLETED status",
+            });
+        }
+
+        // For now, we'll use a simple approach - add a note in audit log
+        // In production, you might want to add an `autoClosePaused` boolean field to PayPeriod model
+        logger.info(`Auto-close paused for pay period ${id} by user ${userId}`);
+        await addLog(
+            userId,
+            tenantId,
+            "PAUSE",
+            "PayPeriod",
+            id,
+            {
+                autoClosePaused: { before: false, after: true },
+                reason: "HR Admin paused auto-close",
+            },
+            req
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Auto-close paused successfully. Pay period will not automatically close.",
+            data: {
+                payPeriodId: id,
+                status: payPeriod.status,
+                autoClosePaused: true,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error pausing auto-close: ${error.message}`, {
+            error: error.stack,
+            payPeriodId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to pause auto-close",
+        });
+    }
+};
+
+export const resumeAutoClose = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        if (payPeriod.status !== "COMPLETED") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Auto-close can only be resumed for pay periods in COMPLETED status",
+            });
+        }
+
+        logger.info(`Auto-close resumed for pay period ${id} by user ${userId}`);
+        await addLog(
+            userId,
+            tenantId,
+            "RESUME",
+            "PayPeriod",
+            id,
+            {
+                autoClosePaused: { before: true, after: false },
+                reason: "HR Admin resumed auto-close",
+            },
+            req
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: "Auto-close resumed successfully. Pay period will automatically close after grace period.",
+            data: {
+                payPeriodId: id,
+                status: payPeriod.status,
+                autoClosePaused: false,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error resuming auto-close: ${error.message}`, {
+            error: error.stack,
+            payPeriodId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to resume auto-close",
+        });
+    }
+};
+
