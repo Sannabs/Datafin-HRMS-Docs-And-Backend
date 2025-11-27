@@ -1,5 +1,5 @@
 import logger from "../utils/logger.js";
-import * as Prisma from "../generated/prisma/client.js";
+import { Prisma } from "@prisma/client";
 
 export const errorHandler = (err, req, res, next) => {
   logger.error(`Error: ${err.message}`, {

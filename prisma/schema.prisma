@@ -1,6 +1,5 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -312,7 +311,7 @@ model AllowanceType {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  allowances Allowance[]
+  allowances       Allowance[]
   calculationRules CalculationRule[]
 
   @@unique([tenantId, name])
@@ -355,7 +354,7 @@ model DeductionType {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  deductions Deduction[]
+  deductions       Deduction[]
   calculationRules CalculationRule[]
 
   @@unique([tenantId, name])
@@ -418,8 +417,8 @@ model CalculationRule {
   endDate       DateTime?
 
   // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@index([tenantId])
