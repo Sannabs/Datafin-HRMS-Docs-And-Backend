@@ -2,6 +2,7 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { evaluateRule, calculateRuleAmount } from "../services/rule-engine.service.js";
 import { validateConditions, validateAction } from "../utils/rule-validation.utils.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllCalculationRules = async (req, res) => {
     try {
@@ -123,7 +124,7 @@ export const getCalculationRuleById = async (req, res) => {
 
 export const createCalculationRule = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, description, ruleType, allowanceTypeId, deductionTypeId, conditions, action, priority, isActive, effectiveDate, endDate } = req.body;
 
         if (!name || !ruleType || !conditions || !action || !effectiveDate) {
@@ -241,6 +242,15 @@ export const createCalculationRule = async (req, res) => {
         });
 
         logger.info(`Created calculation rule: ${rule.id}`);
+        const changes = {
+            name: { before: null, after: rule.name },
+            ruleType: { before: null, after: rule.ruleType },
+            priority: { before: null, after: rule.priority },
+            isActive: { before: null, after: rule.isActive },
+            effectiveDate: { before: null, after: rule.effectiveDate },
+            endDate: { before: null, after: rule.endDate },
+        };
+        await addLog(userId, tenantId, "CREATE", "CalculationRule", rule.id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -263,7 +273,7 @@ export const createCalculationRule = async (req, res) => {
 export const updateCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, description, conditions, action, priority, isActive, effectiveDate, endDate } = req.body;
 
         const existingRule = await prisma.calculationRule.findFirst({
@@ -345,6 +355,8 @@ export const updateCalculationRule = async (req, res) => {
         });
 
         logger.info(`Updated calculation rule: ${id}`);
+        const changes = getChangesDiff(existingRule, updatedRule);
+        await addLog(userId, tenantId, "UPDATE", "CalculationRule", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -367,7 +379,7 @@ export const updateCalculationRule = async (req, res) => {
 export const deleteCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const rule = await prisma.calculationRule.findFirst({
             where: {
@@ -393,6 +405,8 @@ export const deleteCalculationRule = async (req, res) => {
         });
 
         logger.info(`Soft deleted calculation rule with ID: ${id}`);
+        const changes = getChangesDiff(rule, deleted);
+        await addLog(userId, tenantId, "DELETE", "CalculationRule", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -415,7 +429,7 @@ export const deleteCalculationRule = async (req, res) => {
 export const testCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { employeeContext, baseSalary, grossSalary } = req.body;
 
         if (!employeeContext) {
@@ -459,6 +473,11 @@ export const testCalculationRule = async (req, res) => {
             matches,
             calculatedAmount,
         });
+        const changes = {
+            matches: { before: null, after: matches },
+            calculatedAmount: { before: null, after: calculatedAmount },
+        };
+        await addLog(userId, tenantId, "READ", "CalculationRuleTest", id, changes, req);
 
         return res.status(200).json({
             success: true,

@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllDeductionTypes = async (req, res) => {
     try {
@@ -92,7 +93,7 @@ export const getDeductionTypeById = async (req, res) => {
 
 export const createDeductionType = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, code, description, isStatutory } = req.body;
 
         if (!name || !code) {
@@ -114,6 +115,13 @@ export const createDeductionType = async (req, res) => {
         });
 
         logger.info(`Created deduction type with ID: ${deductionType.id}`);
+        const changes = {
+            name: { before: null, after: deductionType.name },
+            code: { before: null, after: deductionType.code },
+            description: { before: null, after: deductionType.description },
+            isStatutory: { before: null, after: deductionType.isStatutory },
+        };
+        await addLog(userId, tenantId, "CREATE", "DeductionType", deductionType.id, changes, req);
 
         return res.status(201).json({
             success: true,
@@ -136,7 +144,7 @@ export const createDeductionType = async (req, res) => {
 export const updateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
         const { name, code, description, isStatutory } = req.body;
 
         const existing = await prisma.deductionType.findFirst({
@@ -176,6 +184,8 @@ export const updateDeductionType = async (req, res) => {
         });
 
         logger.info(`Updated deduction type with ID: ${id}`);
+        const changes = getChangesDiff(existing, deductionType);
+        await addLog(userId, tenantId, "UPDATE", "DeductionType", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -198,7 +208,7 @@ export const updateDeductionType = async (req, res) => {
 export const deleteDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const { id: userId, tenantId } = req.user;
 
         const deductionType = await prisma.deductionType.findFirst({
             where: {
@@ -264,6 +274,8 @@ export const deleteDeductionType = async (req, res) => {
         });
 
         logger.info(`Soft deleted deduction type with ID: ${id}`);
+        const changes = getChangesDiff(deductionType, deleted);
+        await addLog(userId, tenantId, "DELETE", "DeductionType", id, changes, req);
 
         return res.status(200).json({
             success: true,
