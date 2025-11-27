@@ -30,6 +30,24 @@ enum EmploymentType {
   INTERN
 }
 
+model Invitation {
+  id        String   @id @default(uuid())
+  senderId  String
+  tenantId  String
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  role      UserRole @default(EMPLOYEE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([email])
+  @@index([role])
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -87,6 +105,7 @@ model Tenant {
   payrollRuns      PayrollRun[]
   calculationRules CalculationRule[]
   auditLogs        AuditLog[]
+  invitations      Invitation[]
 
   @@index([phone])
   @@index([email])
@@ -198,9 +217,10 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  sessions  Session[]
-  accounts  Account[]
-  auditLogs AuditLog[]
+  sessions    Session[]
+  accounts    Account[]
+  auditLogs   AuditLog[]
+  invitations Invitation[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
