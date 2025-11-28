@@ -16,6 +16,7 @@ import calculationRuleRoutes from "./routes/calculation-rule.route.js";
 import invitationRoutes from "./routes/invitation.route.js";
 import payPeriodRoutes from "./routes/pay-period.route.js";
 import payrollRunRoutes from "./routes/payroll-run.route.js";
+import auditRoutes from "./routes/audit.route.js";
 
 dotenv.config();
 
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const allowedOrigins = ["http://localhost:3000", process.env.CLIENT_URL];
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -54,6 +56,7 @@ app.use("/api/calculation-rules", calculationRuleRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/pay-periods", payPeriodRoutes);
 app.use("/api/payroll-runs", payrollRunRoutes);
+app.use("/api/audit-logs", auditRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
 
