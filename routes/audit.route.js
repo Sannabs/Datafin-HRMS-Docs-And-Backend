@@ -1,6 +1,6 @@
 import express from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
-import { requireRole } from "../middlewares/rbac.middleware";
+import { requireRole } from "../middlewares/rbac.middleware.js";
 import { getAuditLogs } from "../controllers/audit.controller.js";
 
 

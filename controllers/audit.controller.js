@@ -1,23 +1,21 @@
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
 
-
-
 export const getAuditLogs = async (req, res, next) => {
   try {
     const tenantId = req.user.tenantId;
     const page = parseInt(req.query.page || 1);
-    const limit = parseInt(req.query.limit || 10);
+    const limit = Math.min(parseInt(req.query.limit || 10), 100); // Max limit 100
     const search = req.query.search?.trim() || "";
     const skip = (page - 1) * limit;
 
     const sortBy = req.query.sortBy || "timestamp";
-    let sortOrder = req.query.sortOrder?.toLowerCase() || "desc";
+    const sortOrder = req.query.sortOrder?.toLowerCase() || "desc";
 
     const validateSortOrders = ["asc", "desc"];
     const order = validateSortOrders.includes(sortOrder) ? sortOrder : "desc";
 
-    const allowedSortFields = ["timestamp"];
+    const allowedSortFields = ["timestamp", "action", "entityType"];
     const field = allowedSortFields.includes(sortBy) ? sortBy : "timestamp";
 
     const where = { tenantId };
@@ -49,7 +47,7 @@ export const getAuditLogs = async (req, res, next) => {
     };
 
     const [auditLogs, total] = await Promise.all([
-      await prisma.auditLogs.findMany({
+      prisma.auditLog.findMany({
         where,
         skip,
         take: limit,
@@ -63,7 +61,7 @@ export const getAuditLogs = async (req, res, next) => {
           },
         },
       }),
-      await prisma.auditLogs.count({ where }),
+      prisma.auditLog.count({ where }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
