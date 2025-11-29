@@ -5,7 +5,7 @@ import logger from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const templatesDir = join(__dirname, "../email-templates");
+const templatesDir = join(__dirname, "../templates");
 
 /**
  * Load and render an email template with data

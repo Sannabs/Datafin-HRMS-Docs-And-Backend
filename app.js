@@ -16,6 +16,7 @@ import calculationRuleRoutes from "./routes/calculation-rule.route.js";
 import invitationRoutes from "./routes/invitation.route.js";
 import payPeriodRoutes from "./routes/pay-period.route.js";
 import payrollRunRoutes from "./routes/payroll-run.route.js";
+import payslipRoutes from "./routes/payslip.route.js";
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use("/api/calculation-rules", calculationRuleRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/pay-periods", payPeriodRoutes);
 app.use("/api/payroll-runs", payrollRunRoutes);
+app.use("/api/payslips", payslipRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
 

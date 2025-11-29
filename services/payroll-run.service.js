@@ -5,6 +5,8 @@ import {
     calculateAllowanceAmount,
     calculateDeductionAmount,
 } from "../calculations/salary-calculations.js";
+import { createProgress, updateProgress } from "./payroll-progress.service.js";
+import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 
 /**
  * Process payroll for a single employee and generate payslip
@@ -171,8 +173,19 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
             payslips: [],
         };
 
+        // Initialize progress tracking
+        try {
+            await createProgress(payrollRunId, employeeIds.length);
+        } catch (progressError) {
+            logger.warn(`Failed to create progress tracking: ${progressError.message}`);
+        }
+
+        const PROGRESS_UPDATE_INTERVAL = 5; // Update progress every 5 employees
+        let lastProgressUpdate = 0;
+
         // Process each employee
-        for (const employeeId of employeeIds) {
+        for (let i = 0; i < employeeIds.length; i++) {
+            const employeeId = employeeIds[i];
             try {
                 const payslipData = await processEmployeePayroll(employeeId, payPeriodId, tenantId);
 
@@ -188,8 +201,29 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
                     },
                 });
 
+                // Generate PDF asynchronously (don't block processing)
+                generatePayslipFromRecord(payslip.id, tenantId).catch((pdfError) => {
+                    logger.error(`Failed to generate PDF for payslip ${payslip.id}: ${pdfError.message}`, {
+                        error: pdfError.stack,
+                        payslipId: payslip.id,
+                    });
+                });
+
                 results.payslips.push(payslip);
                 results.processed += 1;
+
+                // Update progress periodically (every N employees or at end)
+                if (i - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL || i === employeeIds.length - 1) {
+                    try {
+                        await updateProgress(payrollRunId, {
+                            completedEmployees: results.processed,
+                            failedEmployees: results.failed,
+                        });
+                        lastProgressUpdate = i;
+                    } catch (progressError) {
+                        logger.warn(`Failed to update progress: ${progressError.message}`);
+                    }
+                }
             } catch (error) {
                 results.failed += 1;
                 results.errors.push({
@@ -197,7 +231,30 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
                     error: error.message,
                 });
                 logger.error(`Failed to process employee ${employeeId}: ${error.message}`);
+
+                // Update progress on failure
+                if (i - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL || i === employeeIds.length - 1) {
+                    try {
+                        await updateProgress(payrollRunId, {
+                            completedEmployees: results.processed,
+                            failedEmployees: results.failed,
+                        });
+                        lastProgressUpdate = i;
+                    } catch (progressError) {
+                        logger.warn(`Failed to update progress: ${progressError.message}`);
+                    }
+                }
             }
+        }
+
+        // Final progress update
+        try {
+            await updateProgress(payrollRunId, {
+                completedEmployees: results.processed,
+                failedEmployees: results.failed,
+            });
+        } catch (progressError) {
+            logger.warn(`Failed to finalize progress: ${progressError.message}`);
         }
 
         // Update payroll run totals
