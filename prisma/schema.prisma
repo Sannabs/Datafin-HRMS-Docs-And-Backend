@@ -37,22 +37,22 @@ enum InvitationStatus {
 }
 
 model Invitation {
-  id           String      @id @default(uuid())
+  id           String           @id @default(uuid())
   senderId     String
   tenantId     String
   departmentId String?
   email        String
-  token        String      @unique
+  token        String           @unique
   status       InvitationStatus @default(PENDING)
   positionId   String?
   expiresAt    DateTime
-  role         UserRole    @default(EMPLOYEE)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  sender       User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  position     Position?   @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  role         UserRole         @default(EMPLOYEE)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  sender       User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  position     Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([email])
@@ -182,7 +182,6 @@ model Position {
   // Department relation
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-
 
   // Position fields
   code      String?
@@ -527,8 +526,9 @@ model PayrollRun {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  processor User?     @relation("PayrollRunProcessor", fields: [processedBy], references: [id], onDelete: SetNull)
+  processor User?            @relation("PayrollRunProcessor", fields: [processedBy], references: [id], onDelete: SetNull)
   payslips  Payslip[]
+  progress  PayrollProgress?
 
   @@index([tenantId])
   @@index([tenantId, payPeriodId])
@@ -557,6 +557,20 @@ model Payslip {
   @@unique([payrollRunId, userId])
   @@index([payrollRunId])
   @@index([userId])
+}
+
+model PayrollProgress {
+  id                    String     @id @default(uuid())
+  payrollRunId          String     @unique
+  payrollRun            PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  totalEmployees        Int        @default(0)
+  completedEmployees    Int        @default(0)
+  failedEmployees       Int        @default(0)
+  startedAt             DateTime   @default(now())
+  estimatedCompletionAt DateTime?
+  lastUpdatedAt         DateTime   @updatedAt
+
+  @@index([payrollRunId])
 }
 
 // ------------------------------------------------------------

@@ -3,6 +3,9 @@ import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import { processPayrollRun, processEmployeePayroll } from "../services/payroll-run.service.js";
 import { updatePayPeriodStatusAutomatically } from "../services/pay-period-automation.service.js";
+import { getProgress, calculateEstimatedCompletion } from "../services/payroll-progress.service.js";
+import { createSSEConnection } from "../utils/sse.utils.js";
+import { generatePreview } from "../services/payroll-preview.service.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
@@ -554,6 +557,258 @@ export const processSingleEmployee = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: error.message || "Failed to process employee payroll",
+        });
+    }
+};
+
+export const getPayrollRunStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req.user;
+
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+            include: {
+                progress: true,
+            },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        const progress = payrollRun.progress;
+        if (!progress) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    status: payrollRun.status,
+                    progress: null,
+                    message: "Progress tracking not initialized",
+                },
+            });
+        }
+
+        const percentage =
+            progress.totalEmployees > 0
+                ? Math.round((progress.completedEmployees / progress.totalEmployees) * 100)
+                : 0;
+
+        const estimatedCompletion = await calculateEstimatedCompletion(id);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                status: payrollRun.status,
+                progress: {
+                    completed: progress.completedEmployees,
+                    total: progress.totalEmployees,
+                    failed: progress.failedEmployees,
+                    percentage,
+                },
+                estimatedCompletion: estimatedCompletion?.toISOString() || null,
+                startedAt: progress.startedAt.toISOString(),
+                lastUpdatedAt: progress.lastUpdatedAt.toISOString(),
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching payroll run status: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch payroll run status",
+        });
+    }
+};
+
+export const getPayrollRunStatusStream = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req.user;
+
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        const sse = createSSEConnection(res, () => {
+            logger.info(`SSE connection closed for payroll run ${id}`);
+        });
+
+        // Send initial status
+        const progress = await getProgress(id);
+        if (progress) {
+            const percentage =
+                progress.totalEmployees > 0
+                    ? Math.round((progress.completedEmployees / progress.totalEmployees) * 100)
+                    : 0;
+            const estimatedCompletion = await calculateEstimatedCompletion(id);
+
+            sse.send({
+                status: payrollRun.status,
+                progress: {
+                    completed: progress.completedEmployees,
+                    total: progress.totalEmployees,
+                    failed: progress.failedEmployees,
+                    percentage,
+                },
+                estimatedCompletion: estimatedCompletion?.toISOString() || null,
+            });
+        } else {
+            sse.send({
+                status: payrollRun.status,
+                progress: null,
+                message: "Progress tracking not initialized",
+            });
+        }
+
+        // Poll for updates every 2 seconds
+        const pollInterval = setInterval(async () => {
+            try {
+                const currentRun = await prisma.payrollRun.findUnique({
+                    where: { id },
+                    include: { progress: true },
+                });
+
+                if (!currentRun) {
+                    clearInterval(pollInterval);
+                    sse.close();
+                    return;
+                }
+
+                // If completed or failed, send final update and close
+                if (currentRun.status === "COMPLETED" || currentRun.status === "FAILED") {
+                    const finalProgress = currentRun.progress;
+                    if (finalProgress) {
+                        const percentage =
+                            finalProgress.totalEmployees > 0
+                                ? Math.round(
+                                    (finalProgress.completedEmployees / finalProgress.totalEmployees) * 100
+                                )
+                                : 100;
+
+                        sse.send({
+                            status: currentRun.status,
+                            progress: {
+                                completed: finalProgress.completedEmployees,
+                                total: finalProgress.totalEmployees,
+                                failed: finalProgress.failedEmployees,
+                                percentage,
+                            },
+                        });
+                    }
+                    clearInterval(pollInterval);
+                    sse.close();
+                    return;
+                }
+
+                // Send progress update
+                if (currentRun.progress) {
+                    const percentage =
+                        currentRun.progress.totalEmployees > 0
+                            ? Math.round(
+                                (currentRun.progress.completedEmployees / currentRun.progress.totalEmployees) *
+                                100
+                            )
+                            : 0;
+                    const estimatedCompletion = await calculateEstimatedCompletion(id);
+
+                    sse.send({
+                        status: currentRun.status,
+                        progress: {
+                            completed: currentRun.progress.completedEmployees,
+                            total: currentRun.progress.totalEmployees,
+                            failed: currentRun.progress.failedEmployees,
+                            percentage,
+                        },
+                        estimatedCompletion: estimatedCompletion?.toISOString() || null,
+                    });
+                }
+            } catch (pollError) {
+                logger.error(`Error polling progress: ${pollError.message}`, {
+                    error: pollError.stack,
+                    payrollRunId: id,
+                });
+            }
+        }, 2000);
+
+        // Cleanup on client disconnect
+        res.on("close", () => {
+            clearInterval(pollInterval);
+        });
+    } catch (error) {
+        logger.error(`Error setting up SSE stream: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        if (!res.headersSent) {
+            return res.status(500).json({
+                success: false,
+                error: "Internal Server Error",
+                message: "Failed to setup status stream",
+            });
+        }
+    }
+};
+
+export const previewPayrollRun = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const { payPeriodId, employeeIds } = req.body;
+
+        if (!payPeriodId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "payPeriodId is required",
+            });
+        }
+
+        const preview = await generatePreview(payPeriodId, employeeIds, tenantId);
+
+        logger.info(`Generated payroll preview for pay period ${payPeriodId}`, {
+            tenantId,
+            eligibleCount: preview.eligibleCount,
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: preview,
+        });
+    } catch (error) {
+        logger.error(`Error generating payroll preview: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: error.message || "Failed to generate payroll preview",
         });
     }
 };
