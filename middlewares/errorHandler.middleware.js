@@ -3,7 +3,6 @@ import logger from "../utils/logger.js";
 import pkg from "@prisma/client";
 const { Prisma } = pkg;
 
-
 export const errorHandler = (err, req, res, next) => {
   logger.error(`Error: ${err.message}`, {
     stack: err.stack,

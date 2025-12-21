@@ -25,6 +25,7 @@ function baseUserWhere(tenantId, includeDeleted) {
 /**
  * GET /api/analytics/users/overview?start=&end=&includeDeleted=false
  */
+
 export const getUsersOverview = async (req, res, next) => {
   try {
     const tenantId = req.user?.tenantId;
@@ -54,7 +55,12 @@ export const getUsersOverview = async (req, res, next) => {
       where: {
         ...where,
         ...(start || end
-          ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } }
+          ? {
+              createdAt: {
+                ...(start ? { gte: start } : {}),
+                ...(end ? { lte: end } : {}),
+              },
+            }
           : {}),
       },
     });
@@ -88,8 +94,10 @@ export const getUsersOverview = async (req, res, next) => {
     });
 
     // Resolve department/position labels for frontend charts (optional but useful)
-    const departmentIds = byDepartment.map(x => x.departmentId).filter(Boolean);
-    const positionIds = byPosition.map(x => x.positionId).filter(Boolean);
+    const departmentIds = byDepartment
+      .map((x) => x.departmentId)
+      .filter(Boolean);
+    const positionIds = byPosition.map((x) => x.positionId).filter(Boolean);
 
     const [departments, positions] = await Promise.all([
       prisma.department.findMany({
@@ -102,24 +110,31 @@ export const getUsersOverview = async (req, res, next) => {
       }),
     ]);
 
-    const deptMap = new Map(departments.map(d => [d.id, d]));
-    const posMap = new Map(positions.map(p => [p.id, p]));
+    const deptMap = new Map(departments.map((d) => [d.id, d]));
+    const posMap = new Map(positions.map((p) => [p.id, p]));
 
     return res.json({
       success: true,
       data: {
         total,
         newUsers,
-        byRole: byRole.map(r => ({ role: r.role, count: r._count._all })),
-        byStatus: byStatus.map(s => ({ status: s.status ?? "UNKNOWN", count: s._count._all })),
-        byDepartment: byDepartment.map(d => ({
+        byRole: byRole.map((r) => ({ role: r.role, count: r._count._all })),
+        byStatus: byStatus.map((s) => ({
+          status: s.status ?? "UNKNOWN",
+          count: s._count._all,
+        })),
+        byDepartment: byDepartment.map((d) => ({
           departmentId: d.departmentId ?? null,
-          departmentName: d.departmentId ? (deptMap.get(d.departmentId)?.name ?? null) : null,
+          departmentName: d.departmentId
+            ? deptMap.get(d.departmentId)?.name ?? null
+            : null,
           count: d._count._all,
         })),
-        byPosition: byPosition.map(p => ({
+        byPosition: byPosition.map((p) => ({
           positionId: p.positionId ?? null,
-          positionTitle: p.positionId ? (posMap.get(p.positionId)?.title ?? null) : null,
+          positionTitle: p.positionId
+            ? posMap.get(p.positionId)?.title ?? null
+            : null,
           count: p._count._all,
         })),
       },
@@ -183,7 +198,10 @@ export const getUserRegistrationsSeries = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: rows.map(r => ({ bucket: r.bucket.toISOString(), count: Number(r.count) })),
+      data: rows.map((r) => ({
+        bucket: r.bucket.toISOString(),
+        count: Number(r.count),
+      })),
     });
   } catch (err) {
     next(err);
@@ -244,7 +262,10 @@ export const getUserLoginsSeries = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: rows.map(r => ({ bucket: r.bucket.toISOString(), count: Number(r.count) })),
+      data: rows.map((r) => ({
+        bucket: r.bucket.toISOString(),
+        count: Number(r.count),
+      })),
     });
   } catch (err) {
     next(err);
@@ -269,14 +290,21 @@ export const getUserLoginRecency = async (req, res, next) => {
     const where = baseUserWhere(tenantId, includeDeleted);
 
     const now = new Date();
-    const d7 = new Date(now); d7.setDate(now.getDate() - 7);
-    const d30 = new Date(now); d30.setDate(now.getDate() - 30);
-    const d90 = new Date(now); d90.setDate(now.getDate() - 90);
+    const d7 = new Date(now);
+    d7.setDate(now.getDate() - 7);
+    const d30 = new Date(now);
+    d30.setDate(now.getDate() - 30);
+    const d90 = new Date(now);
+    d90.setDate(now.getDate() - 90);
 
     const [d0_7, d8_30, d31_90, d90plus, never] = await Promise.all([
       prisma.user.count({ where: { ...where, lastLogin: { gte: d7 } } }),
-      prisma.user.count({ where: { ...where, lastLogin: { lt: d7, gte: d30 } } }),
-      prisma.user.count({ where: { ...where, lastLogin: { lt: d30, gte: d90 } } }),
+      prisma.user.count({
+        where: { ...where, lastLogin: { lt: d7, gte: d30 } },
+      }),
+      prisma.user.count({
+        where: { ...where, lastLogin: { lt: d30, gte: d90 } },
+      }),
       prisma.user.count({ where: { ...where, lastLogin: { lt: d90 } } }),
       prisma.user.count({ where: { ...where, lastLogin: null } }),
     ]);
@@ -288,7 +316,7 @@ export const getUserLoginRecency = async (req, res, next) => {
         "8_30_days": d8_30,
         "31_90_days": d31_90,
         "90plus_days": d90plus,
-        "never_logged_in": never,
+        never_logged_in: never,
       },
     });
   } catch (err) {
