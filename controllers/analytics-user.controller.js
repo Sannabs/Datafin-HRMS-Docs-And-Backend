@@ -1,5 +1,4 @@
 import prisma from "../config/prisma.config.js";
-import { Prisma } from "@prisma/client";
 
 function parseBool(v, defaultValue = false) {
   if (v === undefined) return defaultValue;
