@@ -18,6 +18,8 @@ import payPeriodRoutes from "./routes/pay-period.route.js";
 import payrollRunRoutes from "./routes/payroll-run.route.js";
 import auditRoutes from "./routes/audit.route.js";
 import payslipRoutes from "./routes/payslip.route.js";
+import analyticsUserRoutes from "./routes/analytics-user.route.js";
+
 
 dotenv.config();
 
@@ -59,6 +61,7 @@ app.use("/api/pay-periods", payPeriodRoutes);
 app.use("/api/payroll-runs", payrollRunRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/payslips", payslipRoutes);
+app.use("/api/analytics/users", analyticsUserRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
 
