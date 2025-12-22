@@ -9,11 +9,11 @@ server.listen(process.env.PORT || 5001, async () => {
   logger.info(`Server is running on port ${process.env.PORT || 5001}`);
   
   // Start automation jobs
-  try {
-    await startAllAutomationJobs();
-  } catch (error) {
-    logger.error(`Failed to start automation jobs: ${error.message}`, {
-      error: error.stack,
-    });
-  }
+  // try {
+  //   await startAllAutomationJobs();
+  // } catch (error) {
+  //   logger.error(`Failed to start automation jobs: ${error.message}`, {
+  //     error: error.stack,
+  //   });
+  // }
 });

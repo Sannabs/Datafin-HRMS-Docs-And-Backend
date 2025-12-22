@@ -11,11 +11,11 @@ const __dirname = dirname(__filename);
 const templatePath = process.env.PAYSLIP_TEMPLATE_PATH || join(__dirname, "../templates/payslip.html");
 
 /**
- * Generate payslip PDF and upload to Cloudinary
+ * Generate payslip PDF and upload to Cloudflare R2
  * @param {string} payslipId - Payslip ID
  * @param {string} tenantId - Tenant ID
  * @param {Object} payslipData - Payslip data for template
- * @returns {Promise<Object>} Upload result with public_id and secure_url
+ * @returns {Promise<Object>} Upload result with filename (as public_id) and secure_url
  */
 export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
     let browser = null;
@@ -126,7 +126,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
         const year = payPeriod?.calendarYear || new Date().getFullYear();
         const month = payPeriod?.calendarMonth || new Date().getMonth() + 1;
 
-        // Upload to Cloudinary
+        // Upload to Cloudflare R2
         const uploadResult = await uploadPayslip(pdfBuffer, payslipId, tenantId, year, month);
 
         logger.info(`Generated and uploaded payslip PDF for ${payslipId}`, {

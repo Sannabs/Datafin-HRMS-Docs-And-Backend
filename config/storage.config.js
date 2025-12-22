@@ -3,7 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import logger from "./logger.js";
+import logger from "../utils/logger.js";
 
 const s3Client = new S3Client({
   region: "auto",
