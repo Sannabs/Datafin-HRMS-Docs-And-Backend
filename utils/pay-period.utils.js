@@ -1,4 +1,10 @@
-const STATUS_FLOW = ["DRAFT", "PROCESSING", "COMPLETED", "CLOSED"];
+import {
+    validateTransition as validatePayPeriodTransition,
+    isTerminalState,
+    getAvailableTransitions,
+    getStateMeta,
+    getNextStatus,
+} from "../state-machines/pay-period.machine.js";
 
 /**
  * Calculates calendar metadata based on a reference date.
@@ -45,28 +51,14 @@ export const hasDateOverlap = (startA, endA, startB, endB) => {
 };
 
 /**
- * Determines if a status transition is valid based on the defined flow.
+ * Determines if a status transition is valid using XState state machine.
  * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} currentStatus
  * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} nextStatus
- * @returns {{ valid: boolean, message?: string }}
+ * @param {Object} context - Additional context for guards (hasIncompleteRuns, hasFailedRuns)
+ * @returns {{ valid: boolean, message?: string, event?: string }}
  */
-export const validateStatusTransition = (currentStatus, nextStatus) => {
-    if (currentStatus === nextStatus) {
-        return { valid: false, message: "Pay period is already in the requested status" };
-    }
-
-    const currentIndex = STATUS_FLOW.indexOf(currentStatus);
-    const nextIndex = STATUS_FLOW.indexOf(nextStatus);
-
-    if (currentIndex === -1 || nextIndex === -1) {
-        return { valid: false, message: "Invalid pay period status provided" };
-    }
-
-    if (nextIndex !== currentIndex + 1) {
-        return { valid: false, message: `Invalid transition from ${currentStatus} to ${nextStatus}` };
-    }
-
-    return { valid: true };
+export const validateStatusTransition = (currentStatus, nextStatus, context = {}) => {
+    return validatePayPeriodTransition(currentStatus, nextStatus, context);
 };
 
 /**
@@ -74,5 +66,26 @@ export const validateStatusTransition = (currentStatus, nextStatus) => {
  * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} status
  * @returns {boolean}
  */
-export const isTerminalStatus = (status) => status === "CLOSED";
+export const isTerminalStatus = (status) => isTerminalState(status);
+
+/**
+ * Get available transitions for a pay period status
+ * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} status
+ * @returns {Array<string>} Available event names
+ */
+export { getAvailableTransitions };
+
+/**
+ * Get metadata for a pay period status
+ * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} status
+ * @returns {Object|null} State metadata with description and allowedActions
+ */
+export { getStateMeta };
+
+/**
+ * Get the next valid status in the flow
+ * @param {"DRAFT"|"PROCESSING"|"COMPLETED"|"CLOSED"} currentStatus
+ * @returns {string|null} Next status or null if terminal
+ */
+export { getNextStatus };
 

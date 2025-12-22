@@ -4,6 +4,9 @@ import { addLog } from "../utils/audit.utils.js";
 import {
     getCalendarMetadata,
     validateStatusTransition,
+    getAvailableTransitions,
+    getStateMeta,
+    isTerminalStatus,
 } from "../utils/pay-period.utils.js";
 
 const formatPayPeriodResponse = (payPeriod) => {
@@ -249,31 +252,40 @@ export const updatePayPeriodStatus = async (req, res) => {
             });
         }
 
-        const transition = validateStatusTransition(payPeriod.status, nextStatus);
+        // Check if current status is terminal
+        if (isTerminalStatus(payPeriod.status)) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: `Pay period is ${payPeriod.status} and cannot be modified`,
+            });
+        }
+
+        // Build context for state machine guards
+        const hasIncompleteRuns = payPeriod.payrollRuns.some(
+            (run) => run.status === "PROCESSING" || run.status === "DRAFT"
+        );
+        const hasFailedRuns = payPeriod.payrollRuns.some((run) => run.status === "FAILED");
+
+        // Validate transition using state machine
+        const transition = validateStatusTransition(payPeriod.status, nextStatus, {
+            hasIncompleteRuns,
+            hasFailedRuns,
+        });
+
         if (!transition.valid) {
+            // Get available transitions for helpful error message
+            const availableTransitions = getAvailableTransitions(payPeriod.status);
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
                 message: transition.message,
+                availableTransitions,
+                currentStatus: payPeriod.status,
             });
         }
 
-        const hasInProgressRuns = payPeriod.payrollRuns.some(
-            (run) => run.status === "PROCESSING" || run.status === "DRAFT"
-        );
-        const hasFailedRuns = payPeriod.payrollRuns.some((run) => run.status === "FAILED");
-        const allRunsCompleted =
-            payPeriod.payrollRuns.length > 0 &&
-            payPeriod.payrollRuns.every((run) => run.status === "COMPLETED");
-
-        if (nextStatus === "COMPLETED" && !allRunsCompleted) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "All payroll runs must be completed before completing the pay period",
-            });
-        }
-
+        // Additional business rule validations
         if (nextStatus === "PROCESSING" && payPeriod.payrollRuns.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -282,35 +294,35 @@ export const updatePayPeriodStatus = async (req, res) => {
             });
         }
 
-        if (nextStatus === "CLOSED") {
-            if (!allRunsCompleted || hasInProgressRuns || hasFailedRuns) {
-                return res.status(400).json({
-                    success: false,
-                    error: "Bad Request",
-                    message: "Cannot close pay period until all payroll runs are completed successfully",
-                });
-            }
-        }
-
         const updated = await prisma.payPeriod.update({
             where: { id },
             data: { status: nextStatus },
         });
 
-        logger.info(`Updated pay period ${id} status to ${nextStatus}`);
+        logger.info(`Updated pay period ${id} status to ${nextStatus} (event: ${transition.event})`);
         await addLog(
             userId,
             tenantId,
             "UPDATE",
             "PayPeriod",
             id,
-            { status: { before: payPeriod.status, after: nextStatus } },
+            {
+                status: { before: payPeriod.status, after: nextStatus },
+                event: transition.event,
+            },
             req
         );
 
+        // Get metadata for the new state
+        const stateMeta = getStateMeta(nextStatus);
+
         return res.status(200).json({
             success: true,
-            data: updated,
+            data: {
+                ...updated,
+                stateMeta,
+                availableTransitions: getAvailableTransitions(nextStatus),
+            },
             message: "Pay period status updated successfully",
         });
     } catch (error) {
@@ -427,8 +439,20 @@ export const pauseAutoClose = async (req, res) => {
             });
         }
 
-        // For now, we'll use a simple approach - add a note in audit log
-        // In production, you might want to add an `autoClosePaused` boolean field to PayPeriod model
+        if (payPeriod.autoClosePaused) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Auto-close is already paused for this pay period",
+            });
+        }
+
+        // Update the autoClosePaused field
+        const updated = await prisma.payPeriod.update({
+            where: { id },
+            data: { autoClosePaused: true },
+        });
+
         logger.info(`Auto-close paused for pay period ${id} by user ${userId}`);
         await addLog(
             userId,
@@ -446,11 +470,7 @@ export const pauseAutoClose = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Auto-close paused successfully. Pay period will not automatically close.",
-            data: {
-                payPeriodId: id,
-                status: payPeriod.status,
-                autoClosePaused: true,
-            },
+            data: updated,
         });
     } catch (error) {
         logger.error(`Error pausing auto-close: ${error.message}`, {
@@ -495,6 +515,20 @@ export const resumeAutoClose = async (req, res) => {
             });
         }
 
+        if (!payPeriod.autoClosePaused) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Auto-close is not paused for this pay period",
+            });
+        }
+
+        // Update the autoClosePaused field
+        const updated = await prisma.payPeriod.update({
+            where: { id },
+            data: { autoClosePaused: false },
+        });
+
         logger.info(`Auto-close resumed for pay period ${id} by user ${userId}`);
         await addLog(
             userId,
@@ -512,11 +546,7 @@ export const resumeAutoClose = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Auto-close resumed successfully. Pay period will automatically close after grace period.",
-            data: {
-                payPeriodId: id,
-                status: payPeriod.status,
-                autoClosePaused: false,
-            },
+            data: updated,
         });
     } catch (error) {
         logger.error(`Error resuming auto-close: ${error.message}`, {

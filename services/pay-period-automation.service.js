@@ -2,6 +2,7 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import { sendPayPeriodStatusChangeEmail, sendPayrollCompletionEmail } from "./pay-period-notification.service.js";
+import { validateStatusTransition, getNextStatus } from "../utils/pay-period.utils.js";
 
 /**
  * Automatically update pay period status based on payroll run states
@@ -32,15 +33,29 @@ export const updatePayPeriodStatusAutomatically = async (payPeriodId, tenantId, 
             return null;
         }
 
-        // If target status is provided, use it (e.g., when run starts, force PROCESSING)
+        // Build context for state machine guards
+        const runs = payPeriod.payrollRuns;
+        const hasIncompleteRuns = runs.some((r) => r.status === "PROCESSING" || r.status === "DRAFT");
+        const hasFailedRuns = runs.some((r) => r.status === "FAILED");
+        const machineContext = { hasIncompleteRuns, hasFailedRuns };
+
+        // If target status is provided, validate using state machine
         if (targetStatus) {
             if (payPeriod.status !== targetStatus) {
+                // Validate transition using state machine
+                const validation = validateStatusTransition(payPeriod.status, targetStatus, machineContext);
+
+                if (!validation.valid) {
+                    logger.warn(`Invalid status transition for pay period ${payPeriodId}: ${validation.message}`);
+                    return null;
+                }
+
                 const updated = await prisma.payPeriod.update({
                     where: { id: payPeriodId },
                     data: { status: targetStatus },
                 });
 
-                logger.info(`Automatically updated pay period ${payPeriodId} to ${targetStatus}`);
+                logger.info(`Automatically updated pay period ${payPeriodId} to ${targetStatus} (event: ${validation.event})`);
                 await addLog(
                     "SYSTEM",
                     tenantId,
@@ -50,6 +65,7 @@ export const updatePayPeriodStatusAutomatically = async (payPeriodId, tenantId, 
                     {
                         status: { before: payPeriod.status, after: targetStatus },
                         reason: "Automatic status update triggered by payroll run",
+                        event: validation.event,
                     },
                     null
                 );
@@ -67,30 +83,34 @@ export const updatePayPeriodStatusAutomatically = async (payPeriodId, tenantId, 
         }
 
         // Auto-detect status based on payroll run states
-        const runs = payPeriod.payrollRuns;
-
         if (runs.length === 0) {
             // No runs yet, keep current status (likely DRAFT)
             return null;
         }
 
-        const hasProcessingRuns = runs.some((r) => r.status === "PROCESSING" || r.status === "DRAFT");
-        const hasFailedRuns = runs.some((r) => r.status === "FAILED");
         const allRunsCompleted = runs.length > 0 && runs.every((r) => r.status === "COMPLETED");
 
+        // Determine the next logical status using state machine
         let newStatus = null;
+        let reason = "";
 
-        // Determine new status based on run states
-        if (hasProcessingRuns && payPeriod.status !== "PROCESSING") {
+        if (hasIncompleteRuns && payPeriod.status === "DRAFT") {
             newStatus = "PROCESSING";
-        } else if (allRunsCompleted && payPeriod.status !== "COMPLETED") {
+            reason = "Payroll runs started";
+        } else if (allRunsCompleted && !hasFailedRuns && payPeriod.status === "PROCESSING") {
             newStatus = "COMPLETED";
-        } else if (hasFailedRuns && payPeriod.status === "COMPLETED") {
-            // If there are failed runs, don't auto-complete (keep in PROCESSING)
-            newStatus = "PROCESSING";
+            reason = "All payroll runs completed successfully";
         }
 
         if (newStatus && newStatus !== payPeriod.status) {
+            // Validate using state machine
+            const validation = validateStatusTransition(payPeriod.status, newStatus, machineContext);
+
+            if (!validation.valid) {
+                logger.warn(`Cannot auto-update pay period ${payPeriodId}: ${validation.message}`);
+                return null;
+            }
+
             const updated = await prisma.payPeriod.update({
                 where: { id: payPeriodId },
                 data: { status: newStatus },
@@ -105,7 +125,8 @@ export const updatePayPeriodStatusAutomatically = async (payPeriodId, tenantId, 
                 payPeriodId,
                 {
                     status: { before: payPeriod.status, after: newStatus },
-                    reason: `Automatic status update: ${allRunsCompleted ? "All payroll runs completed" : "Payroll runs in progress"}`,
+                    reason: `Automatic status update: ${reason}`,
+                    event: validation.event,
                 },
                 null
             );
@@ -167,6 +188,12 @@ export const shouldAutoClose = async (payPeriodId, tenantId, gracePeriodHours = 
             return false;
         }
 
+        // Check if auto-close is paused
+        if (payPeriod.autoClosePaused) {
+            logger.debug(`Auto-close is paused for pay period ${payPeriodId}`);
+            return false;
+        }
+
         // All runs must be completed
         const allRunsCompleted = payPeriod.payrollRuns.length > 0 &&
             payPeriod.payrollRuns.every((r) => r.status === "COMPLETED");
@@ -210,9 +237,30 @@ export const autoClosePayPeriod = async (payPeriodId, tenantId) => {
                 id: payPeriodId,
                 tenantId,
             },
+            include: {
+                payrollRuns: {
+                    select: { status: true },
+                },
+            },
         });
 
         if (!payPeriod || payPeriod.status === "CLOSED") {
+            return null;
+        }
+
+        // Validate using state machine
+        const hasIncompleteRuns = payPeriod.payrollRuns.some((r) =>
+            r.status === "PROCESSING" || r.status === "DRAFT"
+        );
+        const hasFailedRuns = payPeriod.payrollRuns.some((r) => r.status === "FAILED");
+
+        const validation = validateStatusTransition(payPeriod.status, "CLOSED", {
+            hasIncompleteRuns,
+            hasFailedRuns,
+        });
+
+        if (!validation.valid) {
+            logger.warn(`Cannot auto-close pay period ${payPeriodId}: ${validation.message}`);
             return null;
         }
 
@@ -231,6 +279,7 @@ export const autoClosePayPeriod = async (payPeriodId, tenantId) => {
             {
                 status: { before: payPeriod.status, after: "CLOSED" },
                 reason: "Automatic closure after grace period",
+                event: validation.event,
             },
             null
         );
