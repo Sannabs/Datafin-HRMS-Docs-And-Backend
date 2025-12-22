@@ -1,6 +1,14 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
-import { evaluateRule, calculateRuleAmount } from "../services/rule-engine.service.js";
+import { 
+    evaluateRule, 
+    evaluateRules,
+    calculateRuleAmount, 
+    clearRuleCache,
+    getAvailableOperators,
+    getCacheStats,
+    validateConditionsFormat
+} from "../services/rule-engine.service.js";
 import { validateConditions, validateAction } from "../utils/rule-validation.utils.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
@@ -242,6 +250,10 @@ export const createCalculationRule = async (req, res) => {
         });
 
         logger.info(`Created calculation rule: ${rule.id}`);
+
+        // Clear rule cache for this tenant
+        clearRuleCache(tenantId);
+
         const changes = {
             name: { before: null, after: rule.name },
             ruleType: { before: null, after: rule.ruleType },
@@ -355,6 +367,10 @@ export const updateCalculationRule = async (req, res) => {
         });
 
         logger.info(`Updated calculation rule: ${id}`);
+
+        // Clear rule cache for this tenant
+        clearRuleCache(tenantId);
+
         const changes = getChangesDiff(existingRule, updatedRule);
         await addLog(userId, tenantId, "UPDATE", "CalculationRule", id, changes, req);
 
@@ -405,6 +421,10 @@ export const deleteCalculationRule = async (req, res) => {
         });
 
         logger.info(`Soft deleted calculation rule with ID: ${id}`);
+
+        // Clear rule cache for this tenant
+        clearRuleCache(tenantId);
+
         const changes = getChangesDiff(rule, deleted);
         await addLog(userId, tenantId, "DELETE", "CalculationRule", id, changes, req);
 
@@ -456,13 +476,18 @@ export const testCalculationRule = async (req, res) => {
             });
         }
 
-        // Evaluate rule
-        const matches = evaluateRule(rule, employeeContext);
+        // Evaluate the rule
+        const typeId = rule.ruleType === "ALLOWANCE" ? rule.allowanceTypeId : rule.deductionTypeId;
+        const matchingEvents = await evaluateRules(rule.ruleType, typeId, employeeContext, tenantId);
+
+        // Check if this specific rule matched
+        const ruleEvent = matchingEvents.find(e => e.params?.ruleId === id);
+        const matches = !!ruleEvent;
 
         let calculatedAmount = 0;
-        if (matches) {
+        if (matches && ruleEvent) {
             calculatedAmount = calculateRuleAmount(
-                rule,
+                ruleEvent.params.action,
                 employeeContext,
                 baseSalary || 0,
                 grossSalary || 0
@@ -473,6 +498,7 @@ export const testCalculationRule = async (req, res) => {
             matches,
             calculatedAmount,
         });
+        
         const changes = {
             matches: { before: null, after: matches },
             calculatedAmount: { before: null, after: calculatedAmount },
@@ -505,3 +531,101 @@ export const testCalculationRule = async (req, res) => {
     }
 };
 
+/**
+ * Get available operators for rule conditions
+ */
+export const getRuleOperators = async (req, res) => {
+    try {
+        const operators = getAvailableOperators();
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                operators,
+                engine: "json-rules-engine",
+            },
+        });
+    } catch (error) {
+        logger.error(`Error getting rule operators: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to get rule operators",
+        });
+    }
+};
+
+/**
+ * Get rule engine cache statistics (admin only)
+ */
+export const getRuleCacheStats = async (req, res) => {
+    try {
+        const stats = getCacheStats();
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                ...stats,
+                engine: "json-rules-engine",
+                cacheTTL: "5 minutes",
+            },
+        });
+    } catch (error) {
+        logger.error(`Error getting rule cache stats: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to get cache statistics",
+        });
+    }
+};
+
+/**
+ * Validate conditions format
+ */
+export const validateRuleConditions = async (req, res) => {
+    try {
+        const { conditions } = req.body;
+
+        if (!conditions) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "conditions object is required",
+            });
+        }
+
+        // Validate using the rule engine validation
+        const validation = validateConditionsFormat(conditions);
+
+        // Also validate using the basic validation
+        const basicValidation = validateConditions(conditions);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                valid: validation.valid && basicValidation.valid,
+                errors: [
+                    ...validation.errors,
+                    ...(basicValidation.valid ? [] : [basicValidation.error]),
+                ],
+            },
+        });
+    } catch (error) {
+        logger.error(`Error validating rule conditions: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to validate conditions",
+        });
+    }
+};

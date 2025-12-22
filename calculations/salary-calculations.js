@@ -218,4 +218,3 @@ export const recalculateSalary = async (
         netSalary,
     };
 };
-
