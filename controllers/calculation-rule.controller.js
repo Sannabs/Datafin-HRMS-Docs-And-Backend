@@ -1,14 +1,21 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
-import { 
-    evaluateRule, 
+import {
     evaluateRules,
-    calculateRuleAmount, 
+    calculateRuleAmount,
     clearRuleCache,
     getAvailableOperators,
     getCacheStats,
     validateConditionsFormat
 } from "../services/rule-engine.service.js";
+import {
+    validateFormula,
+    evaluateFormula,
+    FORMULA_VARIABLES,
+    getAvailableFunctions,
+    getFormulaExamples,
+    extractFormulaVariables,
+} from "../services/formula-evaluator.service.js";
 import { validateConditions, validateAction } from "../utils/rule-validation.utils.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
@@ -486,11 +493,13 @@ export const testCalculationRule = async (req, res) => {
 
         let calculatedAmount = 0;
         if (matches && ruleEvent) {
-            calculatedAmount = calculateRuleAmount(
+            calculatedAmount = await calculateRuleAmount(
                 ruleEvent.params.action,
                 employeeContext,
                 baseSalary || 0,
-                grossSalary || 0
+                grossSalary || 0,
+                {},
+                tenantId
             );
         }
 
@@ -498,7 +507,7 @@ export const testCalculationRule = async (req, res) => {
             matches,
             calculatedAmount,
         });
-        
+
         const changes = {
             matches: { before: null, after: matches },
             calculatedAmount: { before: null, after: calculatedAmount },
@@ -626,6 +635,132 @@ export const validateRuleConditions = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to validate conditions",
+        });
+    }
+};
+
+/**
+ * Get formula syntax help and available variables
+ */
+export const getFormulaHelp = async (req, res) => {
+    try {
+        return res.status(200).json({
+            success: true,
+            data: {
+                variables: FORMULA_VARIABLES,
+                functions: getAvailableFunctions(),
+                examples: getFormulaExamples(),
+            },
+        });
+    } catch (error) {
+        logger.error(`Error getting formula help: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to get formula help",
+        });
+    }
+};
+
+/**
+ * Validate a formula string
+ */
+export const validateFormulaEndpoint = async (req, res) => {
+    try {
+        const { formula } = req.body;
+
+        if (!formula) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "formula string is required",
+            });
+        }
+
+        const validation = validateFormula(formula);
+        const variables = extractFormulaVariables(formula);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                valid: validation.valid,
+                error: validation.error || null,
+                variablesUsed: variables,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error validating formula: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to validate formula",
+        });
+    }
+};
+
+/**
+ * Test a formula with sample values
+ */
+export const testFormula = async (req, res) => {
+    try {
+        const { formula, baseSalary, grossSalary, employeeContext, additionalVars } = req.body;
+
+        if (!formula) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "formula string is required",
+            });
+        }
+
+        // Validate first
+        const validation = validateFormula(formula);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: `Invalid formula: ${validation.error}`,
+            });
+        }
+
+        // Evaluate with provided values
+        const result = evaluateFormula(
+            formula,
+            baseSalary || 50000,
+            grossSalary || 60000,
+            employeeContext || {},
+            additionalVars || {}
+        );
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                formula,
+                result: result.success ? result.result : null,
+                error: result.error || null,
+                inputValues: {
+                    baseSalary: baseSalary || 50000,
+                    grossSalary: grossSalary || 60000,
+                    employeeContext: employeeContext || {},
+                    additionalVars: additionalVars || {},
+                },
+            },
+        });
+    } catch (error) {
+        logger.error(`Error testing formula: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to test formula",
         });
     }
 };

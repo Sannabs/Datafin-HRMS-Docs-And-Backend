@@ -111,6 +111,14 @@ enum ActionEnum {
   OTHER
 }
 
+enum HolidayType {
+  PUBLIC // National/public holiday
+  COMPANY // Company-specific holiday
+  REGIONAL // Regional holiday (state/province)
+  RELIGIOUS // Religious holiday
+  OPTIONAL // Optional holiday (employee choice)
+}
+
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -126,6 +134,11 @@ model Tenant {
   email     String?
   website   String?
 
+  // Weekend configuration: array of day numbers (0=Sunday, 6=Saturday)
+  // Default: [0, 6] for Saturday/Sunday weekends
+  // Middle East example: [5, 6] for Friday/Saturday weekends
+  weekendDays Int[] @default([0, 6])
+
   users            User[]
   departments      Department[]
   positions        Position[]
@@ -137,6 +150,7 @@ model Tenant {
   calculationRules CalculationRule[]
   auditLogs        AuditLog[]
   invitations      Invitation[]
+  holidays         Holiday[]
 
   @@index([phone])
   @@index([email])
@@ -599,4 +613,28 @@ model AuditLog {
   @@index([userId])
   @@index([entityId, entityType])
   @@index([timestamp])
+}
+
+// ------------------------------------------------------------
+// Holiday & Working Days Management
+// ------------------------------------------------------------
+
+model Holiday {
+  id          String      @id @default(uuid())
+  tenantId    String
+  name        String
+  date        DateTime    @db.Date
+  type        HolidayType @default(PUBLIC)
+  description String?
+  isRecurring Boolean     @default(false) // Repeats every year on same date
+  year        Int? // If null and isRecurring=true, applies to all years
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, name]) // Prevent duplicate holidays
+  @@index([tenantId, date])
+  @@index([tenantId, year])
 }

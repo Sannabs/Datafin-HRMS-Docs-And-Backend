@@ -9,6 +9,9 @@ import {
     getRuleOperators,
     getRuleCacheStats,
     validateRuleConditions,
+    getFormulaHelp,
+    validateFormulaEndpoint,
+    testFormula,
 } from "../controllers/calculation-rule.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -21,6 +24,11 @@ router.use(requireAuth);
 router.get("/operators", requireRole(["HR_ADMIN", "HR_STAFF"]), getRuleOperators);
 router.get("/cache-stats", requireRole(["HR_ADMIN"]), getRuleCacheStats);
 router.post("/validate-conditions", requireRole(["HR_ADMIN", "HR_STAFF"]), validateRuleConditions);
+
+// Formula endpoints
+router.get("/formula/help", requireRole(["HR_ADMIN", "HR_STAFF"]), getFormulaHelp);
+router.post("/formula/validate", requireRole(["HR_ADMIN", "HR_STAFF"]), validateFormulaEndpoint);
+router.post("/formula/test", requireRole(["HR_ADMIN", "HR_STAFF"]), testFormula);
 
 // CRUD endpoints
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllCalculationRules);

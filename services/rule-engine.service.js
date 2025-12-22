@@ -1,6 +1,7 @@
 import { Engine } from "json-rules-engine";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { evaluateFormula } from "./formula-evaluator.service.js";
 
 // Cache for compiled engines per tenant
 const engineCache = new Map();
@@ -395,15 +396,17 @@ export const evaluateRule = async (rule, employeeContext) => {
 /**
  * Calculate amount based on rule action
  * @param {Object} rule - Rule object (or action object)
- * @param {Object} employeeContext - Employee context data (unused but kept for compatibility)
+ * @param {Object} employeeContext - Employee context data
  * @param {number} baseSalary - Employee's base salary
  * @param {number} grossSalary - Employee's gross salary
- * @returns {number} Calculated amount
+ * @param {Object} additionalVars - Additional variables for formula evaluation
+ * @param {string} tenantId - Tenant ID for working days calculation
+ * @returns {Promise<number>} Calculated amount
  */
-export const calculateRuleAmount = (rule, employeeContext, baseSalary, grossSalary) => {
+export const calculateRuleAmount = async (rule, employeeContext, baseSalary, grossSalary, additionalVars = {}, tenantId = null) => {
     // Support both rule object (with rule.action) and direct action object
     const action = rule.action || rule;
-    
+
     if (!action || typeof action !== "object") {
         return 0;
     }
@@ -423,9 +426,28 @@ export const calculateRuleAmount = (rule, employeeContext, baseSalary, grossSala
             return (baseAmount * Number(value)) / 100;
 
         case "FORMULA":
-            // FORMULA will be implemented in Phase 4 with mathjs
-            logger.warn("FORMULA action type not yet implemented");
-            return Number(value) || 0;
+            // Use mathjs to evaluate the formula with tenant-specific working days
+            const formulaResult = await evaluateFormula(
+                String(value),
+                baseSalary,
+                grossSalary,
+                employeeContext,
+                additionalVars,
+                tenantId
+            );
+
+            if (formulaResult.success) {
+                logger.debug(`Formula evaluated: ${value} = ${formulaResult.result}`);
+                return formulaResult.result;
+            } else {
+                logger.error(`Formula evaluation failed: ${formulaResult.error}`, {
+                    formula: value,
+                    baseSalary,
+                    grossSalary,
+                });
+                // Return 0 on formula error to prevent incorrect calculations
+                return 0;
+            }
 
         default:
             logger.warn(`Unknown action type: ${type}`);
@@ -463,7 +485,7 @@ export const getConditionalAmount = async (
         const topEvent = matchingEvents[0];
         const { action, ruleId, ruleName } = topEvent.params;
 
-        const amount = calculateRuleAmount(action, employeeContext, baseSalary, grossSalary);
+        const amount = await calculateRuleAmount(action, employeeContext, baseSalary, grossSalary, {}, tenantId);
 
         logger.info(`Conditional calculation applied: Rule ${ruleId} (${ruleName}) for ${ruleType} ${typeId}`, {
             ruleId,
@@ -505,18 +527,22 @@ export const getAllMatchingRules = async (
     try {
         const matchingEvents = await evaluateRules(ruleType, typeId, employeeContext, tenantId);
 
-        return matchingEvents.map((event) => {
-            const { ruleId, ruleName, priority, action } = event.params;
-            const amount = calculateRuleAmount(action, employeeContext, baseSalary, grossSalary);
+        const results = await Promise.all(
+            matchingEvents.map(async (event) => {
+                const { ruleId, ruleName, priority, action } = event.params;
+                const amount = await calculateRuleAmount(action, employeeContext, baseSalary, grossSalary, {}, tenantId);
 
-            return {
-                ruleId,
-                ruleName,
-                priority,
-                action,
-                calculatedAmount: amount,
-            };
-        });
+                return {
+                    ruleId,
+                    ruleName,
+                    priority,
+                    action,
+                    calculatedAmount: amount,
+                };
+            })
+        );
+
+        return results;
     } catch (error) {
         logger.error(`Error getting all matching rules: ${error.message}`, {
             error: error.stack,

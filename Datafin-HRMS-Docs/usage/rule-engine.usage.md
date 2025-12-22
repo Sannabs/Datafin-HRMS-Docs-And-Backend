@@ -159,15 +159,71 @@ Calculates a percentage of base salary or gross salary.
 }
 ```
 
-### FORMULA (Coming Soon)
+### FORMULA
 
-Will support mathematical formulas with variables (Phase 4).
+Evaluates a mathematical formula with access to employee data.
 
 ```json
 {
   "type": "FORMULA",
   "value": "(baseSalary * 0.1) + 500"
 }
+```
+
+**Available Variables:**
+
+| Variable          | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `baseSalary`      | Employee's base salary                          |
+| `grossSalary`     | Employee's calculated gross salary              |
+| `netSalary`       | Employee's calculated net salary (if available) |
+| `totalAllowances` | Sum of all allowances                           |
+| `totalDeductions` | Sum of all deductions                           |
+| `yearsOfService`  | Years since employee was hired                  |
+| `daysInMonth`     | Number of days in the current pay period month  |
+| `workingDays`     | Number of working days in the month             |
+| `hoursWorked`     | Hours worked (if available in context)          |
+| `overtimeHours`   | Overtime hours (if available in context)        |
+| `bonus`           | Bonus amount (if available in context)          |
+| `ctx_*`           | Custom context fields prefixed with `ctx_`      |
+
+**Available Functions:**
+
+| Function                | Description              | Example                             |
+| ----------------------- | ------------------------ | ----------------------------------- |
+| `round(x)`              | Round to nearest integer | `round(baseSalary * 0.1)`           |
+| `floor(x)`              | Round down               | `floor(grossSalary / 12)`           |
+| `ceil(x)`               | Round up                 | `ceil(hoursWorked / 8)`             |
+| `min(a, b, ...)`        | Minimum value            | `min(baseSalary * 0.2, 10000)`      |
+| `max(a, b, ...)`        | Maximum value            | `max(baseSalary * 0.05, 1000)`      |
+| `abs(x)`                | Absolute value           | `abs(netSalary - grossSalary)`      |
+| `pow(x, n)`             | Power                    | `pow(yearsOfService, 2)`            |
+| `sqrt(x)`               | Square root              | `sqrt(baseSalary)`                  |
+| `if(cond, true, false)` | Conditional              | `if(baseSalary > 50000, 1000, 500)` |
+
+**Formula Examples:**
+
+```json
+// Fixed percentage of base salary (10%)
+{ "type": "FORMULA", "value": "baseSalary * 0.1" }
+
+// Tiered bonus based on salary
+{ "type": "FORMULA", "value": "if(baseSalary > 100000, baseSalary * 0.15, baseSalary * 0.10)" }
+
+// Service-based allowance (500 base + 100 per year)
+{ "type": "FORMULA", "value": "500 + (yearsOfService * 100)" }
+
+// Combined calculation
+{ "type": "FORMULA", "value": "(baseSalary * 0.05) + (grossSalary * 0.02) + 200" }
+
+// Overtime pay (hourly rate × hours × 1.5)
+{ "type": "FORMULA", "value": "(baseSalary / workingDays / 8) * overtimeHours * 1.5" }
+
+// Capped allowance (max 10,000)
+{ "type": "FORMULA", "value": "min(baseSalary * 0.2, 10000)" }
+
+// Minimum guarantee (at least 1,000)
+{ "type": "FORMULA", "value": "max(baseSalary * 0.05, 1000)" }
 ```
 
 ## Employee Context Fields
@@ -224,6 +280,49 @@ Content-Type: application/json
 ```
 
 Returns validation results.
+
+### Get Formula Help
+
+```http
+GET /api/calculation-rules/formula/help
+Authorization: Bearer <token>
+```
+
+Returns available variables, functions, and examples for formula creation.
+
+### Validate Formula
+
+```http
+POST /api/calculation-rules/formula/validate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "formula": "baseSalary * 0.1 + 500"
+}
+```
+
+Returns validation result and list of variables used.
+
+### Test Formula
+
+```http
+POST /api/calculation-rules/formula/test
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "formula": "if(baseSalary > 50000, baseSalary * 0.1, 500)",
+  "baseSalary": 60000,
+  "grossSalary": 70000,
+  "employeeContext": {
+    "yearsOfService": 5,
+    "overtimeHours": 10
+  }
+}
+```
+
+Returns the calculated result with the provided values.
 
 ### Test Rule
 
