@@ -1,11 +1,12 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
-import { processPayrollRun, processEmployeePayroll } from "../services/payroll-run.service.js";
+import { processPayrollRun, processEmployeePayroll, queuePayrollRun, USE_BULLMQ } from "../services/payroll-run.service.js";
 import { updatePayPeriodStatusAutomatically } from "../services/pay-period-automation.service.js";
 import { getProgress, calculateEstimatedCompletion } from "../services/payroll-progress.service.js";
 import { createSSEConnection } from "../utils/sse.utils.js";
 import { generatePreview } from "../services/payroll-preview.service.js";
+import { getJobStatus, getQueueMetrics, retryJob, PAYROLL_QUEUE_NAME, PAYROLL_EMPLOYEE_QUEUE_NAME } from "../queues/payroll.queue.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
@@ -141,18 +142,31 @@ export const startPayrollRun = async (req, res) => {
             });
         }
 
-        // Update run to PROCESSING
-        const updated = await prisma.payrollRun.update({
-            where: { id },
-            data: {
-                status: "PROCESSING",
-                processedAt: new Date(),
+        // Get all employees for this tenant
+        const employees = await prisma.user.findMany({
+            where: {
+                tenantId,
+                isDeleted: false,
+                status: "ACTIVE",
             },
+            select: { id: true },
         });
 
-        logger.info(`Started payroll run ${id}`);
+        const employeeIds = employees.map((e) => e.id);
+
+        if (employeeIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No eligible employees found for payroll processing",
+            });
+        }
+
+        logger.info(`Starting payroll run ${id} with ${employeeIds.length} employees (BullMQ: ${USE_BULLMQ})`);
         await addLog(userId, tenantId, "START_PAYROLL_RUN", "PayrollRun", id, {
             status: { before: "DRAFT", after: "PROCESSING" },
+            processingMode: USE_BULLMQ ? "queue" : "sequential",
+            employeeCount: employeeIds.length,
         }, req);
 
         // Automatically update pay period status to PROCESSING
@@ -162,19 +176,56 @@ export const startPayrollRun = async (req, res) => {
             logger.warn(`Failed to auto-update pay period status: ${autoError.message}`);
         }
 
-        // Process payroll asynchronously (in production, use a job queue)
-        processPayrollRunAsync(id, tenantId).catch((error) => {
-            logger.error(`Error in async payroll processing: ${error.message}`, {
-                error: error.stack,
-                payrollRunId: id,
-            });
-        });
+        // Use BullMQ queue if enabled, otherwise fall back to sequential processing
+        if (USE_BULLMQ) {
+            // Queue-based processing
+            const queueResult = await queuePayrollRun(
+                id,
+                tenantId,
+                payrollRun.payPeriodId,
+                employeeIds,
+                userId
+            );
 
-        return res.status(200).json({
-            success: true,
-            data: updated,
-            message: "Payroll run started successfully. Processing in background.",
-        });
+            return res.status(200).json({
+                success: true,
+                data: {
+                    payrollRunId: id,
+                    status: "PROCESSING",
+                    processingMode: "queue",
+                    jobId: queueResult.jobId,
+                    employeeCount: employeeIds.length,
+                },
+                message: "Payroll run queued successfully. Processing in background.",
+            });
+        } else {
+            // Sequential processing (legacy mode)
+            const updated = await prisma.payrollRun.update({
+                where: { id },
+                data: {
+                    status: "PROCESSING",
+                    processedBy: userId,
+                    processedAt: new Date(),
+                },
+            });
+
+            // Process payroll asynchronously
+            processPayrollRunAsync(id, tenantId).catch((error) => {
+                logger.error(`Error in async payroll processing: ${error.message}`, {
+                    error: error.stack,
+                    payrollRunId: id,
+                });
+            });
+
+            return res.status(200).json({
+                success: true,
+                data: {
+                    ...updated,
+                    processingMode: "sequential",
+                },
+                message: "Payroll run started successfully. Processing in background.",
+            });
+        }
     } catch (error) {
         logger.error(`Error starting payroll run: ${error.message}`, {
             error: error.stack,
@@ -809,6 +860,241 @@ export const previewPayrollRun = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: error.message || "Failed to generate payroll preview",
+        });
+    }
+};
+
+// ============================================================================
+// Queue-related endpoints (BullMQ)
+// ============================================================================
+
+/**
+ * Get queue job status by payroll run ID
+ */
+export const getPayrollJobStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req.user;
+
+        // Find payroll run to get queue job ID
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+            select: {
+                id: true,
+                status: true,
+                queueJobId: true,
+            },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        if (!payrollRun.queueJobId) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    payrollRunId: id,
+                    status: payrollRun.status,
+                    queueJob: null,
+                    message: "No queue job associated with this payroll run",
+                },
+            });
+        }
+
+        // Get job status from queue
+        const jobStatus = await getJobStatus(payrollRun.queueJobId);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                payrollRunId: id,
+                status: payrollRun.status,
+                queueJob: jobStatus,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching payroll job status: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch payroll job status",
+        });
+    }
+};
+
+/**
+ * Get queue metrics
+ */
+export const getPayrollQueueMetrics = async (req, res) => {
+    try {
+        if (!USE_BULLMQ) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    enabled: false,
+                    message: "BullMQ queue processing is not enabled",
+                },
+            });
+        }
+
+        const metrics = await getQueueMetrics();
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                enabled: true,
+                ...metrics,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching queue metrics: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch queue metrics",
+        });
+    }
+};
+
+/**
+ * Retry a failed payroll job
+ */
+export const retryPayrollJob = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        // Find payroll run to get queue job ID
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: {
+                id,
+                tenantId,
+            },
+            select: {
+                id: true,
+                status: true,
+                queueJobId: true,
+            },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        if (payrollRun.status !== "FAILED") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Can only retry failed payroll runs",
+            });
+        }
+
+        if (!payrollRun.queueJobId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No queue job associated with this payroll run",
+            });
+        }
+
+        const success = await retryJob(PAYROLL_QUEUE_NAME, payrollRun.queueJobId);
+
+        if (!success) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Failed to retry job - job not found in queue",
+            });
+        }
+
+        // Update payroll run status
+        await prisma.payrollRun.update({
+            where: { id },
+            data: {
+                status: "PROCESSING",
+            },
+        });
+
+        logger.info(`Retried payroll run ${id}`, {
+            userId,
+            tenantId,
+            jobId: payrollRun.queueJobId,
+        });
+
+        await addLog(userId, tenantId, "RESUME", "PayrollRun", id, {
+            status: { before: "FAILED", after: "PROCESSING" },
+            action: "retry",
+        }, req);
+
+        return res.status(200).json({
+            success: true,
+            message: "Payroll run retry initiated",
+        });
+    } catch (error) {
+        logger.error(`Error retrying payroll job: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to retry payroll job",
+        });
+    }
+};
+
+/**
+ * Get queue configuration info
+ */
+export const getQueueConfig = async (req, res) => {
+    try {
+        return res.status(200).json({
+            success: true,
+            data: {
+                enabled: USE_BULLMQ,
+                queues: {
+                    payrollRun: PAYROLL_QUEUE_NAME,
+                    employeeProcessing: PAYROLL_EMPLOYEE_QUEUE_NAME,
+                },
+                workerConcurrency: parseInt(process.env.PAYROLL_WORKER_CONCURRENCY, 10) || 5,
+                retryConfig: {
+                    maxAttempts: 3,
+                    backoffType: "exponential",
+                    backoffDelay: 2000,
+                },
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching queue config: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch queue configuration",
         });
     }
 };

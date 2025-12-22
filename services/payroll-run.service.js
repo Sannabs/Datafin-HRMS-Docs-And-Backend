@@ -7,6 +7,10 @@ import {
 } from "../calculations/salary-calculations.js";
 import { createProgress, updateProgress } from "./payroll-progress.service.js";
 import { generatePayslipFromRecord } from "./payslip-generator.service.js";
+import { addPayrollRunJob } from "../queues/payroll.queue.js";
+
+// Feature flag for BullMQ queue processing
+export const USE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 /**
  * Process payroll for a single employee and generate payslip
@@ -275,6 +279,57 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
         return results;
     } catch (error) {
         logger.error(`Error processing payroll run ${payrollRunId}: ${error.message}`, {
+            error: error.stack,
+            payrollRunId,
+        });
+        throw error;
+    }
+};
+
+/**
+ * Queue a payroll run for async processing via BullMQ
+ * @param {string} payrollRunId - Payroll run ID
+ * @param {string} tenantId - Tenant ID
+ * @param {string} payPeriodId - Pay period ID
+ * @param {Array<string>} employeeIds - Array of employee IDs
+ * @param {string} processedBy - User ID who started the run
+ * @returns {Promise<Object>} Queue job info
+ */
+export const queuePayrollRun = async (payrollRunId, tenantId, payPeriodId, employeeIds, processedBy) => {
+    if (!USE_BULLMQ) {
+        throw new Error("BullMQ queue processing is not enabled. Set ENABLE_BULLMQ_QUEUE=true");
+    }
+
+    try {
+        const job = await addPayrollRunJob({
+            payrollRunId,
+            tenantId,
+            payPeriodId,
+            employeeIds,
+            processedBy,
+        });
+
+        // Update payroll run with queue job ID
+        await prisma.payrollRun.update({
+            where: { id: payrollRunId },
+            data: {
+                queueJobId: job.id,
+            },
+        });
+
+        logger.info(`Queued payroll run ${payrollRunId}`, {
+            jobId: job.id,
+            employeeCount: employeeIds.length,
+        });
+
+        return {
+            jobId: job.id,
+            payrollRunId,
+            employeeCount: employeeIds.length,
+            status: "queued",
+        };
+    } catch (error) {
+        logger.error(`Error queuing payroll run ${payrollRunId}: ${error.message}`, {
             error: error.stack,
             payrollRunId,
         });

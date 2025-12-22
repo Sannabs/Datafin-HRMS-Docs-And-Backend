@@ -21,6 +21,8 @@ import payslipRoutes from "./routes/payslip.route.js";
 
 dotenv.config();
 
+const USE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
+
 const app = express();
 
 app.use(morgan(process.env.NODE_ENV === "development" ? "dev" : "combined"));
@@ -61,6 +63,27 @@ app.use("/api/audit-logs", auditRoutes);
 app.use("/api/payslips", payslipRoutes);
 
 app.all("/api/auth/*", toNodeHandler(auth));
+
+// Bull Board Dashboard (only when BullMQ is enabled)
+if (USE_BULLMQ) {
+  import("./config/bull-board.config.js")
+    .then(({ getBullBoardRouter }) => {
+      app.use("/admin/queues", getBullBoardRouter());
+      logger.info("Bull Board dashboard mounted at /admin/queues");
+    })
+    .catch((error) => {
+      logger.error(`Failed to mount Bull Board dashboard: ${error.message}`);
+    });
+}
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    bullmqEnabled: USE_BULLMQ,
+  });
+});
 
 app.use(errorHandler);
 
