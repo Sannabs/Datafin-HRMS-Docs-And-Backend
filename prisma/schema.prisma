@@ -137,6 +137,7 @@ model Tenant {
   calculationRules CalculationRule[]
   auditLogs        AuditLog[]
   invitations      Invitation[]
+  notifications    Notification[]
 
   @@index([phone])
   @@index([email])
@@ -250,10 +251,11 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  sessions    Session[]
-  accounts    Account[]
-  auditLogs   AuditLog[]
-  invitations Invitation[]
+  sessions      Session[]
+  accounts      Account[]
+  auditLogs     AuditLog[]
+  invitations   Invitation[]
+  notifications Notification[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -594,4 +596,36 @@ model AuditLog {
   @@index([userId])
   @@index([entityId, entityType])
   @@index([timestamp])
+}
+
+model Notification {
+  id         Int              @id @default(autoincrement())
+  tenantId   String
+  userId     String
+  title      String
+  message    String
+  type       NotificationType
+  readStatus Boolean          @default(false)
+  actionUrl  String?
+  // Relations
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([readStatus])
+  @@index([createdAt(sort: Desc)])
+  @@map("notification")
+}
+
+enum NotificationType {
+  PAYROLL
+  ATTENDANCE
+  LEAVE
+  PERFORMANCE
+  ACTIVIES
+  OTHER
 }
