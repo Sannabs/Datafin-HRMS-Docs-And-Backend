@@ -120,3 +120,49 @@ export const notifyAllAdmins = async (
     throw error;
   }
 };
+
+export const notifyAllHRstaff = async (
+  title,
+  tenantId,
+  message,
+  type,
+  actionUrl
+) => {
+  try {
+    const hrStaff = await prisma.user.findMany({
+      where: {
+        role: "HR_STAFF",
+        tenantId,
+        isDeleted: false,
+        status: "ACTIVE",
+      },
+    });
+
+    if (hrStaff.length === 0) {
+      logger.warn("No HR staff user founds to notify");
+    }
+
+    const notification = await Promise.allSettled(
+      hrStaff.map((staff) => {
+        createNotification(tenantId, staff.id, title, message, type, actionUrl);
+      })
+    );
+
+    const successfully = notification.filter(
+      (n = n.status === "fulfilled")
+    ).length;
+
+    const failed = notification.filter((n) => n.status === "rejected").length;
+
+    logger.info(
+      `Notified ${successfully} HR staff successfully and ${failed} HR staff failed to notify`
+    );
+    return { successfully, failed, total: hrStaff.length };
+  } catch (error) {
+    logger.error(`Error notifying HR staff: ${error.message}`, error, {
+      stack: error.stack,
+    });
+
+    throw error;
+  }
+};
