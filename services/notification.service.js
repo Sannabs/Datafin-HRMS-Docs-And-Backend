@@ -1,4 +1,4 @@
-import { prisma } from "../config/prisma.config.js";
+import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 
 const VALID_NOTIFICATION_TYPES = [
@@ -18,6 +18,11 @@ export const createNotification = async (
   type,
   actionUrl
 ) => {
+  if (!tenantId || typeof tenantId !== "string") {
+    logger.error("Invalid tenantId", tenantId);
+    throw new Error("Invalid tenantId");
+  }
+
   if (!userId || typeof userId !== "string") {
     logger.error("Invalid userId", userId);
     throw new Error("Invalid userId");
@@ -28,21 +33,22 @@ export const createNotification = async (
     throw new Error("Invalid notification type");
   }
 
-  if (!typeof title !== "string" || title.trim().length === 0) {
+  if (typeof title !== "string" || title.trim().length === 0) {
     logger.error("Invalid title", title);
     throw new Error("Title is required and cannot be empty");
   }
 
-  if (!typeof message !== "string" || message.trim().length === 0) {
+  if (typeof message !== "string" || message.trim().length === 0) {
     logger.error("Invalid message", message);
     throw new Error("Message is required and cannot be empty");
   }
 
   try {
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
         tenantId,
         id: userId,
+        isDeleted: false,
       },
     });
 
@@ -55,10 +61,10 @@ export const createNotification = async (
       data: {
         tenantId,
         userId,
-        title,
-        message,
+        title: title.trim(),
+        message: message.trim(),
         type,
-        actionUrl,
+        actionUrl: actionUrl?.trim() || null,
       },
     });
 
@@ -66,6 +72,8 @@ export const createNotification = async (
       `Notification created successfully for user ${userId}`,
       notification
     );
+
+    return notification;
   } catch (error) {
     logger.error(`Error creating notification: ${error.message}`, error, {
       stack: error.stack,
@@ -83,6 +91,11 @@ export const notifyAllAdmins = async (
   actionUrl
 ) => {
   try {
+    if (!tenantId || typeof tenantId !== "string") {
+      logger.error("Invalid tenantId", tenantId);
+      throw new Error("Invalid tenantId");
+    }
+
     const admins = await prisma.user.findMany({
       where: {
         role: "HR_ADMIN",
@@ -93,17 +106,25 @@ export const notifyAllAdmins = async (
     });
 
     if (admins.length === 0) {
-      logger.warn("No admins user founds to notify");
+      logger.warn("No admin users found to notify");
+      return { successfully: 0, failed: 0, total: 0 };
     }
 
     const notification = await Promise.allSettled(
       admins.map((admin) => {
-        createNotification(tenantId, admin.id, title, message, type, actionUrl);
+        return createNotification(
+          tenantId,
+          admin.id,
+          title,
+          message,
+          type,
+          actionUrl
+        );
       })
     );
 
     const successfully = notification.filter(
-      (n = n.status === "fulfilled")
+      (n) => n.status === "fulfilled"
     ).length;
 
     const failed = notification.filter((n) => n.status === "rejected").length;
@@ -129,6 +150,11 @@ export const notifyAllHRstaff = async (
   actionUrl
 ) => {
   try {
+    if (!tenantId || typeof tenantId !== "string") {
+      logger.error("Invalid tenantId", tenantId);
+      throw new Error("Invalid tenantId");
+    }
+
     const hrStaff = await prisma.user.findMany({
       where: {
         role: "HR_STAFF",
@@ -139,17 +165,25 @@ export const notifyAllHRstaff = async (
     });
 
     if (hrStaff.length === 0) {
-      logger.warn("No HR staff user founds to notify");
+      logger.warn("No HR staff users found to notify");
+      return { successfully: 0, failed: 0, total: 0 };
     }
 
     const notification = await Promise.allSettled(
       hrStaff.map((staff) => {
-        createNotification(tenantId, staff.id, title, message, type, actionUrl);
+        return createNotification(
+          tenantId,
+          staff.id,
+          title,
+          message,
+          type,
+          actionUrl
+        );
       })
     );
 
     const successfully = notification.filter(
-      (n = n.status === "fulfilled")
+      (n) => n.status === "fulfilled"
     ).length;
 
     const failed = notification.filter((n) => n.status === "rejected").length;
