@@ -30,6 +30,7 @@ This documentation is organized into the following sections:
 - **[Training API](./api/training-api.md)** - Course management, training assignments, completions, and skills.
 - **[Self-Service API](./api/self-service-api.md)** - Employee portal endpoints for profile, leaves, payslips, and dashboard.
 - **[Reports API](./api/reports-api.md)** - HR dashboards, analytics, custom reports, and data exports.
+- **[Notification API](./api/notification-api.md)** - User notifications, read status management, and notification types.
 
 ## Quick Start
 

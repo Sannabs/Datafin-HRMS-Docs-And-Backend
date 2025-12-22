@@ -19,7 +19,7 @@ import payrollRunRoutes from "./routes/payroll-run.route.js";
 import auditRoutes from "./routes/audit.route.js";
 import payslipRoutes from "./routes/payslip.route.js";
 import holidayRoutes from "./routes/holiday.route.js";
-
+import notificationRoutes from "./routes/notification.route.js";
 dotenv.config();
 
 const USE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
@@ -63,7 +63,7 @@ app.use("/api/payroll-runs", payrollRunRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/payslips", payslipRoutes);
 app.use("/api/holidays", holidayRoutes);
-
+app.use("/api/notifications", notificationRoutes);
 app.all("/api/auth/*", toNodeHandler(auth));
 
 // Bull Board Dashboard (only when BullMQ is enabled)
