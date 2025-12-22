@@ -619,4 +619,5 @@ See specific module documentation:
 - [Training API](./training-api.md)
 - [Self-Service API](./self-service-api.md)
 - [Reports API](./reports-api.md)
+- [Notification API](./notification-api.md)
 
