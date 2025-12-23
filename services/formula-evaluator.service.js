@@ -1,4 +1,4 @@
-import { create, all } from "mathjs";
+import { create, all } from "mathjs"; // mathjs formula engine
 import logger from "../utils/logger.js";
 import {
     calculateWorkingDays,
@@ -29,22 +29,9 @@ const ALLOWED_FUNCTIONS = [
     "sum", "mean", "median", "std", "variance",
 ];
 
-// List of dangerous functions to remove
-const DANGEROUS_FUNCTIONS = [
-    "import", "createUnit", "evaluate", "parse", "compile",
-    "Parser", "FunctionNode", "ConstantNode", "SymbolNode",
-    "chain", "typed", "config", "on", "off", "once", "emit",
-    "resolve", "simplify", "derivative", "rationalize",
-];
-
-// Remove dangerous functions from mathjs
-DANGEROUS_FUNCTIONS.forEach((fn) => {
-    if (math[fn]) {
-        delete math[fn];
-    }
-});
-
-// Also limit the import functionality
+// Override dangerous functions with throwing stubs for security
+// Note: We use import() with override instead of deleting functions directly
+// because mathjs uses lazy loading and deleting can break internal dependencies
 math.import({
     import: function () {
         throw new Error("Function import is disabled for security reasons");
@@ -52,11 +39,17 @@ math.import({
     createUnit: function () {
         throw new Error("Function createUnit is disabled for security reasons");
     },
-    evaluate: function () {
-        throw new Error("Function evaluate is disabled for security reasons");
-    },
     parse: function () {
         throw new Error("Function parse is disabled for security reasons");
+    },
+    compile: function () {
+        throw new Error("Function compile is disabled for security reasons");
+    },
+    Parser: function () {
+        throw new Error("Function Parser is disabled for security reasons");
+    },
+    chain: function () {
+        throw new Error("Function chain is disabled for security reasons");
     },
 }, { override: true });
 
