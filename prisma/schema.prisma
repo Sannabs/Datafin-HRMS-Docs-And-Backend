@@ -108,6 +108,9 @@ enum ActionEnum {
   UPDATE
   DELETE
   VIEW
+  DOWNLOAD
+  EXPORT
+  DISTRIBUTE
   OTHER
 }
 

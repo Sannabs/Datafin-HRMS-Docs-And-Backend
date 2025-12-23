@@ -2,6 +2,7 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import logger from "../utils/logger.js";
 
@@ -60,6 +61,32 @@ export const deleteFile = async (filename) => {
   } catch (error) {
     logger.error(`Error deleting file from R2: ${error.message}`);
     throw new Error("Failed to delete file");
+  }
+};
+
+/**
+ * Get a file from R2 storage as buffer
+ * @param {string} filename - File name with path
+ * @returns {Promise<Buffer>} File buffer
+ */
+export const getFile = async (filename) => {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: filename,
+    });
+
+    const response = await s3Client.send(command);
+
+    // Convert stream to buffer
+    const chunks = [];
+    for await (const chunk of response.Body) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } catch (error) {
+    logger.error(`Error getting file from R2: ${error.message}`);
+    throw new Error("Failed to get file");
   }
 };
 
