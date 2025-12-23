@@ -122,6 +122,13 @@ enum HolidayType {
   OPTIONAL // Optional holiday (employee choice)
 }
 
+enum AdjustmentType {
+  CORRECTION // Fix calculation error
+  SUPPLEMENT // Additional payment (bonus, arrears)
+  REVERSAL // Reverse/cancel previous payslip
+  AMENDMENT // Mid-period salary change
+}
+
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -568,6 +575,7 @@ model Payslip {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Salary values
   grossSalary     Float    @default(0)
   totalAllowances Float    @default(0)
   totalDeductions Float    @default(0)
@@ -576,9 +584,27 @@ model Payslip {
   generatedAt     DateTime @default(now())
   createdAt       DateTime @default(now())
 
-  @@unique([payrollRunId, userId])
+  // Adjustment tracking
+  isAdjustment      Boolean         @default(false)
+  adjustmentType    AdjustmentType?
+  adjustmentReason  String?
+  originalPayslipId String?
+  originalPayslip   Payslip?        @relation("PayslipAdjustments", fields: [originalPayslipId], references: [id], onDelete: SetNull)
+  adjustments       Payslip[]       @relation("PayslipAdjustments")
+
+  // Snapshot of original values (for audit trail)
+  previousGrossSalary     Float?
+  previousNetSalary       Float?
+  previousTotalAllowances Float?
+  previousTotalDeductions Float?
+
+  // Note: Removed unique constraint on [payrollRunId, userId] to allow adjustments
+  // Application logic enforces one original payslip per employee per run
   @@index([payrollRunId])
   @@index([userId])
+  @@index([payrollRunId, userId])
+  @@index([isAdjustment])
+  @@index([originalPayslipId])
 }
 
 model PayrollProgress {
