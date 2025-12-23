@@ -356,6 +356,15 @@ export const createSalaryStructure = async (req, res) => {
         const effective = new Date(effectiveDate);
         const end = endDate ? new Date(endDate) : null;
 
+        // Business rule: End date must be after effective date
+        if (end && end <= effective) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "End date must be after effective date",
+            });
+        }
+
         // Business rule: Prevent overlapping salary structure periods
         // Check if new structure dates overlap with any existing structure
         const overlapping = await prisma.salaryStructure.findFirst({

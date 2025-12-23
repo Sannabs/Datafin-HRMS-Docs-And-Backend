@@ -142,6 +142,28 @@ export const startPayrollRun = async (req, res) => {
             });
         }
 
+        // Business rule: Prevent concurrent payroll runs for the same pay period
+        const concurrentRun = await prisma.payrollRun.findFirst({
+            where: {
+                payPeriodId: payrollRun.payPeriodId,
+                tenantId,
+                status: "PROCESSING",
+                id: { not: id }, // Exclude current run
+            },
+        });
+
+        if (concurrentRun) {
+            return res.status(409).json({
+                success: false,
+                error: "Conflict",
+                message: "Another payroll run is already processing for this pay period. Please wait for it to complete.",
+                data: {
+                    concurrentRunId: concurrentRun.id,
+                    startedAt: concurrentRun.processedAt,
+                },
+            });
+        }
+
         // Get all employees for this tenant
         const employees = await prisma.user.findMany({
             where: {
@@ -498,7 +520,7 @@ export const processSingleEmployee = async (req, res) => {
             tenantId
         );
 
-        // Create or update payslip
+        // Create or update payslip (with warning flags if applicable)
         let payslip;
         if (existingPayslip) {
             // Update existing payslip
@@ -509,6 +531,8 @@ export const processSingleEmployee = async (req, res) => {
                     totalAllowances: payslipData.totalAllowances,
                     totalDeductions: payslipData.totalDeductions,
                     netSalary: payslipData.netSalary,
+                    hasWarnings: !!payslipData.warnings,
+                    warnings: payslipData.warnings || null,
                 },
                 include: {
                     user: {
@@ -530,6 +554,8 @@ export const processSingleEmployee = async (req, res) => {
                     totalAllowances: payslipData.totalAllowances,
                     totalDeductions: payslipData.totalDeductions,
                     netSalary: payslipData.netSalary,
+                    hasWarnings: !!payslipData.warnings,
+                    warnings: payslipData.warnings || null,
                 },
                 include: {
                     user: {

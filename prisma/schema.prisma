@@ -584,6 +584,10 @@ model Payslip {
   generatedAt     DateTime @default(now())
   createdAt       DateTime @default(now())
 
+  // Warning flags (for review by HR)
+  hasWarnings Boolean @default(false)
+  warnings    Json? // Stores warning details (e.g., negative net salary)
+
   // Adjustment tracking
   isAdjustment      Boolean         @default(false)
   adjustmentType    AdjustmentType?
