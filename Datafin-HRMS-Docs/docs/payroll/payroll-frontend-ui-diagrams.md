@@ -41,16 +41,32 @@ graph TD
     D --> D2[Create New]
     D --> D3[Run Details]
     D --> D4[Processing View]
+    D3 --> D3a[Distribute Payslips]
+    D3 --> D3b[Bulk Download]
+    D3 --> D3c[Export Payslips]
     
     E --> E1[All Payslips]
     E --> E2[Payslip Details]
     E --> E3[Create Adjustment]
+    E1 --> E1a[Bulk Actions]
+    E1 --> E1b[Bulk Download]
+    E1 --> E1c[Export Selected]
+    E1 --> E1d[Email Selected]
+    E2 --> E2a[Download PDF]
+    E2 --> E2b[Email Payslip]
     
     style A fill:#3b82f6,color:#fff
     style B fill:#10b981,color:#fff
     style C fill:#10b981,color:#fff
     style D fill:#10b981,color:#fff
     style E fill:#10b981,color:#fff
+    style D3a fill:#f59e0b,color:#fff
+    style D3b fill:#f59e0b,color:#fff
+    style D3c fill:#f59e0b,color:#fff
+    style E1a fill:#f59e0b,color:#fff
+    style E1b fill:#f59e0b,color:#fff
+    style E1c fill:#f59e0b,color:#fff
+    style E1d fill:#f59e0b,color:#fff
 ```
 
 ### 1.2 Employee Self-Service Navigation
