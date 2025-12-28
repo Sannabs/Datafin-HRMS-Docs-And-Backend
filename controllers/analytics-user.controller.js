@@ -1,4 +1,6 @@
 import prisma from "../config/prisma.config.js";
+import { Prisma } from "@prisma/client";
+import logger from "../utils/logger.js";
 
 function parseBool(v, defaultValue = false) {
   if (v === undefined) return defaultValue;
@@ -24,12 +26,12 @@ function baseUserWhere(tenantId, includeDeleted) {
 /**
  * GET /api/analytics/users/overview?start=&end=&includeDeleted=false
  */
-
 export const getUsersOverview = async (req, res, next) => {
   try {
     const tenantId = req.user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({
+        success: false,
         error: "Bad Request",
         message: "Missing tenantId in auth context",
       });
@@ -41,6 +43,7 @@ export const getUsersOverview = async (req, res, next) => {
 
     if ((req.query.start && !start) || (req.query.end && !end)) {
       return res.status(400).json({
+        success: false,
         error: "Validation Error",
         message: "Invalid start/end datetime. Use ISO 8601.",
       });
@@ -93,9 +96,7 @@ export const getUsersOverview = async (req, res, next) => {
     });
 
     // Resolve department/position labels for frontend charts (optional but useful)
-    const departmentIds = byDepartment
-      .map((x) => x.departmentId)
-      .filter(Boolean);
+    const departmentIds = byDepartment.map((x) => x.departmentId).filter(Boolean);
     const positionIds = byPosition.map((x) => x.positionId).filter(Boolean);
 
     const [departments, positions] = await Promise.all([
@@ -131,14 +132,16 @@ export const getUsersOverview = async (req, res, next) => {
         })),
         byPosition: byPosition.map((p) => ({
           positionId: p.positionId ?? null,
-          positionTitle: p.positionId
-            ? posMap.get(p.positionId)?.title ?? null
-            : null,
+          positionTitle: p.positionId ? posMap.get(p.positionId)?.title ?? null : null,
           count: p._count._all,
         })),
       },
     });
   } catch (err) {
+    logger.error(`Error in getUsersOverview: ${err.message}`, {
+      stack: err.stack,
+      tenantId: req.user?.tenantId,
+    });
     next(err);
   }
 };
@@ -151,15 +154,16 @@ export const getUserRegistrationsSeries = async (req, res, next) => {
     const tenantId = req.user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({
+        success: false,
         error: "Bad Request",
         message: "Missing tenantId in auth context",
       });
     }
 
-    const includeDeleted = parseBool(req.query.includeDeleted, false);
     const interval = String(req.query.interval || "day");
     if (!["day", "week", "month"].includes(interval)) {
       return res.status(400).json({
+        success: false,
         error: "Validation Error",
         message: "interval must be one of: day, week, month",
       });
@@ -170,10 +174,13 @@ export const getUserRegistrationsSeries = async (req, res, next) => {
 
     if ((req.query.start && !start) || (req.query.end && !end)) {
       return res.status(400).json({
+        success: false,
         error: "Validation Error",
         message: "Invalid start/end datetime. Use ISO 8601.",
       });
     }
+
+    const includeDeleted = parseBool(req.query.includeDeleted, false);
 
     const parts = [Prisma.sql`u."tenantId" = ${tenantId}`];
 
@@ -197,18 +204,19 @@ export const getUserRegistrationsSeries = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: rows.map((r) => ({
-        bucket: r.bucket.toISOString(),
-        count: Number(r.count),
-      })),
+      data: rows.map((r) => ({ bucket: r.bucket.toISOString(), count: Number(r.count) })),
     });
   } catch (err) {
+    logger.error(`Error in getUserRegistrationsSeries: ${err.message}`, {
+      stack: err.stack,
+      tenantId: req.user?.tenantId,
+    });
     next(err);
   }
 };
 
 /**
- * GET /api/analytics/users/logins?start=&end=&interval=day|week|month
+ * GET /api/analytics/users/logins?start=&end=&interval=day|week|month&includeDeleted=false
  * Login events are approximated by Session.createdAt (Better Auth session table)
  */
 export const getUserLoginsSeries = async (req, res, next) => {
@@ -216,14 +224,18 @@ export const getUserLoginsSeries = async (req, res, next) => {
     const tenantId = req.user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({
+        success: false,
         error: "Bad Request",
         message: "Missing tenantId in auth context",
       });
     }
 
+    const includeDeleted = parseBool(req.query.includeDeleted, false);
+
     const interval = String(req.query.interval || "day");
     if (!["day", "week", "month"].includes(interval)) {
       return res.status(400).json({
+        success: false,
         error: "Validation Error",
         message: "interval must be one of: day, week, month",
       });
@@ -234,16 +246,19 @@ export const getUserLoginsSeries = async (req, res, next) => {
 
     if ((req.query.start && !start) || (req.query.end && !end)) {
       return res.status(400).json({
+        success: false,
         error: "Validation Error",
         message: "Invalid start/end datetime. Use ISO 8601.",
       });
     }
 
-    const parts = [
-      Prisma.sql`u."tenantId" = ${tenantId}`,
-      Prisma.sql`u."isDeleted" = false`,
-      Prisma.sql`u."deletedAt" IS NULL`,
-    ];
+    const parts = [Prisma.sql`u."tenantId" = ${tenantId}`];
+
+    if (!includeDeleted) {
+      parts.push(Prisma.sql`u."isDeleted" = false`);
+      parts.push(Prisma.sql`u."deletedAt" IS NULL`);
+    }
+
     if (start) parts.push(Prisma.sql`s."createdAt" >= ${start}`);
     if (end) parts.push(Prisma.sql`s."createdAt" <= ${end}`);
 
@@ -261,12 +276,13 @@ export const getUserLoginsSeries = async (req, res, next) => {
 
     return res.json({
       success: true,
-      data: rows.map((r) => ({
-        bucket: r.bucket.toISOString(),
-        count: Number(r.count),
-      })),
+      data: rows.map((r) => ({ bucket: r.bucket.toISOString(), count: Number(r.count) })),
     });
   } catch (err) {
+    logger.error(`Error in getUserLoginsSeries: ${err.message}`, {
+      stack: err.stack,
+      tenantId: req.user?.tenantId,
+    });
     next(err);
   }
 };
@@ -280,6 +296,7 @@ export const getUserLoginRecency = async (req, res, next) => {
     const tenantId = req.user?.tenantId;
     if (!tenantId) {
       return res.status(400).json({
+        success: false,
         error: "Bad Request",
         message: "Missing tenantId in auth context",
       });
@@ -298,12 +315,8 @@ export const getUserLoginRecency = async (req, res, next) => {
 
     const [d0_7, d8_30, d31_90, d90plus, never] = await Promise.all([
       prisma.user.count({ where: { ...where, lastLogin: { gte: d7 } } }),
-      prisma.user.count({
-        where: { ...where, lastLogin: { lt: d7, gte: d30 } },
-      }),
-      prisma.user.count({
-        where: { ...where, lastLogin: { lt: d30, gte: d90 } },
-      }),
+      prisma.user.count({ where: { ...where, lastLogin: { lt: d7, gte: d30 } } }),
+      prisma.user.count({ where: { ...where, lastLogin: { lt: d30, gte: d90 } } }),
       prisma.user.count({ where: { ...where, lastLogin: { lt: d90 } } }),
       prisma.user.count({ where: { ...where, lastLogin: null } }),
     ]);
@@ -315,10 +328,14 @@ export const getUserLoginRecency = async (req, res, next) => {
         "8_30_days": d8_30,
         "31_90_days": d31_90,
         "90plus_days": d90plus,
-        never_logged_in: never,
+        "never_logged_in": never,
       },
     });
   } catch (err) {
+    logger.error(`Error in getUserLoginRecency: ${err.message}`, {
+      stack: err.stack,
+      tenantId: req.user?.tenantId,
+    });
     next(err);
   }
 };
