@@ -30,6 +30,12 @@ enum EmploymentType {
   INTERN
 }
 
+enum WorkLocation {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -269,6 +275,7 @@ model User {
   emergencyContact String?
   status           EmployeeStatus? @default(ACTIVE)
   employmentType   EmploymentType? @default(FULL_TIME)
+  workLocation     WorkLocation?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
