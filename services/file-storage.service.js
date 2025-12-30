@@ -1,4 +1,4 @@
-import { uploadFile, deleteFile } from "../config/storage.config.js";
+import { uploadFile, deleteFile, getFile } from "../config/storage.config.js";
 import logger from "../utils/logger.js";
 
 const STORAGE_FOLDER = process.env.PAYSLIP_STORAGE_FOLDER || "payslips";
@@ -129,6 +129,38 @@ export const deletePayslip = async (filename) => {
         return { result: "ok" };
     } catch (error) {
         logger.error(`Error deleting payslip from R2: ${error.message}`, {
+            error: error.stack,
+            filename,
+        });
+        throw error;
+    }
+};
+
+/**
+ * Get payslip file as buffer for bulk download
+ * @param {string} filename - File path/filename stored in filePath field
+ * @returns {Promise<Buffer>} File buffer
+ */
+export const getPayslipBuffer = async (filename) => {
+    try {
+        if (!filename) {
+            throw new Error("Filename is required");
+        }
+
+        // Extract filename from URL if it's a full URL
+        let fileKey = filename;
+        if (filename.startsWith("http://") || filename.startsWith("https://")) {
+            const url = new URL(filename);
+            fileKey = url.pathname.substring(1); // Remove leading slash
+        }
+
+        const buffer = await getFile(fileKey);
+
+        logger.debug(`Retrieved payslip buffer from R2: ${fileKey}`);
+
+        return buffer;
+    } catch (error) {
+        logger.error(`Error getting payslip buffer from R2: ${error.message}`, {
             error: error.stack,
             filename,
         });

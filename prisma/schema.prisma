@@ -30,6 +30,12 @@ enum EmploymentType {
   INTERN
 }
 
+enum WorkLocation {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -108,6 +114,9 @@ enum ActionEnum {
   UPDATE
   DELETE
   VIEW
+  DOWNLOAD
+  EXPORT
+  DISTRIBUTE
   OTHER
 }
 
@@ -117,6 +126,13 @@ enum HolidayType {
   REGIONAL // Regional holiday (state/province)
   RELIGIOUS // Religious holiday
   OPTIONAL // Optional holiday (employee choice)
+}
+
+enum AdjustmentType {
+  CORRECTION // Fix calculation error
+  SUPPLEMENT // Additional payment (bonus, arrears)
+  REVERSAL // Reverse/cancel previous payslip
+  AMENDMENT // Mid-period salary change
 }
 
 // ------------------------------------------------------------
@@ -260,6 +276,7 @@ model User {
   emergencyContact String?
   status           EmployeeStatus? @default(ACTIVE)
   employmentType   EmploymentType? @default(FULL_TIME)
+  workLocation     WorkLocation?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -569,6 +586,7 @@ model Payslip {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Salary values
   grossSalary     Float    @default(0)
   totalAllowances Float    @default(0)
   totalDeductions Float    @default(0)
@@ -577,9 +595,31 @@ model Payslip {
   generatedAt     DateTime @default(now())
   createdAt       DateTime @default(now())
 
-  @@unique([payrollRunId, userId])
+  // Warning flags (for review by HR)
+  hasWarnings Boolean @default(false)
+  warnings    Json? // Stores warning details (e.g., negative net salary)
+
+  // Adjustment tracking
+  isAdjustment      Boolean         @default(false)
+  adjustmentType    AdjustmentType?
+  adjustmentReason  String?
+  originalPayslipId String?
+  originalPayslip   Payslip?        @relation("PayslipAdjustments", fields: [originalPayslipId], references: [id], onDelete: SetNull)
+  adjustments       Payslip[]       @relation("PayslipAdjustments")
+
+  // Snapshot of original values (for audit trail)
+  previousGrossSalary     Float?
+  previousNetSalary       Float?
+  previousTotalAllowances Float?
+  previousTotalDeductions Float?
+
+  // Note: Removed unique constraint on [payrollRunId, userId] to allow adjustments
+  // Application logic enforces one original payslip per employee per run
   @@index([payrollRunId])
   @@index([userId])
+  @@index([payrollRunId, userId])
+  @@index([isAdjustment])
+  @@index([originalPayslipId])
 }
 
 model PayrollProgress {

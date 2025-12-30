@@ -104,29 +104,43 @@ const processEmployeeJob = async (job) => {
         // Process employee payroll
         const payslipData = await processEmployeePayroll(employeeId, payPeriodId, tenantId);
 
-        // Create or update payslip record
-        const payslip = await prisma.payslip.upsert({
+        // Check for existing non-adjustment payslip
+        const existingPayslip = await prisma.payslip.findFirst({
             where: {
-                payrollRunId_userId: {
-                    payrollRunId,
-                    userId: employeeId,
-                },
-            },
-            update: {
-                grossSalary: payslipData.grossSalary,
-                totalAllowances: payslipData.totalAllowances,
-                totalDeductions: payslipData.totalDeductions,
-                netSalary: payslipData.netSalary,
-            },
-            create: {
                 payrollRunId,
                 userId: employeeId,
-                grossSalary: payslipData.grossSalary,
-                totalAllowances: payslipData.totalAllowances,
-                totalDeductions: payslipData.totalDeductions,
-                netSalary: payslipData.netSalary,
+                isAdjustment: false,
             },
         });
+
+        // Create or update payslip record (with warning flags if applicable)
+        let payslip;
+        if (existingPayslip) {
+            payslip = await prisma.payslip.update({
+                where: { id: existingPayslip.id },
+                data: {
+                    grossSalary: payslipData.grossSalary,
+                    totalAllowances: payslipData.totalAllowances,
+                    totalDeductions: payslipData.totalDeductions,
+                    netSalary: payslipData.netSalary,
+                    hasWarnings: !!payslipData.warnings,
+                    warnings: payslipData.warnings || null,
+                },
+            });
+        } else {
+            payslip = await prisma.payslip.create({
+                data: {
+                    payrollRunId,
+                    userId: employeeId,
+                    grossSalary: payslipData.grossSalary,
+                    totalAllowances: payslipData.totalAllowances,
+                    totalDeductions: payslipData.totalDeductions,
+                    netSalary: payslipData.netSalary,
+                    hasWarnings: !!payslipData.warnings,
+                    warnings: payslipData.warnings || null,
+                },
+            });
+        }
 
         // Generate PDF asynchronously (don't block processing)
         generatePayslipFromRecord(payslip.id, tenantId).catch((pdfError) => {

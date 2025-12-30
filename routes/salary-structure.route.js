@@ -2,6 +2,8 @@ import express from "express";
 import {
     getEmployeeSalaryStructure,
     getEmployeeSalaryStructures,
+    getMySalaryStructure,
+    getMySalaryStructures,
     createSalaryStructure,
     updateSalaryStructure,
     deleteSalaryStructure,
@@ -17,15 +19,22 @@ const router = express.Router();
 
 router.use(requireAuth);
 
-router.get("/employees/:id/salary-structure", getEmployeeSalaryStructure);
-router.get("/employees/:id/salary-structures", getEmployeeSalaryStructures);
-router.post("/employees/:id/salary-structure", requireRole(["HR_ADMIN", "HR_STAFF"]), createSalaryStructure);
-router.put("/salary-structures/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), updateSalaryStructure);
+// Employee self-service routes (must be before parameterized routes)
+router.get("/me/salary-structure", getMySalaryStructure);
+router.get("/me/salary-structures", getMySalaryStructures);
+
+// HR view routes (HR can view any employee's salary structure)
+router.get("/employees/:id/salary-structure", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructure);
+router.get("/employees/:id/salary-structures", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructures);
+
+// HR Admin only - modify salary structures
+router.post("/employees/:id/salary-structure", requireRole(["HR_ADMIN"]), createSalaryStructure);
+router.put("/salary-structures/:id", requireRole(["HR_ADMIN"]), updateSalaryStructure);
 router.delete("/salary-structures/:id", requireRole(["HR_ADMIN"]), deleteSalaryStructure);
-router.post("/salary-structures/:id/allowances", requireRole(["HR_ADMIN", "HR_STAFF"]), addAllowanceToStructure);
-router.delete("/salary-structures/:id/allowances/:allowanceId", requireRole(["HR_ADMIN", "HR_STAFF"]), removeAllowanceFromStructure);
-router.post("/salary-structures/:id/deductions", requireRole(["HR_ADMIN", "HR_STAFF"]), addDeductionToStructure);
-router.delete("/salary-structures/:id/deductions/:deductionId", requireRole(["HR_ADMIN", "HR_STAFF"]), removeDeductionFromStructure);
+router.post("/salary-structures/:id/allowances", requireRole(["HR_ADMIN"]), addAllowanceToStructure);
+router.delete("/salary-structures/:id/allowances/:allowanceId", requireRole(["HR_ADMIN"]), removeAllowanceFromStructure);
+router.post("/salary-structures/:id/deductions", requireRole(["HR_ADMIN"]), addDeductionToStructure);
+router.delete("/salary-structures/:id/deductions/:deductionId", requireRole(["HR_ADMIN"]), removeDeductionFromStructure);
 
 export default router;
 

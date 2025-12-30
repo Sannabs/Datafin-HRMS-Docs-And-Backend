@@ -17,7 +17,7 @@ This document describes the complete enterprise payroll business process flow - 
 ---
 
 ## 1. Payroll Setup & Configuration Phase
-
+****
 ### 1.1 Initial Setup (One-Time)
 **Who:** HR Admin  
 **Purpose:** Configure the payroll system foundation

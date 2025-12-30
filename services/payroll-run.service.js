@@ -98,14 +98,26 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             hireDate: employee.hireDate,
         };
 
-        // Calculate gross and net salary
-        const { grossSalary, netSalary } = await recalculateSalary(
+        // Calculate gross and net salary (with warning detection)
+        const salaryResult = await recalculateSalary(
             salaryStructure.baseSalary,
             salaryStructure.allowances,
             salaryStructure.deductions,
             employeeContext,
             tenantId
         );
+
+        const { grossSalary, netSalary, warnings } = salaryResult;
+
+        // Log warning if deductions exceed gross salary
+        if (warnings?.hasNegativeNetSalary) {
+            logger.warn(`Negative net salary detected for employee ${employeeId}: ${warnings.message}`, {
+                employeeId,
+                grossSalary,
+                originalNetSalary: warnings.originalNetSalary,
+                adjustedNetSalary: netSalary,
+            });
+        }
 
         // Calculate total allowances and deductions
         let totalAllowances = 0;
@@ -138,6 +150,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             totalAllowances,
             totalDeductions,
             netSalary,
+            warnings: warnings?.hasNegativeNetSalary ? warnings : null,
         };
     } catch (error) {
         logger.error(`Error processing payroll for employee ${employeeId}: ${error.message}`, {
@@ -193,7 +206,7 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
             try {
                 const payslipData = await processEmployeePayroll(employeeId, payPeriodId, tenantId);
 
-                // Create payslip record
+                // Create payslip record (with warning flags if applicable)
                 const payslip = await prisma.payslip.create({
                     data: {
                         payrollRunId,
@@ -202,6 +215,8 @@ export const processPayrollRun = async (payrollRunId, employeeIds) => {
                         totalAllowances: payslipData.totalAllowances,
                         totalDeductions: payslipData.totalDeductions,
                         netSalary: payslipData.netSalary,
+                        hasWarnings: !!payslipData.warnings,
+                        warnings: payslipData.warnings || null,
                     },
                 });
 

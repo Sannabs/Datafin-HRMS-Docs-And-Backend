@@ -34,3 +34,4 @@ ALTER TABLE "notification" ADD CONSTRAINT "notification_tenantId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "notification" ADD CONSTRAINT "notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+

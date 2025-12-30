@@ -1,5 +1,6 @@
 import express from "express";
-import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
+import { requireAuth } from "../middlewares/auth.middleware.js";
+import { requireRole } from '../middlewares/rbac.middleware.js'
 import {
     getAllHolidays,
     getHolidayById,

@@ -161,7 +161,7 @@ export const calculateGrossSalary = async (
  * @param {number} baseSalary - Employee's base salary
  * @param {Object} [employeeContext] - Optional employee context for conditional calculations
  * @param {string} [tenantId] - Optional tenant ID for rule lookup
- * @returns {Promise<number>|number} Calculated net salary
+ * @returns {Promise<Object>} Object containing netSalary, totalDeductions, and warning flags
  */
 export const calculateNetSalary = async (
     grossSalary,
@@ -171,7 +171,12 @@ export const calculateNetSalary = async (
     tenantId = null
 ) => {
     if (!deductions || deductions.length === 0) {
-        return grossSalary;
+        return {
+            netSalary: grossSalary,
+            totalDeductions: 0,
+            hasNegativeNetWarning: false,
+            originalNetSalary: grossSalary,
+        };
     }
 
     let totalDeductions = 0;
@@ -187,11 +192,17 @@ export const calculateNetSalary = async (
         totalDeductions += deductionAmount;
     }
 
-    const netSalary = grossSalary - totalDeductions;
+    const originalNetSalary = grossSalary - totalDeductions;
+    const hasNegativeNetWarning = originalNetSalary < 0;
 
     // Business rule: Net salary cannot be negative
-    // If deductions exceed gross, return 0 (may need manual review in production)
-    return Math.max(0, netSalary);
+    // If deductions exceed gross, return 0 but flag for review
+    return {
+        netSalary: Math.max(0, originalNetSalary),
+        totalDeductions,
+        hasNegativeNetWarning,
+        originalNetSalary, // The actual calculated value (can be negative)
+    };
 };
 
 /**
@@ -201,7 +212,7 @@ export const calculateNetSalary = async (
  * @param {Array} deductions - Array of deduction objects
  * @param {Object} [employeeContext] - Optional employee context for conditional calculations
  * @param {string} [tenantId] - Optional tenant ID for rule lookup
- * @returns {Promise<Object>} Object containing grossSalary and netSalary
+ * @returns {Promise<Object>} Object containing grossSalary, netSalary, and warnings
  */
 export const recalculateSalary = async (
     baseSalary,
@@ -211,10 +222,18 @@ export const recalculateSalary = async (
     tenantId = null
 ) => {
     const grossSalary = await calculateGrossSalary(baseSalary, allowances, employeeContext, tenantId);
-    const netSalary = await calculateNetSalary(grossSalary, deductions, baseSalary, employeeContext, tenantId);
+    const netResult = await calculateNetSalary(grossSalary, deductions, baseSalary, employeeContext, tenantId);
 
     return {
         grossSalary,
-        netSalary,
+        netSalary: netResult.netSalary,
+        totalDeductions: netResult.totalDeductions,
+        warnings: {
+            hasNegativeNetSalary: netResult.hasNegativeNetWarning,
+            originalNetSalary: netResult.originalNetSalary,
+            message: netResult.hasNegativeNetWarning
+                ? `Deductions exceed gross salary. Original net: ${netResult.originalNetSalary.toFixed(2)}, adjusted to 0.`
+                : null,
+        },
     };
 };

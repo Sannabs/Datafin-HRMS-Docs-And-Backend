@@ -3,20 +3,154 @@ import logger from "../utils/logger.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
+/**
+ * Employee self-service: Get my current (active) salary structure
+ */
+export const getMySalaryStructure = async (req, res) => {
+    try {
+        const { id: userId, tenantId } = req.user;
+
+        const today = new Date();
+        const salaryStructure = await prisma.salaryStructure.findFirst({
+            where: {
+                userId,
+                tenantId,
+                effectiveDate: { lte: today },
+                OR: [
+                    { endDate: null },
+                    { endDate: { gte: today } },
+                ],
+            },
+            include: {
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isTaxable: true,
+                            },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isStatutory: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: {
+                effectiveDate: "desc",
+            },
+        });
+
+        if (!salaryStructure) {
+            logger.warn(`No active salary structure found for user: ${userId}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "No active salary structure found",
+            });
+        }
+
+        logger.info(`Employee ${userId} retrieved their salary structure`);
+
+        return res.status(200).json({
+            success: true,
+            data: salaryStructure,
+        });
+    } catch (error) {
+        logger.error(`Error fetching my salary structure: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch salary structure",
+        });
+    }
+};
+
+/**
+ * Employee self-service: Get all my salary structures (history)
+ */
+export const getMySalaryStructures = async (req, res) => {
+    try {
+        const { id: userId, tenantId } = req.user;
+
+        const salaryStructures = await prisma.salaryStructure.findMany({
+            where: {
+                userId,
+                tenantId,
+            },
+            include: {
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isTaxable: true,
+                            },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isStatutory: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: {
+                effectiveDate: "desc",
+            },
+        });
+
+        logger.info(`Employee ${userId} retrieved ${salaryStructures.length} salary structures`);
+
+        return res.status(200).json({
+            success: true,
+            data: salaryStructures,
+            count: salaryStructures.length,
+        });
+    } catch (error) {
+        logger.error(`Error fetching my salary structures: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch salary structures",
+        });
+    }
+};
+
+/**
+ * HR view: Get a specific employee's current (active) salary structure
+ * Access: HR_ADMIN, HR_STAFF only (enforced by route middleware)
+ */
 export const getEmployeeSalaryStructure = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { id: userId, tenantId, role } = req.user;
-
-        // Data access control: Employees can only view their own salary structure
-        // HR roles can view any employee's salary structure
-        if (role === "EMPLOYEE" && employeeId !== userId) {
-            return res.status(403).json({
-                success: false,
-                error: "Forbidden",
-                message: "You can only view your own salary structure",
-            });
-        }
+        const { tenantId } = req.user;
 
         const today = new Date();
         // Find active salary structure: effective date <= today AND (no end date OR end date >= today)
@@ -79,7 +213,7 @@ export const getEmployeeSalaryStructure = async (req, res) => {
             });
         }
 
-        logger.info(`Retrieved salary structure for employee: ${employeeId}`);
+        logger.info(`HR retrieved salary structure for employee: ${employeeId}`);
 
         return res.status(200).json({
             success: true,
@@ -98,18 +232,14 @@ export const getEmployeeSalaryStructure = async (req, res) => {
     }
 };
 
+/**
+ * HR view: Get all salary structures for a specific employee (history)
+ * Access: HR_ADMIN, HR_STAFF only (enforced by route middleware)
+ */
 export const getEmployeeSalaryStructures = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { id: userId, tenantId, role } = req.user;
-
-        if (role === "EMPLOYEE" && employeeId !== userId) {
-            return res.status(403).json({
-                success: false,
-                error: "Forbidden",
-                message: "You can only view your own salary structures",
-            });
-        }
+        const { tenantId } = req.user;
 
         const salaryStructures = await prisma.salaryStructure.findMany({
             where: {
@@ -117,6 +247,13 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                 tenantId,
             },
             include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                    },
+                },
                 allowances: {
                     include: {
                         allowanceType: {
@@ -124,6 +261,7 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                                 id: true,
                                 name: true,
                                 code: true,
+                                isTaxable: true,
                             },
                         },
                     },
@@ -135,6 +273,7 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                                 id: true,
                                 name: true,
                                 code: true,
+                                isStatutory: true,
                             },
                         },
                     },
@@ -145,7 +284,7 @@ export const getEmployeeSalaryStructures = async (req, res) => {
             },
         });
 
-        logger.info(`Retrieved ${salaryStructures.length} salary structures for employee: ${employeeId}`);
+        logger.info(`HR retrieved ${salaryStructures.length} salary structures for employee: ${employeeId}`);
 
         return res.status(200).json({
             success: true,
@@ -216,6 +355,15 @@ export const createSalaryStructure = async (req, res) => {
         const today = new Date();
         const effective = new Date(effectiveDate);
         const end = endDate ? new Date(endDate) : null;
+
+        // Business rule: End date must be after effective date
+        if (end && end <= effective) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "End date must be after effective date",
+            });
+        }
 
         // Business rule: Prevent overlapping salary structure periods
         // Check if new structure dates overlap with any existing structure

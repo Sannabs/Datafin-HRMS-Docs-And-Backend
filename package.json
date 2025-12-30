@@ -13,6 +13,7 @@
     "@bull-board/express": "^6.15.0",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
+    "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.4.1",
     "bullmq": "^5.66.2",
