@@ -423,10 +423,10 @@ model Attendance {
 // Enums
 // ============================================
 enum Role {
-  SUPER_ADMIN
-  ADMIN
-  MANAGER
-  EMPLOYEE
+  HR_ADMIN
+  HR_STAFF
+  STAFF
+  DEPARTMENT_ADMIN
 }
 
 enum ClockMethod {
@@ -559,7 +559,7 @@ async function markAbsentEmployees() {
   const employees = await prisma.user.findMany({
     where: {
       shiftId: { not: null },
-      role: "EMPLOYEE",
+      role: "STAFF",
     },
     include: {
       shift: true,

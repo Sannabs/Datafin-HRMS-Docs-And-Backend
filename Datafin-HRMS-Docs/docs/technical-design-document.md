@@ -623,11 +623,10 @@ X-Request-ID: {unique_request_id}
 
 #### 6.3.1 Role-Based Access Control (RBAC)
 **System Roles:**
-- System Administrator: Full system access
-- HR Officer: Employee, recruitment, payroll, performance data
-- Department Head: Department-level approvals and data
-- Employee: Self-service access
-- Auditor/Management: Read-only analytics access
+- HR_ADMIN: Full HR system administration
+- HR_STAFF: Day-to-day HR operations (no system configuration)
+- STAFF: Self-service employee access
+- DEPARTMENT_ADMIN: Department-level administration (has all STAFF permissions + department management)
 
 #### 6.3.2 Permission Matrix
 Permissions defined by:
@@ -637,8 +636,8 @@ Permissions defined by:
 
 #### 6.3.3 Data Access Rules
 - **Organizational Hierarchy**: Managers access subordinate data
-- **Department Scope**: Department heads access department data
-- **Personal Data**: Employees access only their data
+- **Department Scope**: Department admins access department data
+- **Personal Data**: Staff access only their own data
 - **Sensitive Data**: Additional authorization for payroll, performance
 
 ### 6.4 Data Security

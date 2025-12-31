@@ -647,8 +647,8 @@ export const getPayslipById = async (req, res) => {
             });
         }
 
-        // Check if employee can only see their own payslips
-        if (role === "EMPLOYEE" && payslip.userId !== userId) {
+        // Check if staff or department admin can only see their own payslips
+        if ((role === "STAFF" || role === "DEPARTMENT_ADMIN") && payslip.userId !== userId) {
             return res.status(403).json({
                 success: false,
                 error: "Forbidden",
@@ -740,8 +740,8 @@ export const downloadPayslip = async (req, res) => {
             });
         }
 
-        // Check if employee can only see their own payslips
-        if (role === "EMPLOYEE" && payslip.userId !== userId) {
+        // Check if staff or department admin can only see their own payslips
+        if ((role === "STAFF" || role === "DEPARTMENT_ADMIN") && payslip.userId !== userId) {
             return res.status(403).json({
                 success: false,
                 error: "Forbidden",
@@ -790,7 +790,7 @@ export const getEmployeePayslips = async (req, res) => {
         const { payPeriodId, startDate, endDate, includeBreakdown } = req.query;
 
         // Check if employee can only see their own payslips
-        if (role === "EMPLOYEE" && employeeId !== userId) {
+        if ((role === "STAFF" || role === "DEPARTMENT_ADMIN") && employeeId !== userId) {
             return res.status(403).json({
                 success: false,
                 error: "Forbidden",
@@ -1539,8 +1539,8 @@ export const getPayslipAdjustments = async (req, res) => {
             });
         }
 
-        // Check if employee can only see their own payslips
-        if (role === "EMPLOYEE" && payslip.userId !== userId) {
+        // Check if staff or department admin can only see their own payslips
+        if ((role === "STAFF" || role === "DEPARTMENT_ADMIN") && payslip.userId !== userId) {
             return res.status(403).json({
                 success: false,
                 error: "Forbidden",

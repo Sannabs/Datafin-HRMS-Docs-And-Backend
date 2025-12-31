@@ -40,11 +40,11 @@ export const sendInvitation = async (req, res, next) => {
     }
 
     // Validate role enum
-    const validRoles = ["HR_ADMIN", "HR_STAFF", "EMPLOYEE"];
+    const validRoles = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid role. Must be one of: HR_ADMIN, HR_STAFF, EMPLOYEE",
+        message: "Invalid role. Must be one of: HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN",
       });
     }
 
@@ -435,7 +435,7 @@ export const getInvitations = async (req, res, next) => {
 
     // Filter by role
     if (role) {
-      const validRoles = ["HR_ADMIN", "HR_STAFF", "EMPLOYEE"];
+      const validRoles = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
       if (validRoles.includes(role)) {
         where.role = role;
       }

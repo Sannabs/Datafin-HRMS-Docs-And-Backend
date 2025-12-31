@@ -9,7 +9,7 @@ import {
 
 const router = express.Router();
 
-router.post("/", requireAuth, requireRole("HR_ADMIN"), sendInvitation);
+router.post("/", requireAuth, requireRole(["HR_ADMIN"]), sendInvitation);
 router.get("/", requireAuth, getInvitations);
 router.post("/accept/:token", acceptInvitation);
 

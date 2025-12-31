@@ -419,8 +419,8 @@ Returns the file with appropriate content-type headers.
 
 ### Resource-Level Access
 
-- Employees can only read their own data
-- HR Officers can read all employee data
-- Department Heads can read their department's data
-- Admins have full access
+- STAFF can only read their own data
+- HR_STAFF can read all employee data
+- DEPARTMENT_ADMIN can read their department's data (plus own data)
+- HR_ADMIN has full access
 

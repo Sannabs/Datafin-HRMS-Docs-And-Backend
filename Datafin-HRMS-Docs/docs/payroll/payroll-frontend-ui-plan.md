@@ -872,7 +872,8 @@ frontend/
 **Navigation Menu:**
 - **HR_ADMIN:** Full access to all payroll sections
 - **HR_STAFF:** View-only access (no setup, no processing)
-- **EMPLOYEE:** Only "My Payslips" and "My Salary Structure"
+- **STAFF:** Only "My Payslips" and "My Salary Structure"
+- **DEPARTMENT_ADMIN:** "My Payslips" and "My Salary Structure" (STAFF permissions) + Department management features
 
 **Implementation:**
 - Filter navigation items based on role

@@ -15,7 +15,7 @@ const router = express.Router();
 
 router.use(requireAuth);
 
-router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllEmployees);
+router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
 router.get("/:id", getEmployeeById);
 router.put("/:id", updateEmployee);
 router.post("/:id/terminate", requireRole(["HR_ADMIN", "HR_STAFF"]), terminateEmployee);

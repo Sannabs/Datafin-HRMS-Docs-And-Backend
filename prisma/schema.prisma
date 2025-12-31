@@ -13,7 +13,8 @@ datasource db {
 enum UserRole {
   HR_ADMIN
   HR_STAFF
-  EMPLOYEE
+  STAFF
+  DEPARTMENT_ADMIN
 }
 
 enum EmployeeStatus {
@@ -52,7 +53,7 @@ model Invitation {
   status       InvitationStatus @default(PENDING)
   positionId   String?
   expiresAt    DateTime
-  role         UserRole         @default(EMPLOYEE)
+  role         UserRole         @default(STAFF)
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   sender       User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
@@ -274,7 +275,7 @@ model User {
   name          String? // Better Auth - display name (optional, can map to firstName)
   emailVerified DateTime? // Better Auth - email verification timestamp (required for email verification)
   image         String? // Better Auth - profile image URL (optional, can map to avatarUrl)
-  role          UserRole  @default(EMPLOYEE)
+  role          UserRole  @default(STAFF)
   isDeleted     Boolean   @default(false)
   lastLogin     DateTime?
 

@@ -686,7 +686,7 @@
 
 **GET** `/api/payslips/:id`
 
-**Access:** HR_ADMIN, HR_STAFF, EMPLOYEE (own payslips only)
+**Access:** HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN (own payslips only for STAFF/DEPARTMENT_ADMIN)
 
 **Response:**
 ```json
@@ -724,7 +724,7 @@
 
 **GET** `/api/payslips/:id/download`
 
-**Access:** HR_ADMIN, HR_STAFF, EMPLOYEE (own payslips only)
+**Access:** HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN (own payslips only for STAFF/DEPARTMENT_ADMIN)
 
 **Response:** PDF file (Content-Type: application/pdf)
 
@@ -732,7 +732,7 @@
 
 **GET** `/api/payslips/employee/:employeeId`
 
-**Access:** HR_ADMIN, HR_STAFF, EMPLOYEE (own payslips only)
+**Access:** HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN (own payslips only for STAFF/DEPARTMENT_ADMIN)
 
 **Query Parameters:**
 | Parameter | Type | Description |
@@ -902,7 +902,7 @@
 
 **GET** `/api/payslips/:id/adjustments`
 
-**Access:** HR_ADMIN, HR_STAFF, EMPLOYEE (own payslips only)
+**Access:** HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN (own payslips only for STAFF/DEPARTMENT_ADMIN)
 
 **Response:**
 ```json
@@ -925,14 +925,14 @@
 
 ## Role-Based Access Summary
 
-| Endpoint Category | HR_ADMIN | HR_STAFF | EMPLOYEE |
-|-------------------|----------|----------|----------|
-| Allowance Types | Full CRUD | Read | None |
-| Deduction Types | Full CRUD | Read | None |
-| Salary Structures | Full CRUD | Read | Own only |
-| Pay Periods | Full CRUD | Read | None |
-| Payroll Runs | Full CRUD | Read | None |
-| Payslips | Full Access | Read | Own only |
+| Endpoint Category | HR_ADMIN | HR_STAFF | STAFF | DEPARTMENT_ADMIN |
+|-------------------|----------|----------|------|-------------------|
+| Allowance Types | Full CRUD | Read | None | None |
+| Deduction Types | Full CRUD | Read | None | None |
+| Salary Structures | Full CRUD | Read | Own only | Own only |
+| Pay Periods | Full CRUD | Read | None | None |
+| Payroll Runs | Full CRUD | Read | None | None |
+| Payslips | Full Access | Read | Own only | Own only |
 
 ---
 

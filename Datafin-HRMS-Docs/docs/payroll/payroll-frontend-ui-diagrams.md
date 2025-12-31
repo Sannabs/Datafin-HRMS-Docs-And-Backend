@@ -548,13 +548,16 @@ graph TD
     
     CheckRole -->|HR_ADMIN| HRAdminView[HR Admin View]
     CheckRole -->|HR_STAFF| HRStaffView[HR Staff View]
-    CheckRole -->|EMPLOYEE| EmployeeView[Employee View]
+    CheckRole -->|STAFF| StaffView[Staff View]
+    CheckRole -->|DEPARTMENT_ADMIN| DeptAdminView[Department Admin View]
     
     HRAdminView --> FullAccess[Full Access:<br/>- Create/Edit/Delete<br/>- Process Payroll<br/>- All Reports]
     
     HRStaffView --> ReadOnly[Read-Only Access:<br/>- View All Data<br/>- No Modifications<br/>- View Reports]
     
-    EmployeeView --> SelfService[Self-Service Only:<br/>- Own Payslips<br/>- Own Salary Structure<br/>- Download Own Payslips]
+    StaffView --> SelfService[Self-Service Only:<br/>- Own Payslips<br/>- Own Salary Structure<br/>- Download Own Payslips]
+    
+    DeptAdminView --> DeptAccess[Department Admin Access:<br/>- All Staff Permissions<br/>- Department Management<br/>- Team Data Access]
     
     FullAccess --> PermissionGate1[PermissionGate Component]
     ReadOnly --> PermissionGate2[PermissionGate Component]

@@ -29,16 +29,16 @@ router.get("/payroll-run/:runId/bulk-download", requireRole(["HR_ADMIN", "HR_STA
 router.post("/payroll-run/:runId/distribute", requireRole(["HR_ADMIN"]), distributePayslips);
 router.get("/payroll-run/:runId/distribution-report", requireRole(["HR_ADMIN", "HR_STAFF"]), getDistributionReport);
 
-// Employee-specific route (employees can view their own)
-router.get("/employee/:employeeId", requireRole(["HR_ADMIN", "HR_STAFF", "EMPLOYEE"]), getEmployeePayslips);
+// Employee-specific route (staff can view their own)
+router.get("/employee/:employeeId", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getEmployeePayslips);
 
 // Individual payslip routes
-router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF", "EMPLOYEE"]), getPayslipById);
-router.get("/:id/download", requireRole(["HR_ADMIN", "HR_STAFF", "EMPLOYEE"]), downloadPayslip);
+router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getPayslipById);
+router.get("/:id/download", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), downloadPayslip);
 
 // Adjustment/Correction routes
 router.post("/:id/adjustment", requireRole(["HR_ADMIN"]), createAdjustmentPayslip);
-router.get("/:id/adjustments", requireRole(["HR_ADMIN", "HR_STAFF", "EMPLOYEE"]), getPayslipAdjustments);
+router.get("/:id/adjustments", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getPayslipAdjustments);
 
 export default router;
 
