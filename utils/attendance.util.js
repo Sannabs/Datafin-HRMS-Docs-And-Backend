@@ -81,5 +81,39 @@ export const withInLocationRange = (
   }
 };
 
-// Attendance Status util
-export const determineAttendanceStatus = () => {};
+// Attendance Status determinant
+export const determineAttendanceStatus = (clockInTime, shift, gracePeriod) => {
+  const shiftStart = parseTime(shift.startTime);
+  const diffMinutes = (clockInTime - shiftStart) / 60000;
+
+  if (diffMinutes < -15) {
+    return "EARLY";
+  }
+
+  if (diffMinutes <= gracePeriod) {
+    return "ON_TIME";
+  }
+
+  return "LATE";
+};
+
+// helper function to parse time string to Date object
+function parseTime(timeStr) {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  const now = new Date();
+  now.setHours(hours, minutes, 0, 0);
+  return now;
+}
+
+export const ClockInWindow = (shift, earlyClockInMinutes, currentTime) => {
+  const shiftStart = parseTime(shift.startTime);
+  const earliestAllowed = shiftStart - earlyClockInMinutes * 60000;
+
+  if (currentTime < earliestAllowed) {
+    return {
+      valid: false,
+      message: "Clock-in too early",
+      windowStart: earliestAllowed,
+    };
+  }
+};
