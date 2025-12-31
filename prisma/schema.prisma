@@ -17,6 +17,7 @@ enum UserRole {
 }
 
 enum EmployeeStatus {
+  INACTIVE
   ACTIVE
   TERMINATED
   RESIGNED

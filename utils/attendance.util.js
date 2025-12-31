@@ -1,5 +1,7 @@
 // Calculating distance between two coordinates using Haversine formula
 
+import { Locator } from "puppeteer";
+
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371000; // Earth radius in meters
   const φ1 = (lat1 * Math.PI) / 180;
@@ -24,7 +26,7 @@ export const withInLocationRange = (
 ) => {
   if (!locationOrLocations || locationOrLocations.length === 0) {
     return {
-      success: false,
+      valid: false,
       message: "No configured locations found",
       location: null,
     };
@@ -72,13 +74,14 @@ export const withInLocationRange = (
         distance: Math.round(distance),
       };
     }
-
-    return {
-      valid: false,
-      message: "Not within allowed company locations",
-      location: null,
-    };
   }
+
+  // If no location is within range, return false
+  return {
+    valid: false,
+    message: "Not within allowed company locations",
+    location: null,
+  };
 };
 
 // Attendance Status determinant
@@ -105,6 +108,7 @@ function parseTime(timeStr) {
   return now;
 }
 
+// function to determine if the employee is within the clock-in window
 export const ClockInWindow = (shift, earlyClockInMinutes, currentTime) => {
   const shiftStart = parseTime(shift.startTime);
   const earliestAllowed = shiftStart - earlyClockInMinutes * 60000;
@@ -116,4 +120,70 @@ export const ClockInWindow = (shift, earlyClockInMinutes, currentTime) => {
       windowStart: earliestAllowed,
     };
   }
+
+  return {
+    valid: true,
+    message: "Within clock-in window",
+    windowStart: earliestAllowed,
+  };
+};
+
+export const isSameWifi = async (wifiSSID, locationOrLocations) => {
+  if (!wifiSSID || !locationOrLocations || locationOrLocations.length === 0) {
+    return {
+      valid: false,
+      message: "No WifiSSd Matched Yours",
+    };
+  }
+
+  if (!Array.isArray(locationOrLocations)) {
+    const location = locationOrLocations;
+
+    if (location.wifiSSID === wifiSSID) {
+      return {
+        valid: true,
+        message: "WifiSSd Matched Yours",
+        location: location,
+      };
+    }
+  }
+
+  for (const location of locationOrLocations) {
+    if (location.wifiSSID === wifiSSID) {
+      return {
+        valid: true,
+        message: "WifiSSd Matched Yours",
+        location: location,
+      };
+    }
+  }
+
+  return {
+    valid: false,
+    message: "No WifiSSd Matched Yours",
+  };
+};
+
+export const verifyQRPayload = (qrPayload) => {
+  if (!qrPayload) {
+    return {
+      valid: false,
+      message: "No QR Payload Provided",
+    };
+  }
+  if (
+    typeof qrPayload === "string" &&
+    qrPayload === process.env.QR_PAYLOAD_SECRET
+  ) {
+    return {
+      valid: true,
+      message: "QR Payload Verified",
+      qrPayload: qrPayload,
+    };
+  }
+
+  return {
+    valid: false,
+    message: "Invalid QR Payload",
+  };
 };
