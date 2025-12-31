@@ -15,6 +15,7 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c; // Distance in meters
 };
 
+// function to check if the employee is within the location range
 export const withInLocationRange = (
   employeeLat,
   employeeLon,
@@ -80,6 +81,7 @@ export const withInLocationRange = (
   }
 };
 
+// boolean function to use in the controllers to check if the employee is within the location range
 export const isWithinRange = (
   employeeLat,
   employeeLon,
@@ -93,3 +95,8 @@ export const isWithinRange = (
     geofenceRadius
   ).valid;
 };
+
+
+
+
+
