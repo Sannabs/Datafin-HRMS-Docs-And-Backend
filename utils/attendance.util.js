@@ -81,22 +81,6 @@ export const withInLocationRange = (
   }
 };
 
-// boolean function to use in the controllers to check if the employee is within the location range
-export const isWithinRange = (
-  employeeLat,
-  employeeLon,
-  locations,
-  geofenceRadius
-) => {
-  return withInLocationRange(
-    employeeLat,
-    employeeLon,
-    locations,
-    geofenceRadius
-  ).valid;
-};
-
-
 
 
 
