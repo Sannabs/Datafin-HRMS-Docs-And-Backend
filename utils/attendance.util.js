@@ -82,5 +82,4 @@ export const withInLocationRange = (
 };
 
 // Attendance Status util
-
 export const determineAttendanceStatus = () => {};
