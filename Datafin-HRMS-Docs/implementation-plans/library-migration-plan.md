@@ -150,10 +150,17 @@ This plan outlines the migration from custom implementations to industry-standar
   - Add context (payPeriod data, tenantId)
 
 #### 2.3 Define Payroll Run State Machine
-- [ ] Create `backend/state-machines/payroll-run.machine.js`:
+- [x] Create `backend/state-machines/payroll-run.machine.js`:
   - States: DRAFT, PROCESSING, COMPLETED, FAILED
   - Transitions with business rules
   - Guards (e.g., can't complete if employees failed)
+- [x] Create `backend/utils/payroll-run.utils.js`:
+  - Utility wrapper for state machine functions
+  - Provides `validateStatusTransition`, `getAvailableTransitions`, `getStateMeta`
+- [x] Integrate state machine into `backend/controllers/payroll-run.controller.js`:
+  - Status transition validation in `startPayrollRun` and `retryPayrollJob`
+  - Available transitions included in API responses
+  - State metadata included in responses for frontend use
 
 #### 2.4 Refactor Status Validation
 - [ ] Replace `validateStatusTransition` in `backend/utils/pay-period.utils.js`:

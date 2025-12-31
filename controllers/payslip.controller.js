@@ -5,6 +5,7 @@ import { addLog } from "../utils/audit.utils.js";
 import { getPayslipBreakdown, formatCurrency } from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
+import { calculatePayrollRunTotals } from "../services/payroll-run.service.js";
 import archiver from "archiver";
 
 /**
@@ -1424,27 +1425,15 @@ export const createAdjustmentPayslip = async (req, res) => {
             },
         });
 
-        // Update payroll run totals
-        const allPayslips = await prisma.payslip.findMany({
-            where: { payrollRunId: originalPayslip.payrollRunId },
-            select: {
-                grossSalary: true,
-                totalDeductions: true,
-                netSalary: true,
-            },
-        });
-
-        const totalGrossPay = allPayslips.reduce((sum, p) => sum + p.grossSalary, 0);
-        const totalDeductionsSum = allPayslips.reduce((sum, p) => sum + p.totalDeductions, 0);
-        const totalNetPay = allPayslips.reduce((sum, p) => sum + p.netSalary, 0);
-
+        // Update payroll run totals using shared function
+        const totals = await calculatePayrollRunTotals(originalPayslip.payrollRunId);
         await prisma.payrollRun.update({
             where: { id: originalPayslip.payrollRunId },
             data: {
-                totalEmployees: allPayslips.length,
-                totalGrossPay,
-                totalDeductions: totalDeductionsSum,
-                totalNetPay,
+                totalEmployees: totals.totalEmployees,
+                totalGrossPay: totals.totalGrossPay,
+                totalDeductions: totals.totalDeductions,
+                totalNetPay: totals.totalNetPay,
             },
         });
 

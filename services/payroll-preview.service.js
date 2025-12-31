@@ -1,6 +1,9 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
-import { processEmployeePayroll } from "./payroll-run.service.js";
+import {
+    processEmployeePayroll,
+    getActiveEmployeesForPayroll,
+} from "./payroll-run.service.js";
 
 /**
  * Validate employee eligibility for payroll processing
@@ -171,30 +174,11 @@ export const generatePreview = async (payPeriodId, employeeIds, tenantId) => {
             throw new Error(`Pay period ${payPeriodId} not found`);
         }
 
-        // Get employees to process
-        let employeesToProcess = [];
-        if (employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0) {
-            employeesToProcess = await prisma.user.findMany({
-                where: {
-                    id: { in: employeeIds },
-                    tenantId,
-                    isDeleted: false,
-                    status: "ACTIVE",
-                },
-                select: { id: true },
-            });
-        } else {
-            employeesToProcess = await prisma.user.findMany({
-                where: {
-                    tenantId,
-                    isDeleted: false,
-                    status: "ACTIVE",
-                },
-                select: { id: true },
-            });
-        }
-
-        const employeeIdsToProcess = employeesToProcess.map((e) => e.id);
+        // Get employees to process using shared function
+        const employeeIdsToProcess = await getActiveEmployeesForPayroll(
+            tenantId,
+            employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0 ? employeeIds : null
+        );
 
         if (employeeIdsToProcess.length === 0) {
             return {
