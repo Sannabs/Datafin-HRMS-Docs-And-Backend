@@ -6,30 +6,28 @@ import { testRedisConnection, closeRedisConnection } from "../config/redis.confi
 import { startAllWorkers, stopAllWorkers } from "../workers/payroll.worker.js";
 import { closeQueues } from "../queues/payroll.queue.js";
 
-const USE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
+// BullMQ is optional during development
+// Set ENABLE_BULLMQ_QUEUE=true in .env to enable queue-based processing
+const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 const server = http.createServer(app);
 
 server.listen(process.env.PORT || 5001, async () => {
   logger.info(`Server is running on port ${process.env.PORT || 5001}`);
 
-  // Start BullMQ workers if enabled
-  if (USE_BULLMQ) {
+  // Start BullMQ workers (optional)
+  if (ENABLE_BULLMQ) {
     try {
       const redisConnected = await testRedisConnection();
       if (redisConnected) {
         startAllWorkers();
         logger.info("BullMQ workers started successfully");
       } else {
-        logger.error("Redis connection failed - BullMQ workers not started");
+        logger.warn("Redis connection failed - BullMQ workers not started. Set ENABLE_BULLMQ_QUEUE=false to disable, or start Redis.");
       }
     } catch (error) {
-      logger.error(`Failed to start BullMQ workers: ${error.message}`, {
-        error: error.stack,
-      });
+      logger.warn(`Failed to start BullMQ workers: ${error.message}. Set ENABLE_BULLMQ_QUEUE=false to disable.`);
     }
-  } else {
-    logger.info("BullMQ is disabled (ENABLE_BULLMQ_QUEUE != true)");
   }
 
   // Start automation jobs
@@ -49,8 +47,8 @@ const gracefulShutdown = async (signal) => {
   server.close(async () => {
     logger.info("HTTP server closed");
 
-    // Stop BullMQ workers
-    if (USE_BULLMQ) {
+    // Stop BullMQ workers (if enabled)
+    if (ENABLE_BULLMQ) {
       try {
         await stopAllWorkers();
         await closeQueues();
@@ -63,13 +61,13 @@ const gracefulShutdown = async (signal) => {
 
     process.exit(0);
   });
-
-  // Force shutdown after 30 seconds
-  setTimeout(() => {
-    logger.error("Forced shutdown after timeout");
-    process.exit(1);
-  }, 30000);
 };
+
+// Force shutdown after 30 seconds
+const shutdownTimer = setTimeout(() => {
+  logger.error("Forced shutdown after timeout");
+  process.exit(1);
+}, 30000);
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));

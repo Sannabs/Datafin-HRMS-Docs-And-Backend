@@ -2,10 +2,13 @@ import { Worker } from "bullmq";
 import { getRedisConnection } from "../config/redis.config.js";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
-import { processEmployeePayroll } from "../services/payroll-run.service.js";
+import {
+    processEmployeePayroll,
+    finalizePayrollRun,
+    createOrUpdatePayslip,
+} from "../services/payroll-run.service.js";
 import { createProgress, updateProgress } from "../services/payroll-progress.service.js";
 import { generatePayslipFromRecord } from "../services/payslip-generator.service.js";
-import { updatePayPeriodStatusAutomatically } from "../services/pay-period-automation.service.js";
 import {
     PAYROLL_QUEUE_NAME,
     PAYROLL_EMPLOYEE_QUEUE_NAME,
@@ -104,43 +107,8 @@ const processEmployeeJob = async (job) => {
         // Process employee payroll
         const payslipData = await processEmployeePayroll(employeeId, payPeriodId, tenantId);
 
-        // Check for existing non-adjustment payslip
-        const existingPayslip = await prisma.payslip.findFirst({
-            where: {
-                payrollRunId,
-                userId: employeeId,
-                isAdjustment: false,
-            },
-        });
-
-        // Create or update payslip record (with warning flags if applicable)
-        let payslip;
-        if (existingPayslip) {
-            payslip = await prisma.payslip.update({
-                where: { id: existingPayslip.id },
-                data: {
-                    grossSalary: payslipData.grossSalary,
-                    totalAllowances: payslipData.totalAllowances,
-                    totalDeductions: payslipData.totalDeductions,
-                    netSalary: payslipData.netSalary,
-                    hasWarnings: !!payslipData.warnings,
-                    warnings: payslipData.warnings || null,
-                },
-            });
-        } else {
-            payslip = await prisma.payslip.create({
-                data: {
-                    payrollRunId,
-                    userId: employeeId,
-                    grossSalary: payslipData.grossSalary,
-                    totalAllowances: payslipData.totalAllowances,
-                    totalDeductions: payslipData.totalDeductions,
-                    netSalary: payslipData.netSalary,
-                    hasWarnings: !!payslipData.warnings,
-                    warnings: payslipData.warnings || null,
-                },
-            });
-        }
+        // Create or update payslip record using shared function
+        const payslip = await createOrUpdatePayslip(payrollRunId, employeeId, payslipData);
 
         // Generate PDF asynchronously (don't block processing)
         generatePayslipFromRecord(payslip.id, tenantId).catch((pdfError) => {
@@ -210,75 +178,19 @@ const updatePayrollProgress = async (payrollRunId, isFailed = false) => {
         // Check if all employees are processed
         const totalProcessed = completedCount + failedEmployees;
         if (totalProcessed >= totalCount.totalEmployees && payrollRun?.status === "PROCESSING") {
-            await finalizePayrollRun(payrollRunId);
+            // Use shared finalization function with failure checking and pay period update
+            await finalizePayrollRun(payrollRunId, {
+                checkFailures: true,
+                updatePayPeriod: true,
+            });
         }
     } catch (error) {
         logger.warn(`Failed to update payroll progress: ${error.message}`);
     }
 };
 
-/**
- * Finalize payroll run after all employees are processed
- */
-const finalizePayrollRun = async (payrollRunId) => {
-    try {
-        // Calculate totals from payslips
-        const payslips = await prisma.payslip.findMany({
-            where: { payrollRunId },
-            select: {
-                grossSalary: true,
-                totalDeductions: true,
-                netSalary: true,
-            },
-        });
-
-        const totalGrossPay = payslips.reduce((sum, p) => sum + p.grossSalary, 0);
-        const totalDeductions = payslips.reduce((sum, p) => sum + p.totalDeductions, 0);
-        const totalNetPay = payslips.reduce((sum, p) => sum + p.netSalary, 0);
-
-        // Get progress to check for failures
-        const progress = await prisma.payrollProgress.findUnique({
-            where: { payrollRunId },
-        });
-
-        // Determine final status
-        const hasFailed = progress && progress.failedEmployees > 0;
-        const finalStatus = hasFailed ? "FAILED" : "COMPLETED";
-
-        // Update payroll run
-        const updatedRun = await prisma.payrollRun.update({
-            where: { id: payrollRunId },
-            data: {
-                status: finalStatus,
-                totalEmployees: payslips.length,
-                totalGrossPay,
-                totalDeductions,
-                totalNetPay,
-            },
-            include: {
-                payPeriod: true,
-            },
-        });
-
-        logger.info(`Finalized payroll run`, {
-            payrollRunId,
-            status: finalStatus,
-            totalEmployees: payslips.length,
-            totalGrossPay,
-            totalNetPay,
-        });
-
-        // Update pay period status automatically
-        if (updatedRun.payPeriod) {
-            await updatePayPeriodStatusAutomatically(updatedRun.payPeriod.id, updatedRun.tenantId);
-        }
-    } catch (error) {
-        logger.error(`Failed to finalize payroll run: ${error.message}`, {
-            payrollRunId,
-            error: error.stack,
-        });
-    }
-};
+// NOTE: finalizePayrollRun is now imported from payroll-run.service.js
+// This ensures consistent finalization logic across all processing paths
 
 /**
  * Start the payroll run worker

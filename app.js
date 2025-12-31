@@ -22,7 +22,9 @@ import holidayRoutes from "./routes/holiday.route.js";
 import notificationRoutes from "./routes/notification.route.js";
 dotenv.config();
 
-const USE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
+// BullMQ is optional during development
+// Set ENABLE_BULLMQ_QUEUE=true in .env to enable queue-based processing
+const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 const app = express();
 
@@ -66,15 +68,15 @@ app.use("/api/holidays", holidayRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.all("/api/auth/*", toNodeHandler(auth));
 
-// Bull Board Dashboard (only when BullMQ is enabled)
-if (USE_BULLMQ) {
+// Bull Board Dashboard (only if BullMQ is enabled)
+if (ENABLE_BULLMQ) {
   import("./config/bull-board.config.js")
     .then(({ getBullBoardRouter }) => {
       app.use("/admin/queues", getBullBoardRouter());
       logger.info("Bull Board dashboard mounted at /admin/queues");
     })
     .catch((error) => {
-      logger.error(`Failed to mount Bull Board dashboard: ${error.message}`);
+      logger.warn(`Failed to mount Bull Board dashboard: ${error.message}`);
     });
 }
 
@@ -83,7 +85,7 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    bullmqEnabled: USE_BULLMQ,
+    bullmqEnabled: ENABLE_BULLMQ,
   });
 });
 

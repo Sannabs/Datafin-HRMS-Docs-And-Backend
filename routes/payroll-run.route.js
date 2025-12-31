@@ -31,7 +31,7 @@ router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunById);
 router.get("/:id/status", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatus);
 router.get("/:id/status/stream", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatusStream);
 
-// Queue-related endpoints (BullMQ)
+// Queue-related endpoints (BullMQ is now required)
 router.get("/queue/config", requireRole(["HR_ADMIN"]), getQueueConfig);
 router.get("/queue/metrics", requireRole(["HR_ADMIN"]), getPayrollQueueMetrics);
 router.get("/:id/job-status", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollJobStatus);

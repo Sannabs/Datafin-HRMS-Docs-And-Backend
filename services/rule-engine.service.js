@@ -19,14 +19,6 @@ export const clearRuleCache = (tenantId) => {
 };
 
 /**
- * Clear all rule caches
- */
-export const clearAllRuleCaches = () => {
-    engineCache.clear();
-    logger.info("All rule caches cleared");
-};
-
-/**
  * Map internal operator to json-rules-engine operator
  * @param {string} operator - Internal operator name
  * @returns {string} json-rules-engine operator
