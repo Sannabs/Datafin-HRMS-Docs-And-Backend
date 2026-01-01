@@ -721,6 +721,74 @@ Tue 7am:  Cron runs → Check attendance from Mon 10pm-Tue 6am → Mark if absen
 
 ---
 
+## Clock-Out Handling & Hours Calculation
+
+### Employee Responsibility
+
+**Policy**: Employees are responsible for clocking out. Failure to clock out may affect payroll calculations.
+
+**Behavior:**
+- Employees must manually clock out using GPS, WiFi, or QR Code
+- If employee forgets to clock out, attendance record remains incomplete (`clockOutTime = null`)
+- Incomplete records can be identified for payroll processing
+- HR can manually clock out employees using admin endpoint
+
+### Automatic Hours Calculation
+
+**On Clock-Out:**
+
+When an employee clocks out, the system automatically calculates:
+
+1. **Total Hours**: Actual time worked (clock-in to clock-out)
+   - Formula: `(clockOutTime - clockInTime) / (1000 * 60 * 60)`
+   - Rounded to 2 decimal places
+
+2. **Overtime Hours**: Time worked beyond shift end time
+   - Only calculated if `clockOutTime > shiftEndTime`
+   - Formula: `(clockOutTime - shiftEndTime) / (1000 * 60 * 60)`
+   - Rounded to 2 decimal places
+   - If clock-out is before shift end, `overtimeHours = 0`
+
+**Examples:**
+
+```
+Shift: 9:00 AM - 5:00 PM (8 hours)
+Clock-in: 9:00 AM
+Clock-out: 6:30 PM
+
+Total Hours: 9.5 hours
+Overtime Hours: 1.5 hours (6:30 PM - 5:00 PM)
+```
+
+```
+Shift: 10:00 PM - 6:00 AM (night shift, 8 hours)
+Clock-in: 10:00 PM (Monday)
+Clock-out: 7:00 AM (Tuesday)
+
+Total Hours: 9 hours
+Overtime Hours: 1 hour (7:00 AM - 6:00 AM)
+```
+
+### Manual Clock-Out (Admin)
+
+HR admins can manually clock out employees who forgot:
+
+- **Endpoint**: `POST /api/v1/attendance/manual-clock-out`
+- **Access**: HR_ADMIN, HR_STAFF roles only
+- **Features**:
+  - Can specify custom clock-out time or use current time
+  - Automatically calculates hours and overtime
+  - Marks method as "MANUAL"
+  - Adds note indicating manual clock-out
+
+**Use Cases:**
+- Employee forgot to clock out
+- System issues preventing clock-out
+- Correction of attendance records
+- Edge cases requiring manual intervention
+
+---
+
 ## API Endpoints
 
 ### Clock-In/Out
@@ -894,8 +962,8 @@ POST /api/attendance/clock-in/gps
   geofenceRadius: 100,        // meters
   gracePeriodMinutes: 5,      // minutes
   earlyClockInMinutes: 60,    // minutes
-  requirePhoto: false,
-  allowedMethods: ['GPS', 'WIFI', 'QR_CODE', 'PHOTO']
+  requirePhoto: false,        // Photo is additional layer, not standalone method
+  allowedMethods: ['GPS', 'WIFI', 'QR_CODE'] // Photo works with all methods
 }
 ```
 
@@ -912,6 +980,20 @@ POST /api/attendance/clock-in/gps
 - **LATE**: After grace period
 - **ABSENT**: No clock-in by shift end
 - **ON_LEAVE**: Approved leave
+
+### Clock-Out Policy
+
+- **Employee Responsibility**: Employees must manually clock out
+- **Incomplete Records**: Records without clock-out remain incomplete (`clockOutTime = null`)
+- **Payroll Impact**: Incomplete records may affect payroll calculations
+- **Manual Clock-Out**: HR admins can manually clock out employees via admin endpoint
+
+### Hours Calculation
+
+- **Automatic**: Calculated on clock-out
+- **Total Hours**: Actual time worked (clock-in to clock-out)
+- **Overtime**: Time worked beyond shift end (only if clock-out is after shift end)
+- **Rounding**: All hours rounded to 2 decimal places
 
 ### Helper Functions
 
