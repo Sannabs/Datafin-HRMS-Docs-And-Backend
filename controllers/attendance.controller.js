@@ -1559,6 +1559,108 @@ export const getEmployeeWorkConfig = async (req, res) => {
   }
 };
 
+export const getEmployeeWorkConfigs = async (req, res) => {
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Pagination
+    const page = parseInt(req.query.page || 1);
+    const limit = Math.min(parseInt(req.query.limit || 20), 100);
+    const skip = (page - 1) * limit;
+
+    const { userId } = req.query;
+
+    // Get user IDs for this tenant
+    const userWhere = { tenantId };
+    if (userId) {
+      userWhere.id = userId;
+    }
+
+    const tenantUsers = await prisma.user.findMany({
+      where: userWhere,
+      select: { id: true },
+    });
+
+    const userIds = tenantUsers.map((u) => u.id);
+
+    if (userIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Employee work configurations retrieved successfully",
+        data: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    }
+
+    const where = {
+      userId: {
+        in: userIds,
+      },
+    };
+
+    const [workConfigs, total] = await Promise.all([
+      prisma.employeeWorkConfig.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      prisma.employeeWorkConfig.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.status(200).json({
+      success: true,
+      message: "Employee work configurations retrieved successfully",
+      data: workConfigs,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting employee work configs: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get employee work configurations",
+    });
+  }
+};
+
 // Company Work Day Controllers
 export const createOrUpdateCompanyWorkDay = async (req, res) => {
   const tenantId = req.user.tenantId;
