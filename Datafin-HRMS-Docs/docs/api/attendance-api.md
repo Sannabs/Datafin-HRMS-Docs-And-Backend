@@ -21,6 +21,9 @@ The Attendance API provides endpoints for clocking in/out using multiple verific
 - **Location Verification**: Geofencing for GPS and QR Code methods
 - **Attendance History**: Admin and employee-specific views
 - **Late Reason**: Add notes for late or absent attendance
+- **Work Day Configuration**: Employee-specific and company-wide work day settings
+- **Attendance Settings**: Global tenant settings (grace period, geofence, photo requirements, allowed methods)
+- **Manual Clock-Out**: Admin capability to manually clock out employees
 
 ---
 
@@ -480,6 +483,325 @@ Manually clock out an employee who forgot to clock out. **Admin/HR Staff only.**
 - Edge cases requiring manual intervention
 
 **Note:** Hours and overtime are automatically calculated based on shift end time. If no shift is configured, only total hours are calculated.
+
+---
+
+## Configuration Endpoints
+
+### Employee Work Day Configuration
+
+#### Create or Update Employee Work Day
+
+**POST** `/api/v1/attendance/config/employee-work-day`
+
+Create or update work day configuration for a specific employee. **HR Admin/Staff only.**
+
+**Request Body:**
+
+```json
+{
+  "userId": "user_456",
+  "monday": true,
+  "tuesday": true,
+  "wednesday": true,
+  "thursday": true,
+  "friday": true,
+  "saturday": false,
+  "sunday": false
+}
+```
+
+**Note:** All day fields are optional. Defaults: Mon-Fri = `true`, Sat-Sun = `false`.
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Employee work configuration updated successfully",
+  "data": {
+    "id": "config_123",
+    "userId": "user_456",
+    "monday": true,
+    "tuesday": true,
+    "wednesday": true,
+    "thursday": true,
+    "friday": true,
+    "saturday": false,
+    "sunday": false,
+    "createdAt": "2025-01-15T10:00:00Z",
+    "updatedAt": "2025-01-15T10:00:00Z"
+  }
+}
+```
+
+**Error Responses:**
+
+- `400` - Missing userId, user not found
+- `401` - Unauthorized (not HR admin/staff)
+- `404` - User not found or doesn't belong to tenant
+- `500` - Server error
+
+---
+
+#### Get Employee Work Day Configuration
+
+**GET** `/api/v1/attendance/config/employee-work-day/:userId`
+
+Retrieve work day configuration for a specific employee. **HR Admin/Staff only.**
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Employee work configuration retrieved successfully",
+  "data": {
+    "id": "config_123",
+    "userId": "user_456",
+    "monday": true,
+    "tuesday": true,
+    "wednesday": true,
+    "thursday": true,
+    "friday": true,
+    "saturday": false,
+    "sunday": false,
+    "user": {
+      "id": "user_456",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "employeeId": "EMP001"
+    }
+  }
+}
+```
+
+**Error Responses:**
+
+- `404` - Work configuration not found (employee uses company defaults)
+- `500` - Server error
+
+---
+
+#### List Employee Work Day Configurations
+
+**GET** `/api/v1/attendance/config/employee-work-days`
+
+Retrieve all employee work day configurations with pagination. **HR Admin/Staff only.**
+
+**Query Parameters:**
+
+| Parameter | Type    | Description                    |
+| --------- | ------- | ------------------------------ |
+| `page`    | integer | Page number (default: 1)      |
+| `limit`   | integer | Items per page (default: 20, max: 100) |
+| `userId`   | string  | Filter by specific employee    |
+
+**Example Request:**
+
+```
+GET /api/v1/attendance/config/employee-work-days?page=1&limit=20&userId=user_456
+```
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Employee work configurations retrieved successfully",
+  "data": [
+    {
+      "id": "config_123",
+      "userId": "user_456",
+      "monday": true,
+      "tuesday": true,
+      "wednesday": true,
+      "thursday": true,
+      "friday": true,
+      "saturday": false,
+      "sunday": false,
+      "user": {
+        "id": "user_456",
+        "name": "John Doe",
+        "email": "john@example.com",
+        "employeeId": "EMP001"
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 45,
+    "totalPages": 3,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
+}
+```
+
+---
+
+### Company Work Day Configuration
+
+#### Create or Update Company Work Day
+
+**POST** `/api/v1/attendance/config/company-work-day`
+
+Create or update company-wide work day configuration. **HR Admin only.**
+
+**Request Body:**
+
+```json
+{
+  "monday": true,
+  "tuesday": true,
+  "wednesday": true,
+  "thursday": true,
+  "friday": true,
+  "saturday": false,
+  "sunday": false
+}
+```
+
+**Note:** All day fields are optional. Defaults: Mon-Fri = `true`, Sat-Sun = `false`. This serves as the default for all employees who don't have individual configurations.
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Company work day configuration updated successfully",
+  "data": {
+    "id": "company_config_123",
+    "tenantId": "tenant_789",
+    "monday": true,
+    "tuesday": true,
+    "wednesday": true,
+    "thursday": true,
+    "friday": true,
+    "saturday": false,
+    "sunday": false,
+    "createdAt": "2025-01-15T10:00:00Z",
+    "updatedAt": "2025-01-15T10:00:00Z"
+  }
+}
+```
+
+**Error Responses:**
+
+- `400` - Invalid input
+- `401` - Unauthorized (not HR admin)
+- `500` - Server error
+
+---
+
+#### Get Company Work Day Configuration
+
+**GET** `/api/v1/attendance/config/company-work-day`
+
+Retrieve company-wide work day configuration. **HR Admin/Staff only.** Auto-creates with default values (Mon-Fri) if not exists.
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Company work day configuration retrieved successfully",
+  "data": {
+    "id": "company_config_123",
+    "tenantId": "tenant_789",
+    "monday": true,
+    "tuesday": true,
+    "wednesday": true,
+    "thursday": true,
+    "friday": true,
+    "saturday": false,
+    "sunday": false,
+    "tenant": {
+      "id": "tenant_789",
+      "name": "Acme Corp",
+      "code": "ACME"
+    }
+  }
+}
+```
+
+**Note:** If no configuration exists, it will be automatically created with default values (Mon-Fri = true, Sat-Sun = false).
+
+---
+
+### Tenant Attendance Settings
+
+#### Update Tenant Attendance Settings
+
+**PATCH** `/api/v1/attendance/config/settings`
+
+Update global attendance settings for the tenant. **HR Admin only.**
+
+**Request Body:**
+
+```json
+{
+  "gracePeriodMinutes": 5,
+  "earlyClockInMinutes": 15,
+  "geofenceRadius": 100,
+  "requirePhoto": true,
+  "allowedClockInMethods": ["GPS", "WIFI", "QR_CODE"]
+}
+```
+
+**All fields are optional.** Only provided fields will be updated.
+
+**Field Descriptions:**
+
+| Field                | Type    | Description                                                      | Validation                    |
+| -------------------- | ------- | ---------------------------------------------------------------- | ----------------------------- |
+| `gracePeriodMinutes` | integer | Minutes after shift start before marked as LATE (0-60)           | 0-60 minutes                  |
+| `earlyClockInMinutes` | integer | Minutes before shift start allowed to clock in (0-240)          | 0-240 minutes                 |
+| `geofenceRadius`     | integer | GPS geofence radius in meters (10-10000)                        | 10-10000 meters               |
+| `requirePhoto`        | boolean | Whether photo is mandatory for clock-in/out                      | true/false                    |
+| `allowedClockInMethods` | array | Allowed clock-in methods: `GPS`, `WIFI`, `QR_CODE`, `PHOTO`      | Array of valid methods        |
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Attendance settings updated successfully",
+  "data": {
+    "id": "tenant_789",
+    "name": "Acme Corp",
+    "code": "ACME",
+    "gracePeriodMinutes": 5,
+    "earlyClockInMinutes": 15,
+    "geofenceRadius": 100,
+    "requirePhoto": true,
+    "allowedClockInMethods": ["GPS", "WIFI", "QR_CODE"]
+  }
+}
+```
+
+**Error Responses:**
+
+- `400` - Invalid field values, invalid clock-in methods, no fields provided
+- `401` - Unauthorized (not HR admin)
+- `500` - Server error
+
+**Example - Update Only Grace Period:**
+
+```json
+{
+  "gracePeriodMinutes": 10
+}
+```
+
+**Example - Update Only Allowed Methods:**
+
+```json
+{
+  "allowedClockInMethods": ["GPS", "QR_CODE"]
+}
+```
 
 ---
 
