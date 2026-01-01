@@ -1389,3 +1389,434 @@ export const manualClockOut = async (req, res) => {
     });
   }
 };
+
+// ============================================
+// Configuration Controllers
+// ============================================
+
+// Employee Work Config Controllers
+export const createOrUpdateEmployeeWorkConfig = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const {
+    userId,
+    monday,
+    tuesday,
+    wednesday,
+    thursday,
+    friday,
+    saturday,
+    sunday,
+  } = req.body;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!userId) {
+      logger.error("User ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required",
+        message: "User ID is required",
+      });
+    }
+
+    // Verify user belongs to tenant
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+      },
+    });
+
+    if (!user) {
+      logger.error("User not found or doesn't belong to tenant");
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+        message: "User not found or doesn't belong to your organization",
+      });
+    }
+
+    // Create or update employee work config
+    const workConfig = await prisma.employeeWorkConfig.upsert({
+      where: { userId },
+      update: {
+        monday: monday !== undefined ? monday : true,
+        tuesday: tuesday !== undefined ? tuesday : true,
+        wednesday: wednesday !== undefined ? wednesday : true,
+        thursday: thursday !== undefined ? thursday : true,
+        friday: friday !== undefined ? friday : true,
+        saturday: saturday !== undefined ? saturday : false,
+        sunday: sunday !== undefined ? sunday : false,
+      },
+      create: {
+        userId,
+        monday: monday !== undefined ? monday : true,
+        tuesday: tuesday !== undefined ? tuesday : true,
+        wednesday: wednesday !== undefined ? wednesday : true,
+        thursday: thursday !== undefined ? thursday : true,
+        friday: friday !== undefined ? friday : true,
+        saturday: saturday !== undefined ? saturday : false,
+        sunday: sunday !== undefined ? sunday : false,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Employee work configuration updated successfully",
+      data: workConfig,
+    });
+  } catch (error) {
+    logger.error(
+      `Error creating/updating employee work config: ${error.message}`,
+      {
+        stack: error.stack,
+      }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update employee work configuration",
+    });
+  }
+};
+
+export const getEmployeeWorkConfig = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const { userId } = req.params;
+
+  try {
+    if (!tenantId || !userId) {
+      logger.error("Tenant ID or User ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID or User ID is required",
+        message: "Tenant ID or User ID is required",
+      });
+    }
+
+    // Verify user belongs to tenant
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+      },
+    });
+
+    if (!user) {
+      logger.error("User not found or doesn't belong to tenant");
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+        message: "User not found or doesn't belong to your organization",
+      });
+    }
+
+    const workConfig = await prisma.employeeWorkConfig.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    if (!workConfig) {
+      return res.status(404).json({
+        success: false,
+        error: "Work configuration not found",
+        message:
+          "Employee work configuration not found. Use create endpoint to set it up.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Employee work configuration retrieved successfully",
+      data: workConfig,
+    });
+  } catch (error) {
+    logger.error(`Error getting employee work config: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get employee work configuration",
+    });
+  }
+};
+
+// Company Work Day Controllers
+export const createOrUpdateCompanyWorkDay = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const { monday, tuesday, wednesday, thursday, friday, saturday, sunday } =
+    req.body;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Create or update company work day
+    const companyWorkDay = await prisma.companyWorkDay.upsert({
+      where: { tenantId },
+      update: {
+        monday: monday !== undefined ? monday : true,
+        tuesday: tuesday !== undefined ? tuesday : true,
+        wednesday: wednesday !== undefined ? wednesday : true,
+        thursday: thursday !== undefined ? thursday : true,
+        friday: friday !== undefined ? friday : true,
+        saturday: saturday !== undefined ? saturday : false,
+        sunday: sunday !== undefined ? sunday : false,
+      },
+      create: {
+        tenantId,
+        monday: monday !== undefined ? monday : true,
+        tuesday: tuesday !== undefined ? tuesday : true,
+        wednesday: wednesday !== undefined ? wednesday : true,
+        thursday: thursday !== undefined ? thursday : true,
+        friday: friday !== undefined ? friday : true,
+        saturday: saturday !== undefined ? saturday : false,
+        sunday: sunday !== undefined ? sunday : false,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Company work day configuration updated successfully",
+      data: companyWorkDay,
+    });
+  } catch (error) {
+    logger.error(`Error creating/updating company work day: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update company work day configuration",
+    });
+  }
+};
+
+export const getCompanyWorkDay = async (req, res) => {
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    let companyWorkDay = await prisma.companyWorkDay.findUnique({
+      where: { tenantId },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    // Auto-create with defaults if not exists (Mon-Fri standard)
+    if (!companyWorkDay) {
+      companyWorkDay = await prisma.companyWorkDay.create({
+        data: {
+          tenantId,
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: false,
+          sunday: false,
+        },
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+      });
+
+      logger.info(
+        `Auto-created company work day configuration for tenant ${tenantId} with default values (Mon-Fri)`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Company work day configuration retrieved successfully",
+      data: companyWorkDay,
+    });
+  } catch (error) {
+    logger.error(`Error getting company work day: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get company work day configuration",
+    });
+  }
+};
+
+// Tenant Attendance Settings Controller
+export const updateTenantAttendanceSettings = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const {
+    gracePeriodMinutes,
+    earlyClockInMinutes,
+    geofenceRadius,
+    requirePhoto,
+    allowedClockInMethods,
+  } = req.body;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Build update data object (only include provided fields)
+    const updateData = {};
+
+    if (gracePeriodMinutes !== undefined) {
+      if (gracePeriodMinutes < 0 || gracePeriodMinutes > 60) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid grace period",
+          message: "Grace period must be between 0 and 60 minutes",
+        });
+      }
+      updateData.gracePeriodMinutes = gracePeriodMinutes;
+    }
+
+    if (earlyClockInMinutes !== undefined) {
+      if (earlyClockInMinutes < 0 || earlyClockInMinutes > 240) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid early clock-in minutes",
+          message: "Early clock-in minutes must be between 0 and 240 minutes",
+        });
+      }
+      updateData.earlyClockInMinutes = earlyClockInMinutes;
+    }
+
+    if (geofenceRadius !== undefined) {
+      if (geofenceRadius < 10 || geofenceRadius > 10000) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid geofence radius",
+          message: "Geofence radius must be between 10 and 10000 meters",
+        });
+      }
+      updateData.geofenceRadius = geofenceRadius;
+    }
+
+    if (requirePhoto !== undefined) {
+      updateData.requirePhoto = Boolean(requirePhoto);
+    }
+
+    if (allowedClockInMethods !== undefined) {
+      if (!Array.isArray(allowedClockInMethods)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid clock-in methods",
+          message: "Allowed clock-in methods must be an array",
+        });
+      }
+
+      const validMethods = ["GPS", "WIFI", "QR_CODE", "PHOTO"];
+      const invalidMethods = allowedClockInMethods.filter(
+        (method) => !validMethods.includes(method.toUpperCase())
+      );
+
+      if (invalidMethods.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid clock-in methods",
+          message: `Invalid methods: ${invalidMethods.join(
+            ", "
+          )}. Valid methods are: ${validMethods.join(", ")}`,
+        });
+      }
+
+      updateData.allowedClockInMethods = allowedClockInMethods.map((method) =>
+        method.toUpperCase()
+      );
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No fields to update",
+        message: "Please provide at least one field to update",
+      });
+    }
+
+    const updatedTenant = await prisma.tenant.update({
+      where: { id: tenantId },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        gracePeriodMinutes: true,
+        earlyClockInMinutes: true,
+        geofenceRadius: true,
+        requirePhoto: true,
+        allowedClockInMethods: true,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Attendance settings updated successfully",
+      data: updatedTenant,
+    });
+  } catch (error) {
+    logger.error(
+      `Error updating tenant attendance settings: ${error.message}`,
+      {
+        stack: error.stack,
+      }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update attendance settings",
+    });
+  }
+};
