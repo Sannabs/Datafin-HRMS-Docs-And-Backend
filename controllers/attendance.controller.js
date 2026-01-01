@@ -1058,3 +1058,76 @@ export const getMyAttendanceHistory = async (req, res) => {
     });
   }
 };
+
+export const lateReason = async (req, res) => {
+  const userId = req.user.id;
+  const attendanceId = req.params.attendanceId;
+  const { notes } = req.body;
+
+  try {
+    if (!userId || !attendanceId) {
+      logger.error("User ID or Attendance ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "User ID or Attendance ID is required",
+        message: "User ID or Attendance ID is required",
+      });
+    }
+
+    if (!notes) {
+      logger.error("Notes are required");
+      return res.status(400).json({
+        success: false,
+        error: "Notes are required",
+        message: "Notes are required",
+      });
+    }
+
+    const attendance = await prisma.attendance.findUnique({
+      where: {
+        id: attendanceId,
+        userId,
+      },
+    });
+
+    if (!attendance) {
+      logger.error("Attendance not found");
+      return res.status(404).json({
+        success: false,
+        error: "Attendance not found",
+        message: "Attendance not found",
+      });
+    }
+
+    if (attendance.status.includes("LATE", "ABSENT")) {
+      logger.error("Attendance is not late");
+      return res.status(400).json({
+        success: false,
+        error: "Attendance is not late",
+        message:
+          "Attendance is not late, only late attendance can have a notes attached or absent",
+      });
+    }
+
+    await attendance.update({
+      data: {
+        notes,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Late reason updated successfully",
+      data: attendance,
+    });
+  } catch (error) {
+    logger.error(`Error updating late reason: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update late reason",
+    });
+  }
+};
