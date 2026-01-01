@@ -10,7 +10,9 @@ import {
   clockOutWiFi,
   clockOutQRCode,
   getAttendanceHistory,
-  getMyAttendanceHistory
+  getMyAttendanceHistory,
+  lateReason,
+  manualClockOut,
 } from "../controllers/attendance.controller.js";
 
 const router = express.Router();
@@ -30,5 +32,11 @@ router.post("/clock-out/qrcode", uploadSingleImage, clockOutQRCode);
 // Attendance History
 router.get("/history", getAttendanceHistory);
 router.get("/my-history/:employeeId", getMyAttendanceHistory);
+
+// Late Reason (Employee)
+router.patch("/:attendanceId/late-reason", lateReason);
+
+// Manual Clock-Out (Admin Only)
+router.post("/manual-clock-out", requireRole(["HR_ADMIN", "HR_STAFF"]), manualClockOut);
 
 export default router;

@@ -6,6 +6,7 @@ import {
   withInLocationRange,
   isSameWifi,
   handlePhotoUpload,
+  calculateHours,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 
@@ -572,6 +573,13 @@ export const clockOutGPS = async (req, res) => {
       }
     }
 
+    // Calculate total hours and overtime
+    const { totalHours, overtimeHours } = calculateHours(
+      attendanceRecord.clockInTime,
+      now,
+      employee.shift
+    );
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -580,6 +588,8 @@ export const clockOutGPS = async (req, res) => {
         clockOutDeviceInfo,
         clockOutIpAddress,
         clockOutPhotoUrl,
+        totalHours,
+        overtimeHours,
       },
     });
 
@@ -710,6 +720,13 @@ export const clockOutWiFi = async (req, res) => {
       }
     }
 
+    // Calculate total hours and overtime
+    const { totalHours, overtimeHours } = calculateHours(
+      attendanceRecord.clockInTime,
+      now,
+      employee.shift
+    );
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -718,6 +735,8 @@ export const clockOutWiFi = async (req, res) => {
         clockOutDeviceInfo,
         clockOutIpAddress,
         clockOutPhotoUrl,
+        totalHours,
+        overtimeHours,
       },
     });
 
@@ -877,6 +896,13 @@ export const clockOutQRCode = async (req, res) => {
       }
     }
 
+    // Calculate total hours and overtime
+    const { totalHours, overtimeHours } = calculateHours(
+      attendanceRecord.clockInTime,
+      now,
+      employee.shift
+    );
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -885,6 +911,8 @@ export const clockOutQRCode = async (req, res) => {
         clockOutDeviceInfo,
         clockOutIpAddress,
         clockOutPhotoUrl,
+        totalHours,
+        overtimeHours,
       },
     });
 
@@ -1248,6 +1276,116 @@ export const lateReason = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to update late reason",
+    });
+  }
+};
+
+// Manual Clock-Out (Admin Only)
+export const manualClockOut = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const { attendanceId, clockOutTime } = req.body;
+
+  try {
+    if (!tenantId) {
+      logger.error("Tenant ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!attendanceId) {
+      logger.error("Attendance ID is required");
+      return res.status(400).json({
+        success: false,
+        error: "Attendance ID is required",
+        message: "Attendance ID is required",
+      });
+    }
+
+    // Find attendance record
+    const attendance = await prisma.attendance.findFirst({
+      where: {
+        id: attendanceId,
+        tenantId,
+        clockOutTime: null, // Only allow if not already clocked out
+      },
+      include: {
+        user: {
+          include: {
+            shift: true,
+          },
+        },
+      },
+    });
+
+    if (!attendance) {
+      logger.error("Attendance not found or already clocked out");
+      return res.status(404).json({
+        success: false,
+        error: "Attendance not found",
+        message: "Attendance record not found or employee already clocked out",
+      });
+    }
+
+    // Use provided clock-out time or current time
+    const outTime = clockOutTime ? new Date(clockOutTime) : new Date();
+
+    // Validate clock-out time is after clock-in time
+    if (outTime <= attendance.clockInTime) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid clock-out time",
+        message: "Clock-out time must be after clock-in time",
+      });
+    }
+
+    // Calculate hours if shift exists
+    let totalHours = null;
+    let overtimeHours = 0;
+
+    if (attendance.user.shift) {
+      const hours = calculateHours(
+        attendance.clockInTime,
+        outTime,
+        attendance.user.shift
+      );
+      totalHours = hours.totalHours;
+      overtimeHours = hours.overtimeHours;
+    } else {
+      // If no shift, just calculate total hours
+      const totalMilliseconds = outTime - attendance.clockInTime;
+      totalHours =
+        Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
+    }
+
+    const updatedAttendance = await prisma.attendance.update({
+      where: { id: attendanceId },
+      data: {
+        clockOutTime: outTime,
+        clockOutMethod: "MANUAL",
+        totalHours,
+        overtimeHours,
+        notes: attendance.notes
+          ? `${attendance.notes} | Manually clocked out by admin`
+          : "Manually clocked out by admin",
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Employee clocked out successfully",
+      data: updatedAttendance,
+    });
+  } catch (error) {
+    logger.error(`Error in manual clock-out: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to clock out employee",
     });
   }
 };

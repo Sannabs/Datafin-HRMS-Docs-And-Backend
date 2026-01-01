@@ -188,29 +188,116 @@ export const verifyQRPayload = (qrPayload) => {
   };
 };
 
-
 // Helper function to handle photo upload during clock in and clock out
-export const handlePhotoUpload = async (req, userId, tenantId, type = "clock-in") => {
-    let photoUrl = null;
-  
-    // Check if photo is uploaded via multer
-    if (req.file) {
-      try {
-        const timestamp = Date.now();
-        const randomString = Math.random().toString(36).substring(2, 15);
-        const extension = req.file.originalname.split(".").pop();
-        const filename = `attendance/${tenantId}/${userId}/${type}/${timestamp}-${randomString}.${extension}`;
-  
-        photoUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype);
-      } catch (error) {
-        logger.error(`Error uploading photo: ${error.message}`);
-        throw new Error("Failed to upload photo");
-      }
-    } else if (req.body.photoUrl) {
-      // Allow photo URL to be passed directly (if already uploaded)
-      photoUrl = req.body.photoUrl;
+export const handlePhotoUpload = async (
+  req,
+  userId,
+  tenantId,
+  type = "clock-in"
+) => {
+  let photoUrl = null;
+
+  // Check if photo is uploaded via multer
+  if (req.file) {
+    try {
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(2, 15);
+      const extension = req.file.originalname.split(".").pop();
+      const filename = `attendance/${tenantId}/${userId}/${type}/${timestamp}-${randomString}.${extension}`;
+
+      photoUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype);
+    } catch (error) {
+      logger.error(`Error uploading photo: ${error.message}`);
+      throw new Error("Failed to upload photo");
     }
-  
-    return photoUrl;
+  } else if (req.body.photoUrl) {
+    // Allow photo URL to be passed directly (if already uploaded)
+    photoUrl = req.body.photoUrl;
+  }
+
+  return photoUrl;
+};
+
+export const calculateHours = (clockInTime, clockOutTime, shift) => {
+  if (!clockInTime || !clockOutTime || !shift) {
+    return { totalHours: null, overtimeHours: 0 };
+  }
+
+  // Calculate total hours worked (actual clock-in to clock-out)
+  const totalMilliseconds = clockOutTime - clockInTime;
+  const totalHours = totalMilliseconds / (1000 * 60 * 60); // Convert to hours
+
+  // Parse shift times
+  const shiftStart = parseTime(shift.startTime);
+  const shiftEnd = parseTime(shift.endTime);
+
+  // Handle night shift (crosses midnight)
+  // If endTime < startTime, shift crosses midnight
+  if (shiftEnd < shiftStart) {
+    // For night shift, shiftEnd is next day
+    const nextDayShiftEnd = new Date(shiftEnd);
+    nextDayShiftEnd.setDate(nextDayShiftEnd.getDate() + 1);
+
+    // Calculate regular shift duration (in hours)
+    const regularHours = (nextDayShiftEnd - shiftStart) / (1000 * 60 * 60);
+
+    // Calculate overtime
+    // Overtime = time worked beyond shift end
+    // If clock-out is after shift end, calculate overtime
+    let overtimeHours = 0;
+    if (clockOutTime > nextDayShiftEnd) {
+      const overtimeMilliseconds = clockOutTime - nextDayShiftEnd;
+      overtimeHours = overtimeMilliseconds / (1000 * 60 * 60);
+    }
+
+    return {
+      totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimal places
+      overtimeHours: Math.round(overtimeHours * 100) / 100,
+    };
+  }
+
+  // Normal shift (same day)
+  // Calculate regular shift duration (in hours)
+  const regularHours = (shiftEnd - shiftStart) / (1000 * 60 * 60);
+
+  // Calculate overtime
+  // Overtime = time worked beyond shift end time
+  // Only count if clock-out is after shift end
+  let overtimeHours = 0;
+  if (clockOutTime > shiftEnd) {
+    const overtimeMilliseconds = clockOutTime - shiftEnd;
+    overtimeHours = overtimeMilliseconds / (1000 * 60 * 60);
+  }
+
+  return {
+    totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimal places
+    overtimeHours: Math.round(overtimeHours * 100) / 100,
   };
-  
+};
+
+/**
+ * Get shift end time as Date object
+ * @param {Object} shift - Shift object with startTime and endTime
+ * @param {Date} clockInDate - Date of clock-in
+ * @returns {Date} Shift end time as Date
+ */
+export const getShiftEndTime = (shift, clockInDate) => {
+  const shiftStart = parseTime(shift.startTime);
+  const shiftEnd = parseTime(shift.endTime);
+
+  // Handle night shift (crosses midnight)
+  if (shiftEnd < shiftStart) {
+    // Shift ends next day
+    const endTime = new Date(clockInDate);
+    const [endHour, endMin] = shift.endTime.split(":").map(Number);
+    endTime.setDate(endTime.getDate() + 1);
+    endTime.setHours(endHour, endMin, 0, 0);
+    return endTime;
+  }
+
+  // Normal shift (same day)
+  const endTime = new Date(clockInDate);
+  const [endHour, endMin] = shift.endTime.split(":").map(Number);
+  endTime.setHours(endHour, endMin, 0, 0);
+  return endTime;
+};

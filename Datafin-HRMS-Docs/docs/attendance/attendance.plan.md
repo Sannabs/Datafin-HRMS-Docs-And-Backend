@@ -117,28 +117,31 @@ Universal QR codes posted at entry points enable quick clock-in with optional lo
 
 ### 4. Photo Verification
 
-Selfie capture prevents buddy punching and provides accountability.
+Selfie capture prevents buddy punching and provides accountability. **Photo is NOT a standalone method** - it's an additional verification layer that works with GPS, WiFi, or QR Code methods.
 
 **Workflow:**
 
-1. Employee initiates clock-in with any method
-2. If required, camera launches automatically
+1. Employee initiates clock-in with GPS/WiFi/QR Code method
+2. If photo is required (company setting), camera launches automatically
 3. Employee captures selfie
-4. Photo uploads to cloud storage (S3/R2)
+4. Photo uploads to cloud storage (S3/R2) via multer middleware
 5. Photo URL stored in attendance record
-6. Clock-in completes
+6. Clock-in completes with primary method (GPS/WiFi/QR) + photo verification
 
 **Configuration:**
 
-- Optional or mandatory (company setting)
-- Combinable with any other method
-- Secure storage with URL references
+- Optional or mandatory via `tenant.requirePhoto` setting
+- Works as additional layer with any primary method (GPS, WiFi, QR Code)
+- Secure storage with URL references in R2
+- Can be provided via file upload or pre-uploaded URL
 
 **Requirements:**
 
 - Camera permissions
 - Internet connection
-- Cloud storage configured
+- Cloud storage configured (R2/S3)
+
+**Important:** Photo verification enhances security but does not replace location verification. Employees must still verify location via GPS/WiFi/QR Code.
 
 ---
 
@@ -723,15 +726,24 @@ Tue 7am:  Cron runs → Check attendance from Mon 10pm-Tue 6am → Mark if absen
 ### Clock-In/Out
 
 ```
-POST /api/attendance/clock-in/gps
-POST /api/attendance/clock-in/wifi
-POST /api/attendance/clock-in/qrcode
-POST /api/attendance/clock-in/photo
+POST /api/v1/attendance/clock-in/gps      (with optional photo)
+POST /api/v1/attendance/clock-in/wifi     (with optional photo)
+POST /api/v1/attendance/clock-in/qrcode   (with optional photo)
 
-POST /api/attendance/clock-out/gps
-POST /api/attendance/clock-out/wifi
-POST /api/attendance/clock-out/qrcode
-POST /api/attendance/clock-out/photo
+POST /api/v1/attendance/clock-out/gps     (with optional photo)
+POST /api/v1/attendance/clock-out/wifi     (with optional photo)
+POST /api/v1/attendance/clock-out/qrcode   (with optional photo)
+```
+
+**Note:** Photo upload is handled via multer middleware on all clock-in/out endpoints. Photo is an additional layer, not a standalone method.
+
+### Additional Endpoints
+
+```
+GET  /api/v1/attendance/history                    (Admin - all employees)
+GET  /api/v1/attendance/my-history/:employeeId      (Employee - own history)
+PATCH /api/v1/attendance/:attendanceId/late-reason   (Employee - add late/absent reason)
+POST /api/v1/attendance/manual-clock-out            (Admin - manual clock-out)
 ```
 
 ### Configuration
