@@ -1099,17 +1099,20 @@ export const lateReason = async (req, res) => {
       });
     }
 
-    if (attendance.status.includes("LATE", "ABSENT")) {
-      logger.error("Attendance is not late");
+    // Only allow notes for LATE or ABSENT attendance
+    if (attendance.status !== "LATE" && attendance.status !== "ABSENT") {
+      logger.error("Attendance is not late or absent");
       return res.status(400).json({
         success: false,
-        error: "Attendance is not late",
-        message:
-          "Attendance is not late, only late attendance can have a notes attached or absent",
+        error: "Attendance is not late or absent",
+        message: "Only late or absent attendance can have notes attached",
       });
     }
 
-    await attendance.update({
+    const updatedAttendance = await prisma.attendance.update({
+      where: {
+        id: attendanceId,
+      },
       data: {
         notes,
       },
@@ -1118,7 +1121,7 @@ export const lateReason = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Late reason updated successfully",
-      data: attendance,
+      data: updatedAttendance,
     });
   } catch (error) {
     logger.error(`Error updating late reason: ${error.message}`, {
