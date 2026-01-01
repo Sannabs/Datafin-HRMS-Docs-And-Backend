@@ -1,7 +1,7 @@
 // Calculating distance between two coordinates using Haversine formula
 
-import { Locator } from "puppeteer";
-
+import { uploadFile } from "../config/storage.config.js";
+import logger from "./logger.js";
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371000; // Earth radius in meters
   const φ1 = (lat1 * Math.PI) / 180;
@@ -187,3 +187,30 @@ export const verifyQRPayload = (qrPayload) => {
     message: "Invalid QR Payload",
   };
 };
+
+
+// Helper function to handle photo upload during clock in and clock out
+export const handlePhotoUpload = async (req, userId, tenantId, type = "clock-in") => {
+    let photoUrl = null;
+  
+    // Check if photo is uploaded via multer
+    if (req.file) {
+      try {
+        const timestamp = Date.now();
+        const randomString = Math.random().toString(36).substring(2, 15);
+        const extension = req.file.originalname.split(".").pop();
+        const filename = `attendance/${tenantId}/${userId}/${type}/${timestamp}-${randomString}.${extension}`;
+  
+        photoUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype);
+      } catch (error) {
+        logger.error(`Error uploading photo: ${error.message}`);
+        throw new Error("Failed to upload photo");
+      }
+    } else if (req.body.photoUrl) {
+      // Allow photo URL to be passed directly (if already uploaded)
+      photoUrl = req.body.photoUrl;
+    }
+  
+    return photoUrl;
+  };
+  

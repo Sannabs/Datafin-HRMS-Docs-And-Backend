@@ -5,6 +5,7 @@ import {
   verifyQRPayload,
   withInLocationRange,
   isSameWifi,
+  handlePhotoUpload,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 
@@ -104,6 +105,26 @@ export const clockInGPS = async (req, res) => {
       employee.tenant.gracePeriod
     );
 
+    // Handle photo upload if required or provided
+    let clockInPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockInPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-in"
+      );
+
+      if (employee.tenant.requirePhoto && !clockInPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-in",
+        });
+      }
+    }
+
     const attendance = await prisma.attendance.create({
       data: {
         userId,
@@ -112,7 +133,7 @@ export const clockInGPS = async (req, res) => {
         clockInTime: now,
         status: attendanceStatus,
         clockInMethod: "GPS",
-        clockInPhotoUrl: null,
+        clockInPhotoUrl,
         clockInDeviceInfo,
         clockInIpAddress,
       },
@@ -219,6 +240,26 @@ export const clockInWiFi = async (req, res) => {
       employee.tenant.gracePeriod
     );
 
+    // Handle photo upload if required or provided
+    let clockInPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockInPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-in"
+      );
+
+      if (employee.tenant.requirePhoto && !clockInPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-in",
+        });
+      }
+    }
+
     const attendance = await prisma.attendance.create({
       data: {
         userId,
@@ -227,7 +268,7 @@ export const clockInWiFi = async (req, res) => {
         clockInTime: now,
         status: attendanceStatus,
         clockInMethod: "WIFI",
-        clockInPhotoUrl: null,
+        clockInPhotoUrl,
         clockInDeviceInfo,
         clockInIpAddress,
       },
@@ -362,6 +403,26 @@ export const clockInQRCode = async (req, res) => {
       employee.tenant.gracePeriod
     );
 
+    // Handle photo upload if required or provided
+    let clockInPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockInPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-in"
+      );
+
+      if (employee.tenant.requirePhoto && !clockInPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-in",
+        });
+      }
+    }
+
     const attendance = await prisma.attendance.create({
       data: {
         userId,
@@ -370,7 +431,7 @@ export const clockInQRCode = async (req, res) => {
         clockInTime: now,
         status: attendanceStatus,
         clockInMethod: "QR CODE",
-        clockInPhotoUrl: null,
+        clockInPhotoUrl,
         clockInDeviceInfo,
         clockInIpAddress,
       },
@@ -390,8 +451,6 @@ export const clockInQRCode = async (req, res) => {
     });
   }
 };
-
-export const clockInPhoto = (req, res) => {};
 
 // Clock-Out Controllers
 export const clockOutGPS = async (req, res) => {
@@ -493,6 +552,26 @@ export const clockOutGPS = async (req, res) => {
       });
     }
 
+    // Handle photo upload if required or provided
+    let clockOutPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockOutPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-out"
+      );
+
+      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-out",
+        });
+      }
+    }
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -500,7 +579,7 @@ export const clockOutGPS = async (req, res) => {
         clockOutMethod: "GPS",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl: null,
+        clockOutPhotoUrl,
       },
     });
 
@@ -611,6 +690,26 @@ export const clockOutWiFi = async (req, res) => {
       });
     }
 
+    // Handle photo upload if required or provided
+    let clockOutPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockOutPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-out"
+      );
+
+      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-out",
+        });
+      }
+    }
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -618,7 +717,7 @@ export const clockOutWiFi = async (req, res) => {
         clockOutMethod: "WIFI",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl: null,
+        clockOutPhotoUrl,
       },
     });
 
@@ -758,6 +857,26 @@ export const clockOutQRCode = async (req, res) => {
       });
     }
 
+    // Handle photo upload if required or provided
+    let clockOutPhotoUrl = null;
+    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
+      clockOutPhotoUrl = await handlePhotoUpload(
+        req,
+        userId,
+        tenantId,
+        "clock-out"
+      );
+
+      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
+        logger.error("Photo is required but not provided");
+        return res.status(400).json({
+          success: false,
+          error: "Photo is required",
+          message: "Photo verification is mandatory for clock-out",
+        });
+      }
+    }
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceRecord.id },
       data: {
@@ -765,7 +884,7 @@ export const clockOutQRCode = async (req, res) => {
         clockOutMethod: "QR CODE",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl: null,
+        clockOutPhotoUrl,
       },
     });
 
@@ -785,8 +904,6 @@ export const clockOutQRCode = async (req, res) => {
     });
   }
 };
-
-export const clockOutPhoto = (req, res) => {};
 
 // Attendance History
 export const getAttendanceHistory = async (req, res) => {
