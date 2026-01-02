@@ -158,11 +158,13 @@ model Tenant {
   weekendDays Int[] @default([0, 6])
 
   // Clock-in configurations
-  allowedClockInMethods ClockMethod[]
-  requirePhoto          Boolean       @default(false)
-  geofenceRadius        Float         @default(100)
-  gracePeriodMinutes    Int           @default(5)
-  earlyClockInMinutes   Int           @default(60)
+  allowedClockInMethods  ClockMethod[]
+  requirePhoto           Boolean       @default(false)
+  geofenceRadius         Float         @default(100)
+  gracePeriodMinutes     Int           @default(5)
+  earlyClockInMinutes    Int           @default(60)
+  absencePenalty         Float?        @default(0)
+  consecutiveLatePenalty Float?        @default(0)
 
   users            User[]
   departments      Department[]

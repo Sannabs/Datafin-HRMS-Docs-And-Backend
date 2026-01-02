@@ -122,11 +122,7 @@ const calculateWithConfig = async (
   workConfig,
   penaltyConfig
 ) => {
-  const {
-    absencePenalty = 0,
-    consecutiveLatePenalty = 0,
-    missingClockOutPenalty = 0,
-  } = penaltyConfig;
+  const { absencePenalty = 0, consecutiveLatePenalty = 0 } = penaltyConfig;
 
   const allDates = getDatesInRange(periodStartDate, periodEndDate);
   const holidays = await getHolidaysInRange(
@@ -146,7 +142,7 @@ const calculateWithConfig = async (
       tenantId,
       clockInTime: { gte: periodStartDate, lte: periodEndDate },
     },
-    select: { id: true, clockInTime: true, clockOutTime: true, status: true },
+    select: { id: true, clockInTime: true, status: true },
     orderBy: { clockInTime: "asc" },
   });
 
@@ -161,19 +157,11 @@ const calculateWithConfig = async (
   );
   const consecutiveLateSequences =
     findConsecutiveLateSequences(attendanceByDate);
-  const missingClockOuts = attendances.filter((a) => a.clockOutTime === null);
 
   const absencePenaltyAmount = absences.length * absencePenalty;
   const consecutiveLatePenaltyAmount =
     consecutiveLateSequences.length * consecutiveLatePenalty;
-  const missingClockOutPenaltyAmount =
-    missingClockOutPenalty > 0
-      ? missingClockOuts.length * missingClockOutPenalty
-      : 0;
-  const totalPenalty =
-    absencePenaltyAmount +
-    consecutiveLatePenaltyAmount +
-    missingClockOutPenaltyAmount;
+  const totalPenalty = absencePenaltyAmount + consecutiveLatePenaltyAmount;
 
   return {
     totalPenalty,
@@ -191,10 +179,6 @@ const calculateWithConfig = async (
           length: seq.length,
         })),
         penaltyAmount: consecutiveLatePenaltyAmount,
-      },
-      missingClockOuts: {
-        count: missingClockOutPenalty > 0 ? missingClockOuts.length : 0,
-        penaltyAmount: missingClockOutPenaltyAmount,
       },
     },
   };

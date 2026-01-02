@@ -4,7 +4,6 @@
 This utility calculates attendance penalties based on:
 - **Absences**: Direct penalty for each absence (no attendance on expected work day)
 - **3+ Consecutive Lates**: Penalty for each sequence of 3+ consecutive late days
-- **Missing Clock-outs**: Optional penalty for attendance records without clock-out
 
 ## Configuration
 
@@ -13,7 +12,6 @@ This utility calculates attendance penalties based on:
 const penaltyConfig = {
   absencePenalty: 100,              // Penalty per absence
   consecutiveLatePenalty: 200,       // Penalty per 3+ consecutive late sequence
-  missingClockOutPenalty: 50,        // Penalty per missing clock-out (set 0 to disable)
 };
 ```
 
@@ -39,7 +37,6 @@ Add after salary structure is fetched (after line 302) and before `recalculateSa
 const penaltyConfig = {
   absencePenalty: 100,
   consecutiveLatePenalty: 200,
-  missingClockOutPenalty: 50, // Set to 0 to disable
 };
 
 let attendancePenaltyData = null;
@@ -100,14 +97,13 @@ return {
 - **Work Config**: Uses employee's work schedule (Mon-Fri default if not set)
 - **Consecutive Lates**: Only sequences of 3+ consecutive days are penalized
 - **Absences**: Only expected work days without attendance are penalized
-- **Missing Clock-outs**: Optional; disable by setting `missingClockOutPenalty: 0`
 - **Error Handling**: Penalties fail gracefully; payroll continues if calculation fails
 
 ## Return Value Structure
 
 ```javascript
 {
-  totalPenalty: 350,
+  totalPenalty: 400,
   breakdown: {
     absences: {
       count: 2,
@@ -122,10 +118,6 @@ return {
         length: 3,
       }],
       penaltyAmount: 200,
-    },
-    missingClockOuts: {
-      count: 1,
-      penaltyAmount: 50,
     },
   },
 }
