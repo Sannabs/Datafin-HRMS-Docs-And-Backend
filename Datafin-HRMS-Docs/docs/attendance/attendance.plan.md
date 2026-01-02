@@ -117,28 +117,31 @@ Universal QR codes posted at entry points enable quick clock-in with optional lo
 
 ### 4. Photo Verification
 
-Selfie capture prevents buddy punching and provides accountability.
+Selfie capture prevents buddy punching and provides accountability. **Photo is NOT a standalone method** - it's an additional verification layer that works with GPS, WiFi, or QR Code methods.
 
 **Workflow:**
 
-1. Employee initiates clock-in with any method
-2. If required, camera launches automatically
+1. Employee initiates clock-in with GPS/WiFi/QR Code method
+2. If photo is required (company setting), camera launches automatically
 3. Employee captures selfie
-4. Photo uploads to cloud storage (S3/R2)
+4. Photo uploads to cloud storage (S3/R2) via multer middleware
 5. Photo URL stored in attendance record
-6. Clock-in completes
+6. Clock-in completes with primary method (GPS/WiFi/QR) + photo verification
 
 **Configuration:**
 
-- Optional or mandatory (company setting)
-- Combinable with any other method
-- Secure storage with URL references
+- Optional or mandatory via `tenant.requirePhoto` setting
+- Works as additional layer with any primary method (GPS, WiFi, QR Code)
+- Secure storage with URL references in R2
+- Can be provided via file upload or pre-uploaded URL
 
 **Requirements:**
 
 - Camera permissions
 - Internet connection
-- Cloud storage configured
+- Cloud storage configured (R2/S3)
+
+**Important:** Photo verification enhances security but does not replace location verification. Employees must still verify location via GPS/WiFi/QR Code.
 
 ---
 
@@ -718,20 +721,97 @@ Tue 7am:  Cron runs → Check attendance from Mon 10pm-Tue 6am → Mark if absen
 
 ---
 
+## Clock-Out Handling & Hours Calculation
+
+### Employee Responsibility
+
+**Policy**: Employees are responsible for clocking out. Failure to clock out may affect payroll calculations.
+
+**Behavior:**
+- Employees must manually clock out using GPS, WiFi, or QR Code
+- If employee forgets to clock out, attendance record remains incomplete (`clockOutTime = null`)
+- Incomplete records can be identified for payroll processing
+- HR can manually clock out employees using admin endpoint
+
+### Automatic Hours Calculation
+
+**On Clock-Out:**
+
+When an employee clocks out, the system automatically calculates:
+
+1. **Total Hours**: Actual time worked (clock-in to clock-out)
+   - Formula: `(clockOutTime - clockInTime) / (1000 * 60 * 60)`
+   - Rounded to 2 decimal places
+
+2. **Overtime Hours**: Time worked beyond shift end time
+   - Only calculated if `clockOutTime > shiftEndTime`
+   - Formula: `(clockOutTime - shiftEndTime) / (1000 * 60 * 60)`
+   - Rounded to 2 decimal places
+   - If clock-out is before shift end, `overtimeHours = 0`
+
+**Examples:**
+
+```
+Shift: 9:00 AM - 5:00 PM (8 hours)
+Clock-in: 9:00 AM
+Clock-out: 6:30 PM
+
+Total Hours: 9.5 hours
+Overtime Hours: 1.5 hours (6:30 PM - 5:00 PM)
+```
+
+```
+Shift: 10:00 PM - 6:00 AM (night shift, 8 hours)
+Clock-in: 10:00 PM (Monday)
+Clock-out: 7:00 AM (Tuesday)
+
+Total Hours: 9 hours
+Overtime Hours: 1 hour (7:00 AM - 6:00 AM)
+```
+
+### Manual Clock-Out (Admin)
+
+HR admins can manually clock out employees who forgot:
+
+- **Endpoint**: `POST /api/v1/attendance/manual-clock-out`
+- **Access**: HR_ADMIN, HR_STAFF roles only
+- **Features**:
+  - Can specify custom clock-out time or use current time
+  - Automatically calculates hours and overtime
+  - Marks method as "MANUAL"
+  - Adds note indicating manual clock-out
+
+**Use Cases:**
+- Employee forgot to clock out
+- System issues preventing clock-out
+- Correction of attendance records
+- Edge cases requiring manual intervention
+
+---
+
 ## API Endpoints
 
 ### Clock-In/Out
 
 ```
-POST /api/attendance/clock-in/gps
-POST /api/attendance/clock-in/wifi
-POST /api/attendance/clock-in/qrcode
-POST /api/attendance/clock-in/photo
+POST /api/v1/attendance/clock-in/gps      (with optional photo)
+POST /api/v1/attendance/clock-in/wifi     (with optional photo)
+POST /api/v1/attendance/clock-in/qrcode   (with optional photo)
 
-POST /api/attendance/clock-out/gps
-POST /api/attendance/clock-out/wifi
-POST /api/attendance/clock-out/qrcode
-POST /api/attendance/clock-out/photo
+POST /api/v1/attendance/clock-out/gps     (with optional photo)
+POST /api/v1/attendance/clock-out/wifi     (with optional photo)
+POST /api/v1/attendance/clock-out/qrcode   (with optional photo)
+```
+
+**Note:** Photo upload is handled via multer middleware on all clock-in/out endpoints. Photo is an additional layer, not a standalone method.
+
+### Additional Endpoints
+
+```
+GET  /api/v1/attendance/history                    (Admin - all employees)
+GET  /api/v1/attendance/my-history/:employeeId      (Employee - own history)
+PATCH /api/v1/attendance/:attendanceId/late-reason   (Employee - add late/absent reason)
+POST /api/v1/attendance/manual-clock-out            (Admin - manual clock-out)
 ```
 
 ### Configuration
@@ -882,8 +962,8 @@ POST /api/attendance/clock-in/gps
   geofenceRadius: 100,        // meters
   gracePeriodMinutes: 5,      // minutes
   earlyClockInMinutes: 60,    // minutes
-  requirePhoto: false,
-  allowedMethods: ['GPS', 'WIFI', 'QR_CODE', 'PHOTO']
+  requirePhoto: false,        // Photo is additional layer, not standalone method
+  allowedMethods: ['GPS', 'WIFI', 'QR_CODE'] // Photo works with all methods
 }
 ```
 
@@ -900,6 +980,20 @@ POST /api/attendance/clock-in/gps
 - **LATE**: After grace period
 - **ABSENT**: No clock-in by shift end
 - **ON_LEAVE**: Approved leave
+
+### Clock-Out Policy
+
+- **Employee Responsibility**: Employees must manually clock out
+- **Incomplete Records**: Records without clock-out remain incomplete (`clockOutTime = null`)
+- **Payroll Impact**: Incomplete records may affect payroll calculations
+- **Manual Clock-Out**: HR admins can manually clock out employees via admin endpoint
+
+### Hours Calculation
+
+- **Automatic**: Calculated on clock-out
+- **Total Hours**: Actual time worked (clock-in to clock-out)
+- **Overtime**: Time worked beyond shift end (only if clock-out is after shift end)
+- **Rounding**: All hours rounded to 2 decimal places
 
 ### Helper Functions
 

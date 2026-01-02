@@ -3,6 +3,10 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { generateTenantCode } from "../utils/generateTenantCode.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import {
+  validateTimeFormat,
+  normalizeTimeFormat,
+} from "../utils/attendance.util.js";
 
 export const tenantSignUp = async (req, res, next) => {
   try {
@@ -64,6 +68,39 @@ export const tenantSignUp = async (req, res, next) => {
 
     logger.info(`Tenant created: ${tenant.name} (${tenant.code})`);
 
+    const startTime = "09:00";
+    const endTime = "17:00";
+
+    try {
+      validateTimeFormat(startTime);
+      validateTimeFormat(endTime);
+    } catch (validationError) {
+      logger.error(`Time validation error: ${validationError.message}`);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid time format",
+        message: validationError.message,
+      });
+    }
+
+    const normalizedStartTime = normalizeTimeFormat(startTime);
+    const normalizedEndTime = normalizeTimeFormat(endTime);
+
+    const defaultShift = await prisma.shift.create({
+      data: {
+        name: "Morning Shift",
+        startTime: normalizedStartTime,
+        endTime: normalizedEndTime,
+        tenantId: tenant.id,
+        isDefault: true,
+        isActive: true,
+      },
+    });
+
+    logger.info(
+      `Default shift created: ${defaultShift.name} for tenant ${tenant.id}`
+    );
+
     const employeeId = await generateEmployeeId(tenant.id, tenant.code);
 
     let signUpResult;
@@ -78,23 +115,28 @@ export const tenantSignUp = async (req, res, next) => {
           employeeId: employeeId,
           status: "ACTIVE",
           employmentType: "FULL_TIME",
+          shiftId: defaultShift.id,
         },
         headers: req.headers,
       });
     } catch (userError) {
-      await prisma.tenant.delete({
-        where: { id: tenant.id },
-      });
+      // Rollback: Delete shift and tenant
+      await prisma.shift
+        .delete({ where: { id: defaultShift.id } })
+        .catch(() => {});
+      await prisma.tenant.delete({ where: { id: tenant.id } });
       logger.error(
-        `Failed to create user, rolled back tenant: ${userError.message}`
+        `Failed to create user, rolled back tenant and shift: ${userError.message}`
       );
       throw userError;
     }
 
     if (!signUpResult?.user) {
-      await prisma.tenant.delete({
-        where: { id: tenant.id },
-      });
+      // Rollback: Delete shift and tenant
+      await prisma.shift
+        .delete({ where: { id: defaultShift.id } })
+        .catch(() => {});
+      await prisma.tenant.delete({ where: { id: tenant.id } });
       throw new Error("Failed to create user account");
     }
 
