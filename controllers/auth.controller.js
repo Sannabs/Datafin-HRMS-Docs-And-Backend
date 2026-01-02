@@ -64,6 +64,22 @@ export const tenantSignUp = async (req, res, next) => {
 
     logger.info(`Tenant created: ${tenant.name} (${tenant.code})`);
 
+    // Create default morning shift (9 AM to 5 PM)
+    const defaultShift = await prisma.shift.create({
+      data: {
+        name: "Morning Shift",
+        startTime: "09:00",
+        endTime: "17:00",
+        tenantId: tenant.id,
+        isDefault: true,
+        isActive: true,
+      },
+    });
+
+    logger.info(
+      `Default shift created: ${defaultShift.name} for tenant ${tenant.id}`
+    );
+
     const employeeId = await generateEmployeeId(tenant.id, tenant.code);
 
     let signUpResult;
@@ -78,23 +94,28 @@ export const tenantSignUp = async (req, res, next) => {
           employeeId: employeeId,
           status: "ACTIVE",
           employmentType: "FULL_TIME",
+          shiftId: defaultShift.id,
         },
         headers: req.headers,
       });
     } catch (userError) {
-      await prisma.tenant.delete({
-        where: { id: tenant.id },
-      });
+      // Rollback: Delete shift and tenant
+      await prisma.shift
+        .delete({ where: { id: defaultShift.id } })
+        .catch(() => {});
+      await prisma.tenant.delete({ where: { id: tenant.id } });
       logger.error(
-        `Failed to create user, rolled back tenant: ${userError.message}`
+        `Failed to create user, rolled back tenant and shift: ${userError.message}`
       );
       throw userError;
     }
 
     if (!signUpResult?.user) {
-      await prisma.tenant.delete({
-        where: { id: tenant.id },
-      });
+      // Rollback: Delete shift and tenant
+      await prisma.shift
+        .delete({ where: { id: defaultShift.id } })
+        .catch(() => {});
+      await prisma.tenant.delete({ where: { id: tenant.id } });
       throw new Error("Failed to create user account");
     }
 

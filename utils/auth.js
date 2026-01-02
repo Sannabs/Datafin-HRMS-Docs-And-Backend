@@ -83,6 +83,11 @@ export const auth = betterAuth({
         type: "date",
         required: false,
       },
+
+      shiftId: {
+        type: "string",
+        required: false,
+      },
     },
   },
   advanced: {

@@ -302,6 +302,42 @@ export const acceptInvitation = async (req, res, next) => {
       invitation.tenant.code
     );
 
+    // Find default shift for tenant (or first active shift as fallback)
+    let assignedShiftId = null;
+
+    const defaultShift = await prisma.shift.findFirst({
+      where: {
+        tenantId: invitation.tenantId,
+        isDefault: true,
+        isActive: true,
+      },
+    });
+
+    if (defaultShift) {
+      assignedShiftId = defaultShift.id;
+      logger.info(`Assigning default shift to ${invitation.email}`);
+    } else {
+      // Fallback: Get first active shift
+      const firstShift = await prisma.shift.findFirst({
+        where: {
+          tenantId: invitation.tenantId,
+          isActive: true,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (firstShift) {
+        assignedShiftId = firstShift.id;
+        logger.warn(
+          `No default shift found, using first active shift for ${invitation.email}`
+        );
+      } else {
+        logger.warn(
+          `No active shifts found for tenant ${invitation.tenantId}, employee will be created without shift`
+        );
+      }
+    }
+
     // Create user account using Better Auth
     let signUpResult;
     try {
@@ -317,6 +353,7 @@ export const acceptInvitation = async (req, res, next) => {
           positionId: invitation.positionId || null,
           status: "ACTIVE",
           employmentType: "FULL_TIME",
+          shiftId: assignedShiftId || null,
         },
         headers: req.headers,
       });

@@ -827,9 +827,9 @@ model CompanyWorkDay {
 
 model Shift {
   id        String  @id @default(cuid())
-  name      String
-  startTime String
-  endTime   String
+  name      String  @default("Morning Shift")
+  startTime String  @default("09:00")
+  endTime   String  @default("17:00")
   isDefault Boolean @default(false)
 
   tenantId String
