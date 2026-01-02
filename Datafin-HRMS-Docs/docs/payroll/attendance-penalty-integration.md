@@ -7,18 +7,12 @@ This utility calculates attendance penalties based on:
 
 ## Configuration
 
-### Penalty Configuration Object
-```javascript
-const penaltyConfig = {
-  absencePenalty: 100,              // Penalty per absence
-  consecutiveLatePenalty: 200,       // Penalty per 3+ consecutive late sequence
-};
-```
+### Penalty Configuration
+Penalty amounts are stored in the **Tenant** model:
+- `absencePenalty` - Penalty per absence (Float, default: 0)
+- `consecutiveLatePenalty` - Penalty per 3+ consecutive late sequence (Float, default: 0)
 
-### Where to Configure
-1. **Hardcoded** (simplest): Define in `processEmployeePayroll` function
-2. **Tenant-level**: Store in Tenant model or separate config table
-3. **Department-level**: Override tenant defaults per department
+These values are automatically retrieved from the tenant record and used in calculations.
 
 ## Integration Steps
 
@@ -33,20 +27,14 @@ import { calculateAttendancePenalties } from "../utils/attendance-penalty.util.j
 Add after salary structure is fetched (after line 302) and before `recalculateSalary` call (before line 319):
 
 ```javascript
-// Calculate attendance penalties
-const penaltyConfig = {
-  absencePenalty: 100,
-  consecutiveLatePenalty: 200,
-};
-
+// Calculate attendance penalties (penalty amounts are automatically retrieved from tenant)
 let attendancePenaltyData = null;
 try {
   attendancePenaltyData = await calculateAttendancePenalties(
     employeeId,
     tenantId,
     payPeriod.startDate,
-    payPeriod.endDate,
-    penaltyConfig
+    payPeriod.endDate
   );
 } catch (penaltyError) {
   logger.error(`Error calculating attendance penalties: ${penaltyError.message}`);

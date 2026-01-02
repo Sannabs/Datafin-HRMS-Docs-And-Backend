@@ -70,8 +70,7 @@ export const calculateAttendancePenalties = async (
   employeeId,
   tenantId,
   periodStartDate,
-  periodEndDate,
-  penaltyConfig
+  periodEndDate
 ) => {
   try {
     const [employee, tenant] = await Promise.all([
@@ -85,6 +84,10 @@ export const calculateAttendancePenalties = async (
       }),
     ]);
 
+    if (!tenant) {
+      throw new Error(`Tenant ${tenantId} not found`);
+    }
+
     const workConfig = employee?.employeeWorkConfig || tenant?.companyWorkDay;
 
     if (!workConfig) {
@@ -95,6 +98,11 @@ export const calculateAttendancePenalties = async (
         "Work configuration not found. Please configure employee or company work days."
       );
     }
+
+    const penaltyConfig = {
+      absencePenalty: tenant.absencePenalty ?? 0,
+      consecutiveLatePenalty: tenant.consecutiveLatePenalty ?? 0,
+    };
 
     return calculateWithConfig(
       employeeId,
