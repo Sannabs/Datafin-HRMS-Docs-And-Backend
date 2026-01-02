@@ -301,3 +301,29 @@ export const getShiftEndTime = (shift, clockInDate) => {
   endTime.setHours(endHour, endMin, 0, 0);
   return endTime;
 };
+
+export const validateTimeFormat = (timeString) => {
+  if (!timeString || typeof timeString !== "string") {
+    throw new Error("Time must be a non-empty string");
+  }
+
+  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:([0-5][0-9]))?$/;
+
+  if (!timeRegex.test(timeString)) {
+    throw new Error(
+      `Invalid time format: "${timeString}". Expected format: HH:MM or HH:MM:SS (e.g., "09:00" or "09:00:00")`
+    );
+  }
+
+  return true;
+};
+
+export const normalizeTimeFormat = (timeString) => {
+  validateTimeFormat(timeString);
+
+  if (timeString.includes(":") && timeString.split(":").length === 3) {
+    return timeString.split(":").slice(0, 2).join(":");
+  }
+
+  return timeString;
+};

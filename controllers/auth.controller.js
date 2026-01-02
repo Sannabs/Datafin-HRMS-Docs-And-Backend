@@ -3,6 +3,10 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { generateTenantCode } from "../utils/generateTenantCode.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import {
+  validateTimeFormat,
+  normalizeTimeFormat,
+} from "../utils/attendance.util.js";
 
 export const tenantSignUp = async (req, res, next) => {
   try {
@@ -64,12 +68,29 @@ export const tenantSignUp = async (req, res, next) => {
 
     logger.info(`Tenant created: ${tenant.name} (${tenant.code})`);
 
-    // Create default morning shift (9 AM to 5 PM)
+    const startTime = "09:00";
+    const endTime = "17:00";
+
+    try {
+      validateTimeFormat(startTime);
+      validateTimeFormat(endTime);
+    } catch (validationError) {
+      logger.error(`Time validation error: ${validationError.message}`);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid time format",
+        message: validationError.message,
+      });
+    }
+
+    const normalizedStartTime = normalizeTimeFormat(startTime);
+    const normalizedEndTime = normalizeTimeFormat(endTime);
+
     const defaultShift = await prisma.shift.create({
       data: {
         name: "Morning Shift",
-        startTime: "09:00",
-        endTime: "17:00",
+        startTime: normalizedStartTime,
+        endTime: normalizedEndTime,
         tenantId: tenant.id,
         isDefault: true,
         isActive: true,
