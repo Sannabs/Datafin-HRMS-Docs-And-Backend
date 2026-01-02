@@ -44,7 +44,8 @@ export const sendInvitation = async (req, res, next) => {
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid role. Must be one of: HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN",
+        message:
+          "Invalid role. Must be one of: HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN",
       });
     }
 
@@ -77,6 +78,28 @@ export const sendInvitation = async (req, res, next) => {
           success: false,
           message: "Department not found or does not belong to this tenant",
         });
+      }
+
+      // Check if role is DEPARTMENT_ADMIN and department already has a manager
+      if (role === "DEPARTMENT_ADMIN") {
+        if (department.managerId) {
+          // Check if the existing manager is still active
+          const existingManager = await prisma.user.findFirst({
+            where: {
+              id: department.managerId,
+              tenantId,
+              isDeleted: false,
+              status: "ACTIVE",
+            },
+          });
+
+          if (existingManager) {
+            return res.status(409).json({
+              success: false,
+              message: "Department already has a manager",
+            });
+          }
+        }
       }
     }
 
@@ -378,11 +401,68 @@ export const acceptInvitation = async (req, res, next) => {
       });
     }
 
-    // Update invitation status to ACCEPTED after successful account creation
-    await prisma.invitation.update({
-      where: { id: invitation.id },
-      data: { status: "ACCEPTED" },
-    });
+    // Update invitation status and assign department manager if needed (using transaction)
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Update invitation status to ACCEPTED
+        await tx.invitation.update({
+          where: { id: invitation.id },
+          data: { status: "ACCEPTED" },
+        });
+
+        // If role is DEPARTMENT_ADMIN and departmentId exists, assign as department manager
+        if (invitation.role === "DEPARTMENT_ADMIN" && invitation.departmentId) {
+          // Double-check that department doesn't already have an active manager
+          const department = await tx.department.findFirst({
+            where: {
+              id: invitation.departmentId,
+              tenantId: invitation.tenantId,
+              deletedAt: null,
+            },
+            include: {
+              manager: {
+                select: {
+                  id: true,
+                  status: true,
+                  isDeleted: true,
+                },
+              },
+            },
+          });
+
+          if (department) {
+            // Only assign if no manager or existing manager is inactive/deleted
+            if (
+              !department.managerId ||
+              department.manager?.isDeleted ||
+              department.manager?.status !== "ACTIVE"
+            ) {
+              await tx.department.update({
+                where: { id: invitation.departmentId },
+                data: { managerId: signUpResult.user.id },
+              });
+
+              logger.info(
+                `Assigned ${signUpResult.user.id} as manager to department ${invitation.departmentId}`
+              );
+            } else {
+              logger.warn(
+                `Department ${invitation.departmentId} already has an active manager, skipping manager assignment`
+              );
+            }
+          }
+        }
+      });
+    } catch (transactionError) {
+      logger.error(
+        `Error in transaction while accepting invitation: ${transactionError.message}`,
+        { stack: transactionError.stack }
+      );
+      return res.status(500).json({
+        success: false,
+        message: "Failed to complete invitation acceptance",
+      });
+    }
 
     logger.info(
       `Invitation accepted: ${invitation.email} created account for tenant ${invitation.tenantId}`
