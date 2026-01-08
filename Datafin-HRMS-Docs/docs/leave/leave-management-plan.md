@@ -429,21 +429,90 @@ January 1:  accruedDays = 20.00 (capped)
 
 ---
 
+## Entitlement Initialization
+
+### When to Initialize
+
+| Trigger             | Description                                        | Implementation                            |
+| ------------------- | -------------------------------------------------- | ----------------------------------------- |
+| **Invite Accepted** | Employee accepts invitation and account is created | Automatic - in invitation acceptance flow |
+| **Year-End**        | New year starts for all existing employees         | Scheduled job (Jan 1st)                   |
+| **Manual**          | HR manually initializes for edge cases             | Admin endpoint                            |
+
+### Initialization Flow (Invite Acceptance)
+
+```
+┌─────────────────────────────────────┐
+│ HR Sends Invitation                 │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ Employee Accepts Invitation         │
+│ (Creates User record)               │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ Check if tenant has leave policy    │
+└─────────────────────────────────────┘
+              │
+         Has Policy?
+              │
+    ┌─────────┴─────────┐
+   Yes                  No
+    │                    │
+    ▼                    ▼
+┌──────────────┐  ┌──────────────┐
+│ Initialize   │  │ Skip         │
+│ YearlyEntit- │  │ (No policy   │
+│ lement for   │  │ configured)  │
+│ current year │  └──────────────┘
+│              │
+│ - Get policy │
+│ - Calculate  │
+│   pro-rata   │
+│   if mid-year│
+│ - Create     │
+│   entitlement│
+└──────────────┘
+```
+
+### Pro-Rata Calculation (Mid-Year Joins)
+
+For employees joining mid-year with FRONT_LOADED policy:
+
+```
+Full Year Days = policy.defaultDaysPerYear (e.g., 20)
+Months Remaining = 12 - current month + 1
+Pro-Rata Days = (Full Year Days / 12) × Months Remaining
+
+Example: Join July 1 (month 7)
+- Months Remaining: 12 - 7 + 1 = 6 months
+- Pro-Rata Days: (20 / 12) × 6 = 10 days
+```
+
+---
+
 ## Scenarios
 
-### Scenario 1: New Employee Onboarding
+### Scenario 1: New Employee Onboarding (via Invitation)
 
-**Context:** Employee joins on July 1, 2025
+**Context:** Employee accepts invitation on July 1, 2025
 **Policy:** 20 days/year, FRONT_LOADED
 
 ```
-Step 1: HR creates employee record
-Step 2: System initializes YearlyEntitlement:
+Step 1: HR sends invitation to employee
+Step 2: Employee accepts invitation
+Step 3: User record created
+Step 4: System automatically initializes YearlyEntitlement:
         - year: 2025
-        - allocatedDays: 20 (or pro-rata: 10 for 6 months)
+        - allocatedDays: 10 (pro-rata: 6 months remaining)
         - accruedDays: 0
         - carriedOverDays: 0 (new employee)
-        - Available: 20 (or 10 if pro-rata)
+        - yearStartDate: 2025-07-01 (join date)
+        - yearEndDate: 2025-12-31
+        - Available: 10 days
 ```
 
 ### Scenario 2: Year-End Carryover (LIMITED)
@@ -720,11 +789,18 @@ Audit Log:
 
 ## Scheduled Jobs
 
-| Job                    | Schedule                   | Description                        |
-| ---------------------- | -------------------------- | ---------------------------------- |
-| Leave Accrual          | 1st of each month, 1:00 AM | Process monthly/quarterly accruals |
-| Year-End Processing    | Jan 1st, 00:05 AM          | Initialize new year entitlements   |
-| Carryover Expiry Check | 1st of each month, 2:00 AM | Forfeit expired carryover          |
+| Job                       | Schedule                   | Description                              |
+| ------------------------- | -------------------------- | ---------------------------------------- |
+| Leave Accrual             | 1st of each month, 1:00 AM | Process monthly/quarterly accruals       |
+| Year-End Processing       | Jan 1st, 00:05 AM          | Initialize new year entitlements (batch) |
+| Carryover Expiry Check    | 1st of each month, 2:00 AM | Forfeit expired carryover                |
+| Leave Ending Notification | Daily, 8:00 AM             | Notify employees whose leave ends soon   |
+
+### Note on Entitlement Initialization
+
+- **New employees:** Initialized automatically when they accept their invitation (event-driven)
+- **Existing employees (new year):** Initialized via Year-End Processing job (batch)
+- **Manual:** HR can initialize via admin endpoint for edge cases
 
 ---
 
@@ -780,9 +856,10 @@ Audit Log:
 
 1. Create leave-entitlement service
 2. Create leave-balance controller/routes
-3. Initialize entitlement logic
+3. Initialize entitlement logic (single employee)
 4. Balance calculation logic
 5. Manual adjustment endpoint
+6. **Integrate with invitation acceptance flow** (update `invitations.controller.js`)
 
 ### Phase 4: Leave Requests
 
@@ -794,10 +871,11 @@ Audit Log:
 
 ### Phase 5: Automation
 
-1. Create accrual job
-2. Create year-end processing job
+1. Create year-end processing job (batch initialize for all employees)
+2. Create accrual job (if ACCRUAL method)
 3. Create carryover expiry job
-4. Notification integration
+4. Create leave-ending notification job
+5. Notification integration
 
 ### Phase 6: Testing & Refinement
 
@@ -809,6 +887,13 @@ Audit Log:
 ---
 
 ## Integration Points
+
+### Invitation Module (Employee Onboarding)
+
+- **Trigger:** When employee accepts invitation
+- **Action:** Initialize YearlyEntitlement for current year
+- **Location:** Update `invitations.controller.js` (accept invite handler)
+- **Logic:** Call `initializeYearlyEntitlement(userId, tenantId)` after user creation
 
 ### Attendance Module
 
@@ -826,6 +911,7 @@ Audit Log:
 - Approval/rejection notifications
 - Balance warnings
 - Accrual notifications
+- Leave ending soon notifications
 
 ### Audit Module
 
