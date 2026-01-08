@@ -62,6 +62,8 @@ One policy per tenant. Defines company-wide leave rules.
 
 Leave categories for tracking and reporting.
 
+**Note:** All leave types require approval (two-tier: Manager → HR). No `requiresApproval` field needed.
+
 | Field             | Type    | Description                        |
 | ----------------- | ------- | ---------------------------------- |
 | id                | String  | Primary key                        |
@@ -71,7 +73,6 @@ Leave categories for tracking and reporting.
 | color             | String? | Hex color for calendar             |
 | isPaid            | Boolean | Paid vs unpaid leave               |
 | deductsFromAnnual | Boolean | Does this deduct from annual pool? |
-| requiresApproval  | Boolean | Requires manager/HR approval?      |
 | requiresDocument  | Boolean | e.g., medical certificate          |
 | isActive          | Boolean | Active status                      |
 
@@ -98,6 +99,8 @@ Per employee per year balance tracking.
 | yearEndDate         | DateTime  | End of leave year                        |
 | lastAccrualDate     | DateTime? | Last accrual processing date             |
 | carryoverExpiryDate | DateTime? | When carryover expires                   |
+
+**Note:** `notes` field removed - not needed for balance tracking.
 
 #### LeaveRequest (Two-Tier Approval)
 
