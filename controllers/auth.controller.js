@@ -150,7 +150,6 @@ export const tenantSignUp = async (req, res, next) => {
           accrualMethod: "FRONT_LOADED",
           carryoverType: "FULL",
           advanceNoticeDays: 3,
-          
           },
         });
       }
