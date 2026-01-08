@@ -140,6 +140,25 @@ export const tenantSignUp = async (req, res, next) => {
       throw new Error("Failed to create user account");
     }
 
+    let defaultCompanyLeavePolicy;
+    try {
+      if (signUpResult) {
+      defaultCompanyLeavePolicy = await prisma.annualLeavePolicy.create({
+        data: {
+          tenant: tenant.id,
+          defaultDaysPerYear: 21,
+          accrualMethod: "FRONT_LOADED",
+          carryoverType: "FULL",
+          advanceNoticeDays: 3,
+          
+          },
+        });
+      }
+    } catch (error) {
+      logger.error(`Failed to create default company leave policy: ${error.message}`);
+      throw error;
+    }
+
     logger.info(`User created: ${email} for tenant ${tenant.name}`);
 
     return res.status(201).json({

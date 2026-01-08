@@ -911,7 +911,7 @@ model AnnualLeavePolicy {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Default allocation (can be overridden per employee)
-  defaultDaysPerYear Float @default(20)
+  defaultDaysPerYear Float @default(21)
 
   // Accrual Configuration
   accrualMethod        AccrualMethod     @default(FRONT_LOADED)
@@ -919,7 +919,7 @@ model AnnualLeavePolicy {
   accrualDaysPerPeriod Float? // Only if accrualMethod = ACCRUAL
 
   // Carryover Configuration
-  carryoverType         CarryoverType @default(NONE)
+  carryoverType         CarryoverType @default(FULL)
   maxCarryoverDays      Float? // Only if carryoverType = LIMITED
   carryoverExpiryMonths Int? // Months after year-end when carryover expires
   encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT

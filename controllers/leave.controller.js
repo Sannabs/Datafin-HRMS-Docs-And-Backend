@@ -10,9 +10,6 @@ export const getLeavePolicy = async (req, res) => {
     // TODO
 };
 
-export const createLeavePolicy = async (req, res) => {
-    // TODO
-};
 
 export const updateLeavePolicy = async (req, res) => {
     // TODO
