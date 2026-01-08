@@ -137,6 +137,32 @@ enum AdjustmentType {
   AMENDMENT // Mid-period salary change
 }
 
+enum AccrualMethod {
+  FRONT_LOADED // All days available at year start
+  ACCRUAL // Days accrue over time
+}
+
+enum AccrualFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum CarryoverType {
+  NONE // No carryover allowed
+  FULL // Carry all unused balance
+  LIMITED // Carry up to maxCarryoverDays
+  ENCASHMENT // Sell unused days (paid out)
+}
+
+enum LeaveRequestStatus {
+  PENDING // Awaiting manager approval
+  MANAGER_APPROVED // Manager approved, awaiting HR
+  APPROVED // Fully approved (HR approved)
+  REJECTED // Rejected by manager or HR
+  CANCELLED // Cancelled by employee
+}
+
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -166,23 +192,27 @@ model Tenant {
   absencePenalty         Float?        @default(0)
   consecutiveLatePenalty Float?        @default(0)
 
-  users            User[]
-  departments      Department[]
-  positions        Position[]
-  salaryStructures SalaryStructure[]
-  allowanceTypes   AllowanceType[]
-  deductionTypes   DeductionType[]
-  payPeriods       PayPeriod[]
-  payrollRuns      PayrollRun[]
-  calculationRules CalculationRule[]
-  auditLogs        AuditLog[]
-  invitations      Invitation[]
-  holidays         Holiday[]
-  notifications    Notification[]
-  attendances      Attendance[]
-  companyWorkDay   CompanyWorkDay?
-  shifts           Shift[]
-  locations        Location[]
+  users              User[]
+  departments        Department[]
+  positions          Position[]
+  salaryStructures   SalaryStructure[]
+  allowanceTypes     AllowanceType[]
+  deductionTypes     DeductionType[]
+  payPeriods         PayPeriod[]
+  payrollRuns        PayrollRun[]
+  calculationRules   CalculationRule[]
+  auditLogs          AuditLog[]
+  invitations        Invitation[]
+  holidays           Holiday[]
+  notifications      Notification[]
+  attendances        Attendance[]
+  companyWorkDay     CompanyWorkDay?
+  shifts             Shift[]
+  locations          Location[]
+  annualLeavePolicy  AnnualLeavePolicy?
+  leaveTypes         LeaveType[]
+  yearlyEntitlements YearlyEntitlement[]
+  leaveRequests      LeaveRequest[]
 
   @@index([phone])
   @@index([email])
@@ -297,15 +327,20 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  sessions           Session[]
-  accounts           Account[]
-  auditLogs          AuditLog[]
-  invitations        Invitation[]
-  notifications      Notification[]
-  attendances        Attendance[]
-  employeeWorkConfig EmployeeWorkConfig?
-  shiftId            String?
-  shift              Shift?              @relation(fields: [shiftId], references: [id])
+  sessions              Session[]
+  accounts              Account[]
+  auditLogs             AuditLog[]
+  invitations           Invitation[]
+  notifications         Notification[]
+  attendances           Attendance[]
+  employeeWorkConfig    EmployeeWorkConfig?
+  shiftId               String?
+  shift                 Shift?              @relation(fields: [shiftId], references: [id])
+  yearlyEntitlements    YearlyEntitlement[]
+  leaveRequests         LeaveRequest[]
+  managedLeaveRequests  LeaveRequest[]      @relation("LeaveManager")
+  hrLeaveRequests       LeaveRequest[]      @relation("LeaveHR")
+  rejectedLeaveRequests LeaveRequest[]      @relation("LeaveRejecter")
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -864,4 +899,158 @@ model Location {
   updatedAt DateTime @updatedAt
 
   @@index([tenantId])
+}
+
+// ------------------------------------------------------------
+// Leave Management
+// ------------------------------------------------------------
+
+model AnnualLeavePolicy {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Default allocation (can be overridden per employee)
+  defaultDaysPerYear Float @default(20)
+
+  // Accrual Configuration
+  accrualMethod        AccrualMethod     @default(FRONT_LOADED)
+  accrualFrequency     AccrualFrequency? // Only if accrualMethod = ACCRUAL
+  accrualDaysPerPeriod Float? // Only if accrualMethod = ACCRUAL
+
+  // Carryover Configuration
+  carryoverType         CarryoverType @default(NONE)
+  maxCarryoverDays      Float? // Only if carryoverType = LIMITED
+  carryoverExpiryMonths Int? // Months after year-end when carryover expires
+  encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT
+
+  // Request Constraints
+  advanceNoticeDays Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  yearlyEntitlements YearlyEntitlement[]
+}
+
+model LeaveType {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String // "Annual Leave", "Sick Leave", "Study Leave"
+  description String?
+  color       String? // For calendar display
+
+  // Behavior
+  isPaid            Boolean @default(true)
+  deductsFromAnnual Boolean @default(true) // Does this deduct from annual pool?
+  requiresDocument  Boolean @default(false) // e.g., medical certificate
+
+  // Status
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leaveRequests LeaveRequest[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+model YearlyEntitlement {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  policyId String
+  policy   AnnualLeavePolicy @relation(fields: [policyId], references: [id])
+
+  year Int
+
+  // Allocation
+  allocatedDays   Float // From policy or overridden per employee
+  accruedDays     Float @default(0) // Days accrued so far (if accrual method)
+  carriedOverDays Float @default(0) // From previous year
+  adjustmentDays  Float @default(0) // Manual adjustments (+/-)
+
+  // Usage tracking
+  usedDays    Float @default(0) // Approved leaves
+  pendingDays Float @default(0) // Pending requests
+
+  // Encashment tracking (if carryoverType = ENCASHMENT)
+  encashedDays     Float @default(0)
+  encashmentAmount Float @default(0)
+
+  // Important dates
+  yearStartDate       DateTime
+  yearEndDate         DateTime
+  lastAccrualDate     DateTime?
+  carryoverExpiryDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId, year])
+  @@index([tenantId, userId])
+  @@index([tenantId, year])
+  @@index([userId, year])
+  @@index([lastAccrualDate])
+}
+
+model LeaveRequest {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  // Request details
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  totalDays Float
+
+  reason      String?
+  attachments String[]
+
+  // Status
+  status LeaveRequestStatus @default(PENDING)
+
+  // Two-Tier Approval: Manager then HR
+  managerId         String?
+  manager           User?     @relation("LeaveManager", fields: [managerId], references: [id], onDelete: SetNull)
+  managerApprovedAt DateTime?
+
+  hrId         String?
+  hr           User?     @relation("LeaveHR", fields: [hrId], references: [id], onDelete: SetNull)
+  hrApprovedAt DateTime?
+
+  // Rejection
+  rejectedBy      String?
+  rejectedByUser  User?     @relation("LeaveRejecter", fields: [rejectedBy], references: [id], onDelete: SetNull)
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  // Cancellation
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+  @@index([startDate, endDate])
+  @@index([managerId, status])
+  @@index([status])
+  @@index([endDate]) // For leave-ending notifications
 }
