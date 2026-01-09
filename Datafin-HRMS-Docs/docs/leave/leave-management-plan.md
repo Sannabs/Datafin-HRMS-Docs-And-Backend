@@ -164,6 +164,22 @@ Available = allocatedDays + accruedDays + carriedOverDays + adjustmentDays - use
 | usedDays        | Approved leave days         | When leave is approved                         |
 | pendingDays     | In pending requests         | When request submitted/resolved                |
 
+### Accrual Method Impact on Balance Fields
+
+**FRONT_LOADED Method:**
+
+- `allocatedDays` = Full amount (e.g., 21 days) loaded at year start
+- `accruedDays` = 0 (stays 0, not used)
+- Available = `allocatedDays + 0 + carriedOverDays + adjustmentDays - usedDays - pendingDays`
+
+**ACCRUAL Method:**
+
+- `allocatedDays` = 0 (stays 0, not used)
+- `accruedDays` = Starts at 0, increases monthly/quarterly (updated by scheduled job)
+- Available = `0 + accruedDays + carriedOverDays + adjustmentDays - usedDays - pendingDays`
+
+**Note:** Available balance is **calculated on-the-fly**, not stored. The `YearlyEntitlement` model stores the components, and available balance is computed when needed.
+
 ### Balance Example
 
 ```
@@ -434,52 +450,61 @@ January 1:  accruedDays = 20.00 (capped)
 
 ## Entitlement Initialization
 
-### When to Initialize
+### When to Initialize (Lazy Initialization)
 
-| Trigger             | Description                                        | Implementation                            |
-| ------------------- | -------------------------------------------------- | ----------------------------------------- |
-| **Invite Accepted** | Employee accepts invitation and account is created | Automatic - in invitation acceptance flow |
-| **Year-End**        | New year starts for all existing employees         | Scheduled job (Jan 1st)                   |
-| **Manual**          | HR manually initializes for edge cases             | Admin endpoint                            |
+| Trigger             | Description                                        | Implementation                         |
+| ------------------- | -------------------------------------------------- | -------------------------------------- |
+| **First Access**    | Employee checks balance or submits leave request   | Automatic - lazy initialization        |
+| **Invite Accepted** | Employee accepts invitation and account is created | Automatic - lazy initialization        |
+| **Year-End**        | New year starts for all existing employees         | Scheduled job (Jan 1st) - batch create |
+| **Manual**          | HR manually initializes for edge cases             | Admin endpoint                         |
 
-### Initialization Flow (Invite Acceptance)
+**Important:** Entitlements are **NOT created on signup**. They are created lazily when first needed (first balance check, first leave request, or when employee accepts invitation).
+
+### Initialization Flow (Lazy - First Access)
 
 ```
 ┌─────────────────────────────────────┐
-│ HR Sends Invitation                 │
+│ Employee Accesses Leave Feature     │
+│ (Check balance / Submit request)    │
 └─────────────────────────────────────┘
               │
               ▼
 ┌─────────────────────────────────────┐
-│ Employee Accepts Invitation         │
-│ (Creates User record)               │
+│ getOrCreateEntitlement()            │
+│ - Check if entitlement exists       │
 └─────────────────────────────────────┘
               │
-              ▼
-┌─────────────────────────────────────┐
-│ Check if tenant has leave policy    │
-└─────────────────────────────────────┘
-              │
-         Has Policy?
+         Exists?
               │
     ┌─────────┴─────────┐
    Yes                  No
     │                    │
     ▼                    ▼
 ┌──────────────┐  ┌──────────────┐
-│ Initialize   │  │ Skip         │
-│ YearlyEntit- │  │ (No policy   │
-│ lement for   │  │ configured)  │
-│ current year │  └──────────────┘
-│              │
-│ - Get policy │
-│ - Calculate  │
-│   pro-rata   │
-│   if mid-year│
-│ - Create     │
-│   entitlement│
-└──────────────┘
+│ Return       │  │ Create       │
+│ existing     │  │ entitlement: │
+│ entitlement  │  │              │
+└──────────────┘  │ - Get policy │
+                  │ - Calculate  │
+                  │   pro-rata   │
+                  │   if mid-year│
+                  │ - Set        │
+                  │   allocated/ │
+                  │   accrued    │
+                  │   based on   │
+                  │   method     │
+                  │ - Create     │
+                  └──────────────┘
 ```
+
+### Initialization on Invite Acceptance
+
+When employee accepts invitation:
+
+1. User record created
+2. Call `getOrCreateEntitlement(userId, tenantId)`
+3. Entitlement created if doesn't exist (same lazy logic)
 
 ### Pro-Rata Calculation (Mid-Year Joins)
 
@@ -497,9 +522,64 @@ Example: Join July 1 (month 7)
 
 ---
 
+## Policy Update Behavior
+
+### Default Behavior: Changes Affect New Entitlements Only
+
+When HR updates the leave policy:
+
+- **Existing entitlements:** Remain **UNCHANGED** (data integrity, fairness)
+- **New entitlements:** Use new policy settings (new employees, new year)
+- **Next year:** All employees get new policy settings
+
+### Why This Approach?
+
+1. **Data Integrity:** Historical entitlements shouldn't change retroactively
+2. **Fairness:** Employees already allocated leave under old policy
+3. **Simplicity:** One clear rule, no complex recalculation logic
+4. **Best Practice:** HR should configure policy before bulk employee invites
+
+### What Policy Changes Affect
+
+| Policy Change        | Affects                  | Does NOT Affect           |
+| -------------------- | ------------------------ | ------------------------- |
+| `defaultDaysPerYear` | New entitlements only    | Existing entitlements     |
+| `accrualMethod`      | New entitlements only    | Current year entitlements |
+| `accrualFrequency`   | New entitlements only    | Current year entitlements |
+| `carryoverType`      | Year-end processing only | Already carried amounts   |
+| `maxCarryoverDays`   | Future carryovers only   | Already carried amounts   |
+
+### Example: Policy Update Mid-Year
+
+```
+Initial State (Jan 1, 2025):
+- Policy: 20 days/year, FRONT_LOADED
+- Employee A: allocatedDays = 20, accruedDays = 0
+- Employee B: allocatedDays = 20, accruedDays = 0
+
+HR Updates Policy (March 1, 2025):
+- New Policy: 25 days/year, ACCRUAL, MONTHLY
+
+Result:
+- Employee A: allocatedDays = 20, accruedDays = 0 (UNCHANGED)
+- Employee B: allocatedDays = 20, accruedDays = 0 (UNCHANGED)
+- New Employee C (invited after update): allocatedDays = 0, accruedDays = 0 (will accrue monthly)
+- Next Year (2026): All employees get 25 days with ACCRUAL method
+```
+
+### Manual Adjustment for Edge Cases
+
+If HR needs to fix existing entitlements:
+
+- Use manual adjustment endpoint: `POST /api/v1/leave/balance/:userId/adjust`
+- Adjust individual employee balances as needed
+- This is a business process issue, not a software automation issue
+
+---
+
 ## Scenarios
 
-### Scenario 1: New Employee Onboarding (via Invitation)
+### Scenario 1: New Employee Onboarding (Lazy Initialization)
 
 **Context:** Employee accepts invitation on July 1, 2025
 **Policy:** 20 days/year, FRONT_LOADED
@@ -508,15 +588,41 @@ Example: Join July 1 (month 7)
 Step 1: HR sends invitation to employee
 Step 2: Employee accepts invitation
 Step 3: User record created
-Step 4: System automatically initializes YearlyEntitlement:
+Step 4: getOrCreateEntitlement() called (lazy initialization)
+Step 5: System creates YearlyEntitlement:
         - year: 2025
         - allocatedDays: 10 (pro-rata: 6 months remaining)
-        - accruedDays: 0
+        - accruedDays: 0 (FRONT_LOADED method)
         - carriedOverDays: 0 (new employee)
         - yearStartDate: 2025-07-01 (join date)
         - yearEndDate: 2025-12-31
         - Available: 10 days
 ```
+
+**Alternative:** If employee first accesses leave feature (check balance) before accepting invite, entitlement is created at that point.
+
+### Scenario 1b: Company Signup (No Entitlement Created)
+
+**Context:** Company signs up, admin account created
+**Policy:** Default policy created (21 days/year, FRONT_LOADED)
+
+```
+Step 1: Company signs up
+Step 2: Tenant created
+Step 3: Default shift created
+Step 4: User (admin) created
+Step 5: Default policy created
+Step 6: ❌ NO entitlement created for admin
+
+Result:
+- Admin can configure policy settings
+- Admin entitlement created lazily when:
+  - Admin checks balance, OR
+  - Admin submits first leave request, OR
+  - Admin accepts invitation (if self-invited)
+```
+
+**Why:** Admin typically configures policy first, then uses leave features later. Lazy initialization avoids unnecessary creation.
 
 ### Scenario 2: Year-End Carryover (LIMITED)
 
@@ -567,30 +673,39 @@ Payroll Integration:
 - Add $500 encashment to next payroll
 ```
 
-### Scenario 4: Monthly Accrual
+### Scenario 4: Monthly Accrual (ACCRUAL Method)
 
 **Context:** New year starts, ACCRUAL method
-**Policy:** 20 days/year, MONTHLY accrual (1.67 days/month)
+**Policy:** 20 days/year, ACCRUAL, MONTHLY (1.67 days/month)
+
+**Key Point:** With ACCRUAL method, `allocatedDays` stays 0, only `accruedDays` increases.
 
 ```
-January 1, 2025:
-- allocatedDays: 0 (accrual method)
+January 1, 2025 (Entitlement Created):
+- allocatedDays: 0 (ACCRUAL method - not used)
 - accruedDays: 0
 - Available: 0 days
 
 February 1, 2025 (Accrual Job Runs):
-- accruedDays: 1.67
+- allocatedDays: 0 (unchanged)
+- accruedDays: 0 → 1.67
 - Available: 1.67 days
 
-March 1, 2025:
-- accruedDays: 3.34
+March 1, 2025 (Accrual Job Runs):
+- allocatedDays: 0 (unchanged)
+- accruedDays: 1.67 → 3.34
 - Available: 3.34 days
 
 Employee Requests 2 Days (March 15):
-- Available: 3.34 days
+- Available: 3.34 days (from accruedDays)
 - Requested: 2 days
 - Balance Check: 2 <= 3.34 ✓ Allowed
 ```
+
+**Comparison with FRONT_LOADED:**
+
+- FRONT_LOADED: `allocatedDays = 20`, `accruedDays = 0` (all available immediately)
+- ACCRUAL: `allocatedDays = 0`, `accruedDays` grows monthly (earned over time)
 
 ### Scenario 5: Leave Request Approval Flow
 
@@ -801,7 +916,9 @@ Audit Log:
 
 ### Note on Entitlement Initialization
 
-- **New employees:** Initialized automatically when they accept their invitation (event-driven)
+- **Lazy Initialization:** Entitlements created on first access (balance check, leave request, or invite acceptance)
+- **Signup:** No entitlement created for admin (lazy initialization when needed)
+- **New employees:** Created lazily when they first access leave features or accept invitation
 - **Existing employees (new year):** Initialized via Year-End Processing job (batch)
 - **Manual:** HR can initialize via admin endpoint for edge cases
 
@@ -811,10 +928,7 @@ Audit Log:
 
 ### Controllers
 
-- `controllers/leave-policy.controller.js`
-- `controllers/leave-type.controller.js`
-- `controllers/leave-request.controller.js`
-- `controllers/leave-balance.controller.js`
+- `controllers/leave.controller.js` (single file with all leave controllers)
 
 ### Services
 
@@ -921,3 +1035,61 @@ Audit Log:
 - Log all leave-related actions
 - Track balance changes
 - Track request status changes
+
+---
+
+## Key Design Decisions Summary
+
+### 1. Entitlement Initialization: Lazy Approach
+
+**Decision:** Entitlements are created lazily (on first access), not on signup or invite acceptance.
+
+**Why:**
+
+- Admin configures policy first, then uses leave features
+- Consistent behavior for all users
+- Avoids unnecessary database records
+- Simple, one code path
+
+**When Created:**
+
+- First balance check
+- First leave request submission
+- Invite acceptance (via `getOrCreateEntitlement()`)
+
+### 2. Policy Updates: New Entitlements Only
+
+**Decision:** Policy changes affect new entitlements only, existing entitlements remain unchanged.
+
+**Why:**
+
+- Data integrity (historical records shouldn't change)
+- Fairness (employees already allocated under old policy)
+- Simplicity (one clear rule)
+- Best practice (configure before bulk invites)
+
+**Manual Adjustment:** HR can manually adjust individual balances if needed via admin endpoint.
+
+### 3. Accrual Method Impact
+
+**FRONT_LOADED:**
+
+- `allocatedDays` = full amount at year start
+- `accruedDays` = 0 (not used)
+- All days available immediately
+
+**ACCRUAL:**
+
+- `allocatedDays` = 0 (not used)
+- `accruedDays` = grows over time (monthly/quarterly)
+- Days earned gradually
+
+**Available Balance:** Always calculated as `allocatedDays + accruedDays + carriedOverDays + adjustmentDays - usedDays - pendingDays`
+
+### 4. Balance Tracking
+
+**Not Stored:** Available balance is calculated on-the-fly, not stored in database.
+
+**Stored Components:** `allocatedDays`, `accruedDays`, `carriedOverDays`, `adjustmentDays`, `usedDays`, `pendingDays` in `YearlyEntitlement` model.
+
+**Why:** Single source of truth, always accurate, no sync issues.

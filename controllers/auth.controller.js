@@ -142,48 +142,25 @@ export const tenantSignUp = async (req, res, next) => {
 
     let defaultCompanyLeavePolicy;
     try {
-        defaultCompanyLeavePolicy = await prisma.annualLeavePolicy.create({
-            data: {
-                tenantId: tenant.id,  // ✅ Fixed
-                defaultDaysPerYear: 21,
-                accrualMethod: "FRONT_LOADED",
-                carryoverType: "FULL",
-                advanceNoticeDays: 3,
-            },
-        });
-        
-        logger.info(`Default leave policy created for tenant ${tenant.id}`);
+      defaultCompanyLeavePolicy = await prisma.annualLeavePolicy.create({
+        data: {
+          tenantId: tenant.id, // ✅ Fixed
+          defaultDaysPerYear: 21,
+          accrualMethod: "FRONT_LOADED",
+          carryoverType: "FULL",
+          advanceNoticeDays: 3,
+        },
+      });
+
+      logger.info(`Default leave policy created for tenant ${tenant.id}`);
     } catch (error) {
-        logger.error(`Failed to create default company leave policy: ${error.message}`);
-        // Consider rollback or make policy creation optional
-        throw error;
+      logger.error(
+        `Failed to create default company leave policy: ${error.message}`
+      );
+      // Consider rollback or make policy creation optional
+      throw error;
     }
-    
-    //  Create entitlement for admin user
-    try {
-        const currentYear = new Date().getFullYear();
-        await prisma.yearlyEntitlement.create({
-            data: {
-                tenantId: tenant.id,
-                userId: signUpResult.user.id,
-                policyId: defaultCompanyLeavePolicy.id,
-                year: currentYear,
-                allocatedDays: defaultCompanyLeavePolicy.defaultDaysPerYear,
-                accruedDays: 0,
-                carriedOverDays: 0,
-                adjustmentDays: 0,
-                usedDays: 0,
-                pendingDays: 0,
-                yearStartDate: new Date(currentYear, 0, 1),
-                yearEndDate: new Date(currentYear, 11, 31),
-            },
-        });
-        logger.info(`Created yearly entitlement for admin user: ${signUpResult.user.id}`);
-    } catch (error) {
-        logger.error(`Failed to create admin entitlement: ${error.message}`);
-        // Don't throw - non-critical, can be created later
-        // But log for monitoring
-    }
+
     logger.info(`User created: ${email} for tenant ${tenant.name}`);
 
     return res.status(201).json({
