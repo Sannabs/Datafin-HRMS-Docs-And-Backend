@@ -464,6 +464,101 @@ export const acceptInvitation = async (req, res, next) => {
       });
     }
 
+    // Create yearly entitlement for new employee
+    try {
+      const companyLeavePolicy = await prisma.annualLeavePolicy.findFirst({
+        where: {
+          tenantId: invitation.tenantId,
+        },
+      });
+
+      if (companyLeavePolicy) {
+        const currentYear = new Date().getFullYear();
+        const currentDate = new Date();
+
+        // Use invitation createdAt for pro-rata calculation (hireDate might be empty)
+        const invitationDate = new Date(invitation.createdAt);
+        const invitationYear = invitationDate.getFullYear();
+
+        // Calculate allocation based on accrual method
+        let allocatedDays = 0;
+        let accruedDays = 0;
+        let yearStartDate = new Date(currentYear, 0, 1); // Jan 1
+        let yearEndDate = new Date(currentYear, 11, 31); // Dec 31
+
+        if (companyLeavePolicy.accrualMethod === "FRONT_LOADED") {
+          // FRONT_LOADED: All days allocated at year start
+          allocatedDays = companyLeavePolicy.defaultDaysPerYear;
+          accruedDays = 0;
+
+          // Pro-rata calculation if invited mid-year
+          if (invitationYear === currentYear) {
+            // Invited this year - calculate pro-rata
+            const monthsRemaining = 12 - invitationDate.getMonth();
+            allocatedDays =
+              (companyLeavePolicy.defaultDaysPerYear / 12) * monthsRemaining;
+            yearStartDate = invitationDate; // Start from invitation date
+          }
+        } else {
+          // ACCRUAL: allocatedDays stays 0, accruedDays will grow over time
+          allocatedDays = 0;
+          accruedDays = 0;
+
+          // For mid-year invites with ACCRUAL, set yearStartDate to invitation date
+          if (invitationYear === currentYear) {
+            yearStartDate = invitationDate;
+          }
+        }
+
+        // Calculate carryover expiry date if applicable
+        let carryoverExpiryDate = null;
+        if (companyLeavePolicy.carryoverExpiryMonths) {
+          carryoverExpiryDate = new Date(
+            currentYear,
+            companyLeavePolicy.carryoverExpiryMonths,
+            0
+          );
+        }
+
+        await prisma.yearlyEntitlement.create({
+          data: {
+            tenantId: invitation.tenantId,
+            userId: signUpResult.user.id,
+            policyId: companyLeavePolicy.id, // Required field
+            year: currentYear,
+            allocatedDays,
+            accruedDays: 0, // Explicit
+            carriedOverDays: 0, // New employee, no carryover
+            adjustmentDays: 0,
+            usedDays: 0,
+            pendingDays: 0,
+            encashedDays: 0,
+            encashmentAmount: 0,
+            yearStartDate,
+            yearEndDate,
+            lastAccrualDate: null, // Will be set when accrual runs
+            carryoverExpiryDate,
+          },
+        });
+
+        logger.info(
+          `Created yearly entitlement for user ${signUpResult.user.id}, year ${currentYear}, allocatedDays: ${allocatedDays}`
+        );
+      } else {
+        logger.warn(
+          `No leave policy found for tenant ${invitation.tenantId}, skipping entitlement creation`
+        );
+        // Don't fail - entitlement can be created later via admin endpoint
+      }
+    } catch (entitlementError) {
+      // Log error but don't fail invitation acceptance
+      // Entitlement can be created later via admin endpoint
+      logger.error(
+        `Failed to create yearly entitlement for user ${signUpResult.user.id}: ${entitlementError.message}`,
+        { stack: entitlementError.stack }
+      );
+      // Continue - user account is already created, entitlement is non-critical
+    }
     logger.info(
       `Invitation accepted: ${invitation.email} created account for tenant ${invitation.tenantId}`
     );

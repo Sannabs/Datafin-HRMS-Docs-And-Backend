@@ -450,16 +450,20 @@ January 1:  accruedDays = 20.00 (capped)
 
 ## Entitlement Initialization
 
-### When to Initialize (Lazy Initialization)
+### When to Initialize
 
-| Trigger             | Description                                        | Implementation                         |
-| ------------------- | -------------------------------------------------- | -------------------------------------- |
-| **First Access**    | Employee checks balance or submits leave request   | Automatic - lazy initialization        |
-| **Invite Accepted** | Employee accepts invitation and account is created | Automatic - lazy initialization        |
-| **Year-End**        | New year starts for all existing employees         | Scheduled job (Jan 1st) - batch create |
-| **Manual**          | HR manually initializes for edge cases             | Admin endpoint                         |
+| Trigger             | Description                                        | Implementation                         | Type            |
+| ------------------- | -------------------------------------------------- | -------------------------------------- | --------------- |
+| **Invite Accepted** | Employee accepts invitation and account is created | Automatic - created immediately        | Proactive       |
+| **First Access**    | Employee checks balance or submits leave request   | Automatic - lazy initialization        | Lazy (fallback) |
+| **Year-End**        | New year starts for all existing employees         | Scheduled job (Jan 1st) - batch create | Batch           |
+| **Manual**          | HR manually initializes for edge cases             | Admin endpoint                         | Manual          |
 
-**Important:** Entitlements are **NOT created on signup**. They are created lazily when first needed (first balance check, first leave request, or when employee accepts invitation).
+**Important Notes:**
+
+- **Signup:** Entitlements are **NOT created on company signup** (admin can configure policy first)
+- **Invite Acceptance:** Entitlements **ARE created immediately** when employee accepts invitation (proactive)
+- **First Access:** If employee accesses leave features before accepting invite, entitlement created then (lazy fallback)
 
 ### Initialization Flow (Lazy - First Access)
 
@@ -498,13 +502,36 @@ January 1:  accruedDays = 20.00 (capped)
                   └──────────────┘
 ```
 
-### Initialization on Invite Acceptance
+### Initialization on Invite Acceptance (Proactive)
 
 When employee accepts invitation:
 
-1. User record created
-2. Call `getOrCreateEntitlement(userId, tenantId)`
-3. Entitlement created if doesn't exist (same lazy logic)
+```
+┌─────────────────────────────────────┐
+│ Employee Accepts Invitation         │
+│ (Creates User record)               │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ Call getOrCreateEntitlement()       │
+│ - Check if entitlement exists       │
+│ - If NO: Create immediately         │
+│   - Get policy                      │
+│   - Calculate pro-rata if mid-year  │
+│   - Set allocatedDays/accruedDays  │
+│     based on accrual method         │
+│   - Create entitlement              │
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ ✅ Entitlement Created              │
+│ Employee ready to use leave system  │
+└─────────────────────────────────────┘
+```
+
+**Key Point:** For normal employees, entitlement is created **immediately** on invite acceptance (proactive), not lazily. This ensures they have a balance from day one.
 
 ### Pro-Rata Calculation (Mid-Year Joins)
 
@@ -916,9 +943,9 @@ Audit Log:
 
 ### Note on Entitlement Initialization
 
-- **Lazy Initialization:** Entitlements created on first access (balance check, leave request, or invite acceptance)
 - **Signup:** No entitlement created for admin (lazy initialization when needed)
-- **New employees:** Created lazily when they first access leave features or accept invitation
+- **Invite Acceptance:** Entitlement created **immediately** when employee accepts invitation (proactive)
+- **First Access (Fallback):** If employee accesses leave features before invite acceptance, entitlement created then (lazy)
 - **Existing employees (new year):** Initialized via Year-End Processing job (batch)
 - **Manual:** HR can initialize via admin endpoint for edge cases
 
@@ -1040,22 +1067,26 @@ Audit Log:
 
 ## Key Design Decisions Summary
 
-### 1. Entitlement Initialization: Lazy Approach
+### 1. Entitlement Initialization: Hybrid Approach
 
-**Decision:** Entitlements are created lazily (on first access), not on signup or invite acceptance.
+**Decision:**
+
+- **Signup:** No entitlement created (admin configures policy first)
+- **Invite Acceptance:** Entitlement created **immediately** (proactive for employees)
+- **First Access:** Lazy fallback if needed
 
 **Why:**
 
-- Admin configures policy first, then uses leave features
-- Consistent behavior for all users
-- Avoids unnecessary database records
+- Admin configures policy first, then uses leave features (lazy for admin)
+- Employees get balance immediately on onboarding (proactive for employees)
+- Consistent behavior using same `getOrCreateEntitlement()` function
 - Simple, one code path
 
 **When Created:**
 
-- First balance check
-- First leave request submission
-- Invite acceptance (via `getOrCreateEntitlement()`)
+- **Proactive:** Immediately when employee accepts invitation
+- **Lazy (Fallback):** First balance check or leave request (if somehow missed on invite acceptance)
+- **Lazy (Admin):** When admin first accesses leave features
 
 ### 2. Policy Updates: New Entitlements Only
 
