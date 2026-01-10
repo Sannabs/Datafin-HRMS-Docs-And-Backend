@@ -52,7 +52,6 @@ router.delete("/types/:id", requireRole(["HR_ADMIN"]), deleteLeaveType);
 // ============================================
 // LEAVE REQUEST ROUTES
 // ============================================
-router.get("/requests", getAllLeaveRequests);
 router.get("/requests/my", getMyLeaveRequests);
 router.get("/requests/pending", getPendingLeaveRequests);
 router.get("/requests/:id", getLeaveRequestById);

@@ -759,10 +759,6 @@ export const deleteLeaveType = async (req, res, next) => {
 // LEAVE REQUEST CONTROLLERS
 // ============================================
 
-export const getAllLeaveRequests = async (req, res) => {
-  // TODO
-};
-
 export const getMyLeaveRequests = async (req, res) => {
   // TODO
 };
