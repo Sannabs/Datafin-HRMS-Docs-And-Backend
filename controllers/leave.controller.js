@@ -62,7 +62,7 @@ export const getLeavePolicy = async (req, res) => {
   }
 };
 
-export const updateLeavePolicy = async (req, res) => {
+export const updateLeavePolicy = async (req, res, next) => {
   try {
     const { tenantId, id: userId } = req.user;
     const {
@@ -355,35 +355,12 @@ export const updateLeavePolicy = async (req, res) => {
       data: updatedPolicy,
     });
   } catch (error) {
-    // Handle Prisma errors
-    if (error.code === "P2025") {
-      logger.warn(`Leave policy not found for update`);
-      return res.status(404).json({
-        success: false,
-        error: "Not Found",
-        message: "Leave policy not found",
-      });
-    }
-
-    if (error.code === "P2002") {
-      logger.warn(`Unique constraint violation: ${error.meta?.target}`);
-      return res.status(400).json({
-        success: false,
-        error: "Bad Request",
-        message: "A record with this value already exists",
-      });
-    }
-
     logger.error(`Error updating leave policy: ${error.message}`, {
       stack: error.stack,
       tenantId: req.user?.tenantId,
     });
 
-    return res.status(500).json({
-      success: false,
-      error: "Internal Server Error",
-      message: "Failed to update leave policy",
-    });
+    next(error); // Let global error handler deal with it
   }
 };
 
