@@ -67,8 +67,6 @@ router.post("/requests/:id/cancel", cancelLeaveRequest);
 // ============================================
 router.get("/balance", getMyLeaveBalance);
 router.get("/balance/:userId", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeLeaveBalance);
-router.get("/balances", requireRole(["HR_ADMIN"]), getAllLeaveBalances);
 router.post("/balance/:userId/adjust", requireRole(["HR_ADMIN"]), adjustLeaveBalance);
-router.post("/balance/:userId/initialize", requireRole(["HR_ADMIN"]), initializeLeaveEntitlement);
 
 export default router;

@@ -368,21 +368,391 @@ export const updateLeavePolicy = async (req, res, next) => {
 // LEAVE TYPE CONTROLLERS
 // ============================================
 
-export const getAllLeaveTypes = async (req, res) => {
-  // TODO
+export const getAllLeaveTypes = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+    const { isActive } = req.query;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    const where = {
+      tenantId,
+      deletedAt: null,
+    };
+
+    // Filter by isActive if provided
+    if (isActive !== undefined) {
+      where.isActive = isActive === "true";
+    }
+
+    const leaveTypes = await prisma.leaveType.findMany({
+      where,
+      include: {
+        _count: {
+          select: {
+            leaveRequests: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    logger.info(
+      `Retrieved ${leaveTypes.length} leave types for tenant ${tenantId}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave types fetched successfully",
+      data: leaveTypes,
+      count: leaveTypes.length,
+    });
+  } catch (error) {
+    logger.error(`Error fetching leave types: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+
+    next(error);
+  }
 };
 
+export const createLeaveType = async (req, res, next) => {
+  try {
+    const { tenantId, id: userId } = req.user;
+    const {
+      name,
+      description,
+      color,
+      isPaid,
+      deductsFromAnnual,
+      requiresDocument,
+      isActive,
+    } = req.body;
 
-export const createLeaveType = async (req, res) => {
-  // TODO
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Name is required",
+      });
+    }
+
+    // Validate color format if provided (hex color)
+    if (color && !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Color must be a valid hex color code (e.g., #FF5733)",
+      });
+    }
+
+    const leaveType = await prisma.leaveType.create({
+      data: {
+        tenantId,
+        name: name.trim(),
+        description: description?.trim() || null,
+        color: color || null,
+        isPaid: isPaid !== undefined ? isPaid : true,
+        deductsFromAnnual:
+          deductsFromAnnual !== undefined ? deductsFromAnnual : true,
+        requiresDocument:
+          requiresDocument !== undefined ? requiresDocument : false,
+        isActive: isActive !== undefined ? isActive : true,
+      },
+    });
+
+    logger.info(
+      `Created leave type with ID: ${leaveType.id} for tenant ${tenantId}`
+    );
+
+    const changes = {
+      name: { before: null, after: leaveType.name },
+      description: { before: null, after: leaveType.description },
+      color: { before: null, after: leaveType.color },
+      isPaid: { before: null, after: leaveType.isPaid },
+      deductsFromAnnual: { before: null, after: leaveType.deductsFromAnnual },
+      requiresDocument: { before: null, after: leaveType.requiresDocument },
+      isActive: { before: null, after: leaveType.isActive },
+    };
+
+    await addLog(
+      userId,
+      tenantId,
+      "CREATE",
+      "LeaveType",
+      leaveType.id,
+      changes,
+      req
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Leave type created successfully",
+      data: leaveType,
+    });
+  } catch (error) {
+    logger.error(`Error creating leave type: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+
+    next(error);
+  }
 };
 
-export const updateLeaveType = async (req, res) => {
-  // TODO
+export const updateLeaveType = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId } = req.user;
+    const {
+      name,
+      description,
+      color,
+      isPaid,
+      deductsFromAnnual,
+      requiresDocument,
+      isActive,
+    } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Fetch existing leave type
+    const existingLeaveType = await prisma.leaveType.findFirst({
+      where: {
+        id,
+        tenantId,
+        deletedAt: null,
+      },
+    });
+
+    if (!existingLeaveType) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave type not found",
+      });
+    }
+
+    const updateData = {};
+
+    // Validate and set name
+    if (name !== undefined) {
+      if (!name.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Name cannot be empty",
+        });
+      }
+      updateData.name = name.trim();
+    }
+
+    // Validate and set description
+    if (description !== undefined) {
+      updateData.description = description?.trim() || null;
+    }
+
+    // Validate and set color
+    if (color !== undefined) {
+      if (color && !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Color must be a valid hex color code (e.g., #FF5733)",
+        });
+      }
+      updateData.color = color || null;
+    }
+
+    // Validate and set boolean fields
+    if (isPaid !== undefined) {
+      if (typeof isPaid !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "isPaid must be a boolean value",
+        });
+      }
+      updateData.isPaid = isPaid;
+    }
+
+    if (deductsFromAnnual !== undefined) {
+      if (typeof deductsFromAnnual !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "deductsFromAnnual must be a boolean value",
+        });
+      }
+      updateData.deductsFromAnnual = deductsFromAnnual;
+    }
+
+    if (requiresDocument !== undefined) {
+      if (typeof requiresDocument !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "requiresDocument must be a boolean value",
+        });
+      }
+      updateData.requiresDocument = requiresDocument;
+    }
+
+    if (isActive !== undefined) {
+      if (typeof isActive !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "isActive must be a boolean value",
+        });
+      }
+      updateData.isActive = isActive;
+    }
+
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "No valid fields to update",
+      });
+    }
+
+    // Perform update
+    const updatedLeaveType = await prisma.leaveType.update({
+      where: { id },
+      data: updateData,
+    });
+
+    logger.info(`Updated leave type with ID: ${id} for tenant ${tenantId}`);
+
+    // Audit logging
+    const changes = getChangesDiff(existingLeaveType, updatedLeaveType);
+    await addLog(userId, tenantId, "UPDATE", "LeaveType", id, changes, req);
+
+    res.status(200).json({
+      success: true,
+      message: "Leave type updated successfully",
+      data: updatedLeaveType,
+    });
+  } catch (error) {
+    logger.error(`Error updating leave type: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      leaveTypeId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
-export const deleteLeaveType = async (req, res) => {
-  // TODO
+export const deleteLeaveType = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId } = req.user;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Fetch existing leave type
+    const existingLeaveType = await prisma.leaveType.findFirst({
+      where: {
+        id,
+        tenantId,
+        deletedAt: null,
+      },
+      include: {
+        _count: {
+          select: {
+            leaveRequests: true,
+          },
+        },
+      },
+    });
+
+    if (!existingLeaveType) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave type not found",
+      });
+    }
+
+    // Check if leave type is used in any leave requests
+    if (existingLeaveType._count.leaveRequests > 0) {
+      logger.warn(
+        `Cannot delete leave type ${id} - used in ${existingLeaveType._count.leaveRequests} leave request(s)`
+      );
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message:
+          "Cannot delete leave type. It is currently used in leave requests.",
+        data: {
+          usedInRequests: existingLeaveType._count.leaveRequests,
+        },
+      });
+    }
+
+    // Perform soft delete
+    const deletedLeaveType = await prisma.leaveType.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        isActive: false, // Also deactivate it
+      },
+    });
+
+    logger.info(
+      `Soft deleted leave type with ID: ${id} for tenant ${tenantId}`
+    );
+
+    // Audit logging
+    const changes = getChangesDiff(existingLeaveType, deletedLeaveType);
+    await addLog(userId, tenantId, "DELETE", "LeaveType", id, changes, req);
+
+    res.status(200).json({
+      success: true,
+      message: "Leave type deleted successfully",
+      data: deletedLeaveType,
+    });
+  } catch (error) {
+    logger.error(`Error deleting leave type: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      leaveTypeId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
 // ============================================
@@ -437,14 +807,6 @@ export const getEmployeeLeaveBalance = async (req, res) => {
   // TODO
 };
 
-export const getAllLeaveBalances = async (req, res) => {
-  // TODO
-};
-
 export const adjustLeaveBalance = async (req, res) => {
-  // TODO
-};
-
-export const initializeLeaveEntitlement = async (req, res) => {
   // TODO
 };
