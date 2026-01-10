@@ -760,16 +760,10 @@ export const deleteLeaveType = async (req, res, next) => {
 // ============================================
 
 export const getMyLeaveRequests = async (req, res, next) => {
-  const { tenantId, id: userId } = req.user;
-  const page = parseInt(req.query.page || 1);
-  const limit = parseInt(req.query.limit || 10);
-  const skip = (page - 1) * limit;
-
   try {
-    const where = {
-      tenantId,
-      userId,
-    };
+    const { tenantId, id: userId } = req.user;
+
+    // Validation
     if (!tenantId || !userId) {
       return res.status(400).json({
         success: false,
@@ -777,6 +771,19 @@ export const getMyLeaveRequests = async (req, res, next) => {
         message: "Tenant ID and user ID are required",
       });
     }
+
+    // Pagination parameters with validation
+    const page = Math.max(1, parseInt(req.query.page || 1, 10));
+    const limit = Math.min(
+      Math.max(1, parseInt(req.query.limit || 10, 10)),
+      100
+    ); // Max 100 per page
+    const skip = (page - 1) * limit;
+
+    const where = {
+      tenantId,
+      userId,
+    };
 
     const [leaveRequests, total] = await Promise.all([
       prisma.leaveRequest.findMany({
@@ -787,33 +794,74 @@ export const getMyLeaveRequests = async (req, res, next) => {
           createdAt: "desc",
         },
         include: {
-          leaveType: true,
+          leaveType: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              color: true,
+              isPaid: true,
+              deductsFromAnnual: true,
+              requiresDocument: true,
+              isActive: true,
+              deletedAt: true, // Include so mobile app can handle deleted types
+            },
+          },
+          manager: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+          hr: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+          rejectedByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
         },
       }),
       prisma.leaveRequest.count({ where }),
     ]);
 
     const totalPages = Math.ceil(total / limit);
-    const hasNextPage = page < totalPages;
-    const hasPreviousPage = page > 1;
+
+    logger.info(
+      `Retrieved ${leaveRequests.length} leave requests for user ${userId} (page ${page}/${totalPages})`
+    );
 
     res.status(200).json({
       success: true,
+      message: "Leave requests fetched successfully",
       data: leaveRequests,
       pagination: {
         page,
         limit,
         total,
         totalPages,
-        hasNextPage,
-        hasPreviousPage,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     });
   } catch (error) {
     logger.error(`Error getting my leave requests: ${error.message}`, {
       stack: error.stack,
       tenantId: req.user?.tenantId,
+      userId: req.user?.id,
     });
+
     next(error);
   }
 };
