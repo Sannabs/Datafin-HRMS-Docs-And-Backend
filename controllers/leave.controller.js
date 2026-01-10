@@ -85,8 +85,18 @@ export const updateLeavePolicy = async (req, res) => {
       if (req.body[field] !== undefined) updateData[field] = req.body[field];
     });
 
+    const updatedPolicy = await prisma.annualLeavePolicy.update({
+      where: {
+        tenantId,
+      },
+      data: updateData,
+    });
 
-    
+    res.status(200).json({
+      success: true,
+      message: "Leave policy updated successfully",
+      data: updatedPolicy,
+    });
   } catch (error) {
     logger.error(`Error updating leave policy: ${error.message}`, {
       error: error.stack,
