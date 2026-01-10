@@ -50,29 +50,54 @@ export const getLeavePolicy = async (req, res) => {
 
 export const updateLeavePolicy = async (req, res) => {
   const tenantId = req.user.tenantId;
-  const {defaultDaysPerYear, accrualMethod,accrualFrequency, accrualDaysPerPeriod, carryoverType, advanceNoticeDays, maxCarryoverDays, carryOverExpiryMonths, encashmentRate} = req.body;
+  const {
+    defaultDaysPerYear,
+    accrualMethod,
+    accrualFrequency,
+    accrualDaysPerPeriod,
+    carryoverType,
+    advanceNoticeDays,
+    maxCarryoverDays,
+    carryOverExpiryMonths,
+    encashmentRate,
+  } = req.body;
+
+  const updateData = {};
   try {
-    if(!tenantId) return res.status(400).json({
+    if (!tenantId)
+      return res.status(400).json({
         success: false,
         error: "Tenant ID is required",
         message: "Tenant ID is required",
+      });
+
+    [
+      "defaultDaysPerYear",
+      "accrualMethod",
+      "accrualFrequency",
+      "accrualDaysPerPeriod",
+      "carryoverType",
+      "advanceNoticeDays",
+      "maxCarryoverDays",
+      "carryOverExpiryMonths",
+      "encashmentRate",
+    ].forEach((field) => {
+      if (req.body[field] !== undefined) updateData[field] = req.body[field];
     });
 
-    if(!updateData) return res.status(400).json({
-        success: false,
-        error: "Update data is required",
-        message: "Update data is required",
+
+    
+  } catch (error) {
+    logger.error(`Error updating leave policy: ${error.message}`, {
+      error: error.stack,
     });
 
-    if(updateData.defaultDaysPerYear !== undefined) {
-
-    }
-    const policy = await prisma.annualLeavePolicy.update({
-        where: {
-            tenantId
-        },
-    })
-  } catch (error) {}
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update leave policy",
+    });
+  }
 };
 
 // ============================================
