@@ -763,9 +763,11 @@ export const getMyLeaveRequests = async (req, res) => {
   // TODO
 };
 
-export const getPendingLeaveRequests = async (req, res) => {
+export const getPendingLeaveRequestsForManagerApproval = async (req, res) => {
   // TODO
 };
+
+export const getPendingLeaveRequestsForHRApproval = async (req, res) => {};
 
 export const getLeaveRequestById = async (req, res) => {
   // TODO
