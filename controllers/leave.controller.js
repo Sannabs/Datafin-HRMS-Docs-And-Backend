@@ -372,9 +372,6 @@ export const getAllLeaveTypes = async (req, res) => {
   // TODO
 };
 
-export const getLeaveTypeById = async (req, res) => {
-  // TODO
-};
 
 export const createLeaveType = async (req, res) => {
   // TODO

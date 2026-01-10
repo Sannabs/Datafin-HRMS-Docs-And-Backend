@@ -45,7 +45,6 @@ router.patch("/policy", requireRole(["HR_ADMIN"]), updateLeavePolicy);
 // LEAVE TYPE ROUTES
 // ============================================
 router.get("/types", getAllLeaveTypes);
-router.get("/types/:id", getLeaveTypeById);
 router.post("/types", requireRole(["HR_ADMIN"]), createLeaveType);
 router.patch("/types/:id", requireRole(["HR_ADMIN"]), updateLeaveType);
 router.delete("/types/:id", requireRole(["HR_ADMIN"]), deleteLeaveType);
