@@ -11,37 +11,30 @@ export const getLeavePolicy = async (req, res) => {
   const tenantId = req.user.tenantId;
   try {
     if (!tenantId)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: "Tenant ID is required",
-          message: "Tenant ID is required",
-        });
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
 
+    const policy = await prisma.annualLeavePolicy.findFirst({
+      where: {
+        tenantId,
+      },
+    });
 
-     const policy = await prisma.annualLeavePolicy.findFirst({
-        where: {
-            tenantId
-        }
-     })
-
-
-
-     if(!policy) return res.status(404).json({
+    if (!policy)
+      return res.status(404).json({
         success: false,
         error: "Not Found",
         message: "Leave policy not found",
-     })
+      });
 
-
-
-
-     res.status(200).json({
-        success: true,
-        message: "Fetched company leave policy successfully",
-        data: policy
-     })
+    res.status(200).json({
+      success: true,
+      message: "Fetched company leave policy successfully",
+      data: policy,
+    });
   } catch (error) {
     logger.error(`Error getting leave policy: ${error.message}`, {
       error: error.stack,
@@ -56,7 +49,30 @@ export const getLeavePolicy = async (req, res) => {
 };
 
 export const updateLeavePolicy = async (req, res) => {
-  // TODO
+  const tenantId = req.user.tenantId;
+  const {defaultDaysPerYear, accrualMethod,accrualFrequency, accrualDaysPerPeriod, carryoverType, advanceNoticeDays, maxCarryoverDays, carryOverExpiryMonths, encashmentRate} = req.body;
+  try {
+    if(!tenantId) return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+    });
+
+    if(!updateData) return res.status(400).json({
+        success: false,
+        error: "Update data is required",
+        message: "Update data is required",
+    });
+
+    if(updateData.defaultDaysPerYear !== undefined) {
+
+    }
+    const policy = await prisma.annualLeavePolicy.update({
+        where: {
+            tenantId
+        },
+    })
+  } catch (error) {}
 };
 
 // ============================================
