@@ -759,8 +759,15 @@ export const deleteLeaveType = async (req, res, next) => {
 // LEAVE REQUEST CONTROLLERS
 // ============================================
 
-export const getMyLeaveRequests = async (req, res) => {
-  // TODO
+export const getMyLeaveRequests = async (req, res, next) => {
+  try {
+  } catch (error) {
+    logger.error(`Error getting my leave requests: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+    next(error);
+  }
 };
 
 export const getPendingLeaveRequestsForManagerApproval = async (req, res) => {
