@@ -760,7 +760,55 @@ export const deleteLeaveType = async (req, res, next) => {
 // ============================================
 
 export const getMyLeaveRequests = async (req, res, next) => {
+  const { tenantId, id: userId } = req.user;
+  const page = parseInt(req.query.page || 1);
+  const limit = parseInt(req.query.limit || 10);
+  const skip = (page - 1) * limit;
+
   try {
+    const where = {
+      tenantId,
+      userId,
+    };
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    const [leaveRequests, total] = await Promise.all([
+      prisma.leaveRequest.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          leaveType: true,
+        },
+      }),
+      prisma.leaveRequest.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPreviousPage = page > 1;
+
+    res.status(200).json({
+      success: true,
+      data: leaveRequests,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage,
+        hasPreviousPage,
+      },
+    });
   } catch (error) {
     logger.error(`Error getting my leave requests: ${error.message}`, {
       stack: error.stack,
