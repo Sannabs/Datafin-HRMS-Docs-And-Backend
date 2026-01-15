@@ -866,11 +866,303 @@ export const getMyLeaveRequests = async (req, res, next) => {
   }
 };
 
-export const getPendingLeaveRequestsForManagerApproval = async (req, res) => {
-  // TODO
-};
+export const getPendingLeaveRequestsForManagerApproval = async (
+  req,
+  res,
+  next
+) => {
+  try {
+    const { tenantId, id: userId } = req.user;
 
-export const getPendingLeaveRequestsForHRApproval = async (req, res) => {};
+    // Validation
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    // Pagination parameters with validation
+    const page = Math.max(1, parseInt(req.query.page || 1, 10));
+    const limit = Math.min(
+      Math.max(1, parseInt(req.query.limit || 10, 10)),
+      100
+    ); // Max 100 per page
+    const skip = (page - 1) * limit;
+
+    const where = {
+      tenantId,
+      managerId: userId,
+      status: "PENDING", // Keep this filter - managers only need to see what requires action
+    };
+
+    const [leaveRequests, total] = await Promise.all([
+      prisma.leaveRequest.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc", // Newest first - most urgent at top
+        },
+        include: {
+          leaveType: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              color: true,
+              isPaid: true,
+              deductsFromAnnual: true,
+              requiresDocument: true,
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                },
+              },
+              position: {
+                select: {
+                  id: true,
+                  title: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.leaveRequest.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    logger.info(
+      `Retrieved ${leaveRequests.length} pending leave requests for manager ${userId} (page ${page}/${totalPages})`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Pending leave requests fetched successfully",
+      data: leaveRequests,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    logger.error(
+      `Error getting pending leave requests for manager: ${error.message}`,
+      {
+        stack: error.stack,
+        tenantId: req.user?.tenantId,
+        userId: req.user?.id,
+      }
+    );
+
+    next(error);
+  }
+};
+export const getAllLeaveRequests = async (req, res, next) => {
+  try {
+    const { tenantId, id: userId, role } = req.user;
+
+    // Validation
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    // Only HR can see all requests
+    if (!["HR_ADMIN", "HR_STAFF"].includes(role)) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only HR staff can view all leave requests",
+      });
+    }
+
+    // Pagination parameters
+    const page = Math.max(1, parseInt(req.query.page || 1, 10));
+    const limit = Math.min(
+      Math.max(1, parseInt(req.query.limit || 20, 10)),
+      100
+    );
+    const skip = (page - 1) * limit;
+
+    // Query parameters for filtering
+    const {
+      status,
+      awaitingHrApproval,
+      employeeId,
+      leaveTypeId,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const where = {
+      tenantId,
+    };
+
+    // Filter by status (PENDING, MANAGER_APPROVED, APPROVED, REJECTED, CANCELLED)
+    if (status) {
+      const validStatuses = [
+        "PENDING",
+        "MANAGER_APPROVED",
+        "APPROVED",
+        "REJECTED",
+        "CANCELLED",
+      ];
+      if (validStatuses.includes(status.toUpperCase())) {
+        where.status = status.toUpperCase();
+      }
+    }
+
+    // Filter by awaiting HR approval (status = MANAGER_APPROVED)
+    if (awaitingHrApproval === "true") {
+      where.status = "MANAGER_APPROVED"; // Correct status for HR approval queue
+    }
+
+    // Filter by employee
+    if (employeeId) {
+      where.userId = employeeId;
+    }
+
+    // Filter by leave type
+    if (leaveTypeId) {
+      where.leaveTypeId = leaveTypeId;
+    }
+
+    // Filter by date range (requests that overlap with the date range)
+    if (startDate || endDate) {
+      where.OR = [];
+      if (startDate && endDate) {
+        where.OR.push({
+          AND: [
+            { startDate: { lte: new Date(endDate) } },
+            { endDate: { gte: new Date(startDate) } },
+          ],
+        });
+      } else if (startDate) {
+        where.OR.push({ endDate: { gte: new Date(startDate) } });
+      } else if (endDate) {
+        where.OR.push({ startDate: { lte: new Date(endDate) } });
+      }
+    }
+
+    const [leaveRequests, total] = await Promise.all([
+      prisma.leaveRequest.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc", // Latest first
+        },
+        include: {
+          leaveType: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              color: true,
+              isPaid: true,
+              deductsFromAnnual: true,
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                },
+              },
+              position: {
+                select: {
+                  id: true,
+                  title: true,
+                },
+              },
+            },
+          },
+          manager: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+          hr: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+          rejectedByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+        },
+      }),
+      prisma.leaveRequest.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    logger.info(
+      `HR user ${userId} retrieved ${leaveRequests.length} leave requests (page ${page}/${totalPages})`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave requests fetched successfully",
+      data: leaveRequests,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting all leave requests: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+    });
+
+    next(error);
+  }
+};
 
 export const getLeaveRequestById = async (req, res) => {
   // TODO
