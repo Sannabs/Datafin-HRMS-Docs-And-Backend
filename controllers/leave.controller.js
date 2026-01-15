@@ -905,35 +905,29 @@ export const getPendingLeaveRequestsForManagerApproval = async (
         orderBy: {
           createdAt: "desc", // Newest first - most urgent at top
         },
-        include: {
+        select: {
+          id: true,
+          startDate: true,
+          endDate: true,
+          totalDays: true,
+          reason: true,
+          status: true,
+          createdAt: true,
           leaveType: {
             select: {
               id: true,
               name: true,
-              description: true,
               color: true,
-              isPaid: true,
-              deductsFromAnnual: true,
-              requiresDocument: true,
             },
           },
           user: {
             select: {
               id: true,
               name: true,
-              email: true,
               employeeId: true,
               department: {
                 select: {
-                  id: true,
                   name: true,
-                  code: true,
-                },
-              },
-              position: {
-                select: {
-                  id: true,
-                  title: true,
                 },
               },
             },
@@ -1073,60 +1067,31 @@ export const getAllLeaveRequests = async (req, res, next) => {
         orderBy: {
           createdAt: "desc", // Latest first
         },
-        include: {
+        select: {
+          id: true,
+          startDate: true,
+          endDate: true,
+          totalDays: true,
+          reason: true,
+          status: true,
+          createdAt: true,
           leaveType: {
             select: {
               id: true,
               name: true,
-              description: true,
               color: true,
-              isPaid: true,
-              deductsFromAnnual: true,
             },
           },
           user: {
             select: {
               id: true,
               name: true,
-              email: true,
               employeeId: true,
               department: {
                 select: {
-                  id: true,
                   name: true,
-                  code: true,
                 },
               },
-              position: {
-                select: {
-                  id: true,
-                  title: true,
-                },
-              },
-            },
-          },
-          manager: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              employeeId: true,
-            },
-          },
-          hr: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              employeeId: true,
-            },
-          },
-          rejectedByUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              employeeId: true,
             },
           },
         },
@@ -1164,8 +1129,139 @@ export const getAllLeaveRequests = async (req, res, next) => {
   }
 };
 
-export const getLeaveRequestById = async (req, res) => {
-  // TODO
+export const getLeaveRequestById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId, role } = req.user;
+
+    // Validation
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Leave request ID is required",
+      });
+    }
+
+    // Build where clause with access control
+    const where = {
+      id,
+      tenantId,
+    };
+
+    // Regular employees can only view their own requests
+    // Managers can view their team's requests
+    // HR can view all requests
+    if (!["HR_ADMIN", "HR_STAFF"].includes(role)) {
+      // Restrict access: user must be the requester or the assigned manager
+      where.OR = [
+        { userId: userId }, // Requester
+        { managerId: userId }, // Assigned manager
+      ];
+    }
+
+    // Fetch full leave request details
+    const leaveRequest = await prisma.leaveRequest.findFirst({
+      where,
+      include: {
+        leaveType: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            color: true,
+            isPaid: true,
+            deductsFromAnnual: true,
+            requiresDocument: true,
+            isActive: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+            phone: true,
+            department: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            position: {
+              select: {
+                id: true,
+                title: true,
+                code: true,
+              },
+            },
+          },
+        },
+        manager: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+            phone: true,
+          },
+        },
+        hr: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+            phone: true,
+          },
+        },
+        rejectedByUser: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave request not found",
+      });
+    }
+
+    logger.info(`Retrieved leave request ${id} for user ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Leave request fetched successfully",
+      data: leaveRequest,
+    });
+  } catch (error) {
+    logger.error(`Error getting leave request by ID: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      leaveRequestId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
 export const createLeaveRequest = async (req, res) => {
