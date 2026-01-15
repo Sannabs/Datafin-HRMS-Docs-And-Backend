@@ -1268,20 +1268,540 @@ export const createLeaveRequest = async (req, res) => {
   // TODO
 };
 
-export const managerApproveLeaveRequest = async (req, res) => {
-  // TODO
+export const managerApproveLeaveRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId } = req.user;
+
+    // Validation
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    // Fetch the leave request
+    const leaveRequest = await prisma.leaveRequest.findFirst({
+      where: {
+        id,
+        tenantId,
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            employeeId: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave request not found",
+      });
+    }
+
+    // Validate that user is the assigned manager
+    if (leaveRequest.managerId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You are not authorized to approve this leave request",
+      });
+    }
+
+    // Validate status - must be PENDING
+    if (leaveRequest.status !== "PENDING") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Cannot approve leave request. Current status: ${leaveRequest.status}`,
+      });
+    }
+
+    // Update leave request status
+    const updatedRequest = await prisma.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "MANAGER_APPROVED",
+        managerApprovedAt: new Date(),
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    // Audit logging
+    const changes = getChangesDiff(leaveRequest, updatedRequest);
+    await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    logger.info(
+      `Manager ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave request approved by manager successfully",
+      data: updatedRequest,
+    });
+  } catch (error) {
+    logger.error(`Error in manager approve leave request: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      leaveRequestId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
-export const hrApproveLeaveRequest = async (req, res) => {
-  // TODO
+export const hrApproveLeaveRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId } = req.user;
+
+    // Validation
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    // Fetch the leave request with related data
+    const leaveRequest = await prisma.leaveRequest.findFirst({
+      where: {
+        id,
+        tenantId,
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            employeeId: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave request not found",
+      });
+    }
+
+    // Validate status - must be MANAGER_APPROVED
+    if (leaveRequest.status !== "MANAGER_APPROVED") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Cannot approve leave request. Current status: ${leaveRequest.status}. Manager must approve first.`,
+      });
+    }
+
+    // Validate that manager has approved
+    if (!leaveRequest.managerApprovedAt) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Manager approval is required before HR approval",
+      });
+    }
+
+    // Start transaction to update request and balance
+    const updatedRequest = await prisma.$transaction(async (tx) => {
+      // Update leave request status
+      const updated = await tx.leaveRequest.update({
+        where: { id },
+        data: {
+          status: "APPROVED",
+          hrId: userId,
+          hrApprovedAt: new Date(),
+        },
+        include: {
+          leaveType: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+        },
+      });
+
+      // Update leave balance if leave type deducts from annual
+      if (leaveRequest.leaveType.deductsFromAnnual) {
+        const currentYear = new Date().getFullYear();
+
+        // Get or create entitlement for current year
+        let entitlement = await tx.yearlyEntitlement.findUnique({
+          where: {
+            tenantId_userId_year: {
+              tenantId,
+              userId: leaveRequest.userId,
+              year: currentYear,
+            },
+          },
+        });
+
+        if (entitlement) {
+          // Update used days and pending days
+          await tx.yearlyEntitlement.update({
+            where: { id: entitlement.id },
+            data: {
+              usedDays: {
+                increment: leaveRequest.totalDays,
+              },
+              pendingDays: {
+                decrement: leaveRequest.totalDays,
+              },
+            },
+          });
+        }
+      }
+
+      return updated;
+    });
+
+    // Audit logging
+    const changes = getChangesDiff(leaveRequest, updatedRequest);
+    await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    logger.info(
+      `HR ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave request approved by HR successfully",
+      data: updatedRequest,
+    });
+  } catch (error) {
+    logger.error(`Error in HR approve leave request: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      leaveRequestId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
-export const rejectLeaveRequest = async (req, res) => {
-  // TODO
+export const rejectLeaveRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rejectionReason } = req.body;
+    const { tenantId, id: userId, role } = req.user;
+
+    // Validation
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    // Fetch the leave request
+    const leaveRequest = await prisma.leaveRequest.findFirst({
+      where: {
+        id,
+        tenantId,
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            employeeId: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave request not found",
+      });
+    }
+
+    // Validate status - can reject PENDING or MANAGER_APPROVED
+    if (!["PENDING", "MANAGER_APPROVED"].includes(leaveRequest.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Cannot reject leave request. Current status: ${leaveRequest.status}`,
+      });
+    }
+
+    // Access control: Manager can reject if they're the assigned manager
+    // HR can reject any request
+    const isManager = leaveRequest.managerId === userId;
+    const isHR = ["HR_ADMIN", "HR_STAFF"].includes(role);
+
+    if (!isManager && !isHR) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You are not authorized to reject this leave request",
+      });
+    }
+
+    // If manager is rejecting, they can only reject PENDING requests
+    if (isManager && !isHR && leaveRequest.status !== "PENDING") {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Managers can only reject pending requests",
+      });
+    }
+
+    // Start transaction to update request and balance
+    const result = await prisma.$transaction(async (tx) => {
+      // Update leave request status
+      const updatedRequest = await tx.leaveRequest.update({
+        where: { id },
+        data: {
+          status: "REJECTED",
+          rejectedBy: userId,
+          rejectedAt: new Date(),
+          rejectionReason: rejectionReason || null,
+        },
+        include: {
+          leaveType: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+        },
+      });
+
+      // If request was previously approved by manager and deducts from annual,
+      // we need to adjust balance (pendingDays was already counted)
+      if (
+        leaveRequest.status === "MANAGER_APPROVED" &&
+        leaveRequest.leaveType.deductsFromAnnual
+      ) {
+        const currentYear = new Date().getFullYear();
+
+        const entitlement = await tx.yearlyEntitlement.findUnique({
+          where: {
+            tenantId_userId_year: {
+              tenantId,
+              userId: leaveRequest.userId,
+              year: currentYear,
+            },
+          },
+        });
+
+        if (entitlement) {
+          // Decrease pending days since it's being rejected
+          await tx.yearlyEntitlement.update({
+            where: { id: entitlement.id },
+            data: {
+              pendingDays: {
+                decrement: leaveRequest.totalDays,
+              },
+            },
+          });
+        }
+      }
+
+      return updatedRequest;
+    });
+
+    // Audit logging
+    const changes = getChangesDiff(leaveRequest, result);
+    await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    logger.info(
+      `User ${userId} (${role}) rejected leave request ${id} for employee ${leaveRequest.user.employeeId}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave request rejected successfully",
+      data: result,
+    });
+  } catch (error) {
+    logger.error(`Error in reject leave request: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      leaveRequestId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
-export const cancelLeaveRequest = async (req, res) => {
-  // TODO
+export const cancelLeaveRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, id: userId } = req.user;
+
+    // Validation
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    // Fetch the leave request
+    const leaveRequest = await prisma.leaveRequest.findFirst({
+      where: {
+        id,
+        tenantId,
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            employeeId: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!leaveRequest) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave request not found",
+      });
+    }
+
+    // Validate that user owns the request
+    if (leaveRequest.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You can only cancel your own leave requests",
+      });
+    }
+
+    // Validate status - cannot cancel if already APPROVED or REJECTED or CANCELLED
+    if (["APPROVED", "REJECTED", "CANCELLED"].includes(leaveRequest.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Cannot cancel leave request. Current status: ${leaveRequest.status}`,
+      });
+    }
+
+    // Start transaction to update request and balance
+    const result = await prisma.$transaction(async (tx) => {
+      // Update leave request status
+      const updatedRequest = await tx.leaveRequest.update({
+        where: { id },
+        data: {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+        },
+        include: {
+          leaveType: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+            },
+          },
+        },
+      });
+
+      // If request was pending and deducts from annual, update balance
+      if (
+        ["PENDING", "MANAGER_APPROVED"].includes(leaveRequest.status) &&
+        leaveRequest.leaveType.deductsFromAnnual
+      ) {
+        const currentYear = new Date().getFullYear();
+
+        const entitlement = await tx.yearlyEntitlement.findUnique({
+          where: {
+            tenantId_userId_year: {
+              tenantId,
+              userId: leaveRequest.userId,
+              year: currentYear,
+            },
+          },
+        });
+
+        if (entitlement) {
+          // Decrease pending days since it's being cancelled
+          await tx.yearlyEntitlement.update({
+            where: { id: entitlement.id },
+            data: {
+              pendingDays: {
+                decrement: leaveRequest.totalDays,
+              },
+            },
+          });
+        }
+      }
+
+      return updatedRequest;
+    });
+
+    // Audit logging
+    const changes = getChangesDiff(leaveRequest, result);
+    await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    logger.info(
+      `Employee ${userId} cancelled leave request ${id} (${leaveRequest.user.employeeId})`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave request cancelled successfully",
+      data: result,
+    });
+  } catch (error) {
+    logger.error(`Error in cancel leave request: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+      leaveRequestId: req.params?.id,
+    });
+
+    next(error);
+  }
 };
 
 // ============================================
