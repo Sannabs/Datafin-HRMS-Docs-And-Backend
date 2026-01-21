@@ -10,13 +10,13 @@ import {
 
 export const tenantSignUp = async (req, res, next) => {
   try {
-    const { email, password, companyName } = req.body;
+    const { email, password, Username, companyName, companyEmail, companyPhone } = req.body;
 
-    if (!email || !password || !companyName) {
+    if (!email || !password || !companyName || !companyEmail || !companyPhone || !Username) {
       return res.status(400).json({
         success: false,
         error: "Missing required fields",
-        message: "Email, password, and company name are required",
+        message: "All fields are required",
       });
     }
 
@@ -63,6 +63,9 @@ export const tenantSignUp = async (req, res, next) => {
       data: {
         code: tenantCode,
         name: companyName.trim(),
+        email: companyEmail.trim(),
+        phone: companyPhone.trim(),
+
       },
     });
 
@@ -109,7 +112,7 @@ export const tenantSignUp = async (req, res, next) => {
         body: {
           email,
           password,
-          name: null,
+          name: Username.trim(),
           tenantId: tenant.id,
           role: "HR_ADMIN",
           employeeId: employeeId,
@@ -123,7 +126,7 @@ export const tenantSignUp = async (req, res, next) => {
       // Rollback: Delete shift and tenant
       await prisma.shift
         .delete({ where: { id: defaultShift.id } })
-        .catch(() => {});
+        .catch(() => { });
       await prisma.tenant.delete({ where: { id: tenant.id } });
       logger.error(
         `Failed to create user, rolled back tenant and shift: ${userError.message}`
@@ -135,7 +138,7 @@ export const tenantSignUp = async (req, res, next) => {
       // Rollback: Delete shift and tenant
       await prisma.shift
         .delete({ where: { id: defaultShift.id } })
-        .catch(() => {});
+        .catch(() => { });
       await prisma.tenant.delete({ where: { id: tenant.id } });
       throw new Error("Failed to create user account");
     }
@@ -185,222 +188,108 @@ export const tenantSignUp = async (req, res, next) => {
   }
 };
 
-export const userLogin = async (req, res, next) => {
+
+export const getMe = async (req, res, next) => {
   try {
-    const { email, password, rememberMe } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required fields",
-        message: "Email and password are required",
-      });
-    }
-
-    const loginResult = await auth.api.signInEmail({
-      body: {
-        email,
-        password,
-        rememberMe: rememberMe || false,
-      },
-      headers: req.headers,
-    });
-
-    if (!loginResult?.user) {
+    if (!req.user || !req.user.id) {
       return res.status(401).json({
         success: false,
-        error: "Invalid credentials",
-        message: "Invalid email or password",
+        error: "Unauthorized",
+        message: "User not authenticated",
       });
     }
 
     const user = await prisma.user.findUnique({
       where: {
-        id: loginResult.user.id,
+        id: req.user.id,
       },
-    });
-
-    if (!user || user.isDeleted) {
-      return res.status(401).json({
-        success: false,
-        error: "Account not found",
-        message: "Your account has been deactivated or does not exist",
-      });
-    }
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLogin: new Date() },
-    });
-
-    logger.info(`User logged in: ${email}`);
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: {
-        user: {
-          id: loginResult.user.id,
-          email: loginResult.user.email,
-          name: loginResult.user.name,
-          role: user.role,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        role: true,
+        phone: true,
+        employeeId: true,
+        gender: true,
+        address: true,
+        status: true,
+        employmentType: true,
+        workLocation: true,
+        hireDate: true,
+        emailVerified: true,
+        lastLogin: true,
+        isDeleted: true,
+        createdAt: true,
+        updatedAt: true,
+        tenantId: true,
+        departmentId: true,
+        positionId: true,
+        shiftId: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            email: true,
+            phone: true,
+          },
         },
-        session: loginResult.session,
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        position: {
+          select: {
+            id: true,
+            title: true,
+            code: true,
+          },
+        },
+        shift: {
+          select: {
+            id: true,
+            name: true,
+            startTime: true,
+            endTime: true,
+          },
+        },
       },
     });
-  } catch (error) {
-    logger.error(`Login error: ${error.message}`);
 
-    if (
-      error.message?.includes("Invalid credentials") ||
-      error.message?.includes("invalid") ||
-      error.message?.includes("password") ||
-      error.message?.includes("email")
-    ) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid credentials",
-        message: "Invalid email or password",
-      });
-    }
-
-    if (
-      error.message?.includes("email not verified") ||
-      error.message?.includes("verification")
-    ) {
-      return res.status(403).json({
-        success: false,
-        error: "Email not verified",
-        message: "Please verify your email before logging in",
-      });
-    }
-
-    next(error);
-  }
-};
-
-export const userLogout = async (req, res, next) => {
-  try {
-    await auth.api.signOut({
-      headers: req.headers,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Logged out successfully",
-    });
-  } catch (error) {
-    logger.error(`Logout error: ${error.message}`);
-    next(error);
-  }
-};
-
-export const forgotPassword = async (req, res, next) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required fields",
-        message: "Email is required",
-      });
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid email format",
-        message: "Please provide a valid email address",
-      });
-    }
-
-    await auth.api.forgotPassword({
-      body: {
-        email,
-      },
-      headers: req.headers,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Password reset email sent. Please check your inbox.",
-    });
-  } catch (error) {
-    logger.error(`Forgot password error: ${error.message}`);
-
-    if (
-      error.message?.includes("not found") ||
-      error.message?.includes("user")
-    ) {
+    if (!user) {
+      logger.error(`User not found: ${req.user.id}`);
       return res.status(404).json({
         success: false,
         error: "User not found",
-        message: "No account found with this email address",
+        message: "User account does not exist",
       });
     }
 
-    next(error);
-  }
-};
-
-export const resetPassword = async (req, res, next) => {
-  try {
-    const { token, newPassword } = req.body;
-
-    if (!token) {
-      return res.status(400).json({
+    if (user.isDeleted) {
+      logger.warn(`Deleted user attempted to access account: ${req.user.id}`);
+      return res.status(403).json({
         success: false,
-        error: "Missing required fields",
-        message: "Token is required",
+        error: "Account deactivated",
+        message: "Your account has been deactivated",
       });
     }
-
-    if (!newPassword) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required fields",
-        message: "New password is required",
-      });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({
-        success: false,
-        error: "Weak password",
-        message: "Password must be at least 8 characters long",
-      });
-    }
-
-    await auth.api.resetPassword({
-      body: {
-        token,
-        password: newPassword,
-      },
-      headers: req.headers,
-    });
 
     return res.status(200).json({
       success: true,
-      message: "Password reset successfully",
+      message: "User retrieved successfully",
+      data: {
+        user,
+      },
     });
   } catch (error) {
-    logger.error(`Reset password error: ${error.message}`);
-
-    if (
-      error.message?.includes("invalid") ||
-      error.message?.includes("expired") ||
-      error.message?.includes("token")
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid or expired token",
-        message:
-          "The reset token is invalid or has expired. Please request a new one.",
-      });
-    }
-
+    logger.error(`Error in getMe controller: ${error.message}`, {
+      stack: error.stack,
+    });
     next(error);
   }
 };
+

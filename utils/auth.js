@@ -1,7 +1,8 @@
 import { betterAuth } from "better-auth";
 import prisma from "../config/prisma.config.js";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { sendVerificationEmail } from "../views/sendVerificationEmail.js";
+import { emailOTP } from "better-auth/plugins";
+import { sendVerificationOTP as sendOTPEmail } from "../views/sendVerificationEmail.js";
 import { sendPasswordResetEmail } from "../views/sendPasswordResetEmail.js";
 
 export const auth = betterAuth({
@@ -107,17 +108,19 @@ export const auth = betterAuth({
     resetPasswordTokenExpiresIn: 3600, // 1 hour in seconds
     resetPasswordCallbackURL: process.env.CLIENT_URL || "http://localhost:3000",
   },
-  emailVerification: {
-    sendVerificationEmail: async ({ user, url, token }) => {
-      await sendVerificationEmail({
-        to: user.email,
-        verificationUrl: url,
-        token: token,
-        userName: user.name || user.email,
-      });
-    },
-    sendOnSignUp: true,
-    autoSignInAfterVerification: true,
-    callbackURL: process.env.CLIENT_URL || "http://localhost:3000",
-  },
+  plugins: [
+    emailOTP({
+      overrideDefaultEmailVerification: true,
+      async sendVerificationOTP({ email, otp }) {
+        // Send OTP via email
+        await sendOTPEmail({
+          to: email,
+          otp: otp,
+        });
+      },
+      otpLength: 6,
+      expiresIn: 300, // 5 minutes in seconds
+      allowedAttempts: 3,
+    }),
+  ],
 });

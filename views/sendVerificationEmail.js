@@ -1,11 +1,6 @@
 import { sendEmail } from "../services/resend.service.js";
 
-export const sendVerificationEmail = async ({
-  to,
-  verificationUrl,
-  token,
-  userName,
-}) => {
+export const sendVerificationOTP = async ({ to, otp }) => {
   const subject = "Verify Your Email - Datafin HRMS";
 
   const html = `
@@ -20,21 +15,23 @@ export const sendVerificationEmail = async ({
       <div style="background-color: #f8f9fa; padding: 30px; border-radius: 8px;">
         <h1 style="color: #2563eb; margin-top: 0;">Welcome to Datafin HRMS!</h1>
         
-        <p>Hi ${userName || "there"},</p>
+        <p>Hi there,</p>
         
-        <p>Thank you for signing up! Please verify your email address to complete your registration and start using Datafin HRMS.</p>
+        <p>Thank you for signing up! Please use the verification code below to complete your registration and start using Datafin HRMS.</p>
         
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${verificationUrl}" 
-             style="display: inline-block; background-color: #2563eb; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-            Verify Email Address
-          </a>
+          <div style="display: inline-block; background-color: #ffffff; border: 2px solid #2563eb; padding: 20px 40px; border-radius: 8px;">
+            <h2 style="color: #2563eb; font-size: 32px; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
+              ${otp}
+            </h2>
+          </div>
         </div>
         
-        <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
-        <p style="color: #666; font-size: 12px; word-break: break-all;">${verificationUrl}</p>
+        <p style="color: #dc2626; font-size: 14px; margin-top: 20px;">
+          <strong>Important:</strong> This code will expire in 5 minutes for security reasons.
+        </p>
         
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+        <p style="color: #666; font-size: 14px; margin-top: 20px;">
           If you didn't create an account with Datafin HRMS, please ignore this email.
         </p>
         
@@ -51,11 +48,13 @@ export const sendVerificationEmail = async ({
   const text = `
 Welcome to Datafin HRMS!
 
-Hi ${userName || "there"},
+Hi there,
 
-Thank you for signing up! Please verify your email address by clicking the link below:
+Thank you for signing up! Please use the verification code below to complete your registration:
 
-${verificationUrl}
+Your verification code is: ${otp}
+
+This code will expire in 5 minutes.
 
 If you didn't create an account with Datafin HRMS, please ignore this email.
 
