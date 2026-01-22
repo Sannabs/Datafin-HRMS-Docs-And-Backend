@@ -1,5 +1,4 @@
 import multer from "multer";
-import { generateFilename } from "../utils/storage.js";
 
 // Configure multer to use memory storage (we'll upload to R2)
 const storage = multer.memoryStorage();

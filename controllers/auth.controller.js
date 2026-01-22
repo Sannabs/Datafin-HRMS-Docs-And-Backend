@@ -10,9 +10,9 @@ import {
 
 export const tenantSignUp = async (req, res, next) => {
   try {
-    const { email, password, Username, companyName, companyEmail, companyPhone } = req.body;
+    const { email, password, Username, companyName, companyEmail } = req.body;
 
-    if (!email || !password || !companyName || !companyEmail || !companyPhone || !Username) {
+    if (!email || !password || !companyName || !companyEmail || !Username) {
       return res.status(400).json({
         success: false,
         error: "Missing required fields",
@@ -64,8 +64,6 @@ export const tenantSignUp = async (req, res, next) => {
         code: tenantCode,
         name: companyName.trim(),
         email: companyEmail.trim(),
-        phone: companyPhone.trim(),
-
       },
     });
 
@@ -147,7 +145,7 @@ export const tenantSignUp = async (req, res, next) => {
     try {
       defaultCompanyLeavePolicy = await prisma.annualLeavePolicy.create({
         data: {
-          tenantId: tenant.id, // ✅ Fixed
+          tenantId: tenant.id, 
           defaultDaysPerYear: 21,
           accrualMethod: "FRONT_LOADED",
           carryoverType: "FULL",
@@ -160,7 +158,6 @@ export const tenantSignUp = async (req, res, next) => {
       logger.error(
         `Failed to create default company leave policy: ${error.message}`
       );
-      // Consider rollback or make policy creation optional
       throw error;
     }
 

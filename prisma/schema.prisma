@@ -306,7 +306,7 @@ model User {
   email         String
   password      String? // Better Auth - password (nullable, required for email/password auth)
   name          String? // Better Auth - display name (optional, can map to firstName)
-  emailVerified DateTime? // Better Auth - email verification timestamp (required for email verification)
+  emailVerified Boolean  @default(false) // Better Auth - email verified flag (boolean; use verifiedAt for timestamp if needed)
   image         String? // Better Auth - profile image URL (optional, can map to avatarUrl)
   role          UserRole  @default(STAFF)
   isDeleted     Boolean   @default(false)
