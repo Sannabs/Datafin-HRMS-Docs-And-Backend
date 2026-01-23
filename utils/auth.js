@@ -98,9 +98,13 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: true,
     sendResetPassword: async ({ user, url, token }) => {
+      // Generate custom reset URL with token as path parameter
+      const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+      const customResetUrl = `${clientUrl}/reset-password/${token}`;
+      
       await sendPasswordResetEmail({
         to: user.email,
-        resetUrl: url,
+        resetUrl: customResetUrl,
         token: token,
         userName: user.name || user.email,
       });
