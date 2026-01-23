@@ -2195,13 +2195,533 @@ export const cancelLeaveRequest = async (req, res, next) => {
 // ============================================
 
 export const getMyLeaveBalance = async (req, res) => {
-  // TODO
+  try {
+    const { tenantId, id: userId } = req.user;
+
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Get or create entitlement (lazy initialization)
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: currentYear,
+      },
+      include: {
+        policy: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    // If no entitlement exists, create one
+    if (!entitlement) {
+      const policy = await prisma.annualLeavePolicy.findFirst({
+        where: { tenantId },
+      });
+
+      if (!policy) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave policy not configured for this tenant",
+        });
+      }
+
+      const currentDate = new Date();
+      const yearStartDate = new Date(currentYear, 0, 1);
+      const yearEndDate = new Date(currentYear, 11, 31);
+
+      let allocatedDays = 0;
+      let accruedDays = 0;
+
+      if (policy.accrualMethod === "FRONT_LOADED") {
+        allocatedDays = policy.defaultDaysPerYear;
+        accruedDays = 0;
+      } else {
+        allocatedDays = 0;
+        accruedDays = 0;
+      }
+
+      let carryoverExpiryDate = null;
+      if (policy.carryoverExpiryMonths) {
+        carryoverExpiryDate = new Date(
+          currentYear,
+          policy.carryoverExpiryMonths,
+          0
+        );
+      }
+
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId,
+          policyId: policy.id,
+          year: currentYear,
+          allocatedDays,
+          accruedDays,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: {
+          policy: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              employeeId: true,
+            },
+          },
+        },
+      });
+
+      logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
+    }
+
+    // Calculate available balance
+    const availableBalance =
+      entitlement.allocatedDays +
+      entitlement.accruedDays +
+      entitlement.carriedOverDays +
+      entitlement.adjustmentDays -
+      entitlement.usedDays -
+      entitlement.pendingDays;
+
+    res.status(200).json({
+      success: true,
+      message: "Leave balance fetched successfully",
+      data: {
+        ...entitlement,
+        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting leave balance: ${error.message}`, {
+      stack: error.stack,
+      userId: req.user?.id,
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get leave balance",
+    });
+  }
 };
 
 export const getEmployeeLeaveBalance = async (req, res) => {
-  // TODO
+  try {
+    const { tenantId, id: hrUserId } = req.user;
+    const { userId } = req.params;
+
+    if (!tenantId || !hrUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Employee user ID is required",
+      });
+    }
+
+    // Verify employee belongs to same tenant
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Employee not found",
+      });
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Get entitlement
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: currentYear,
+      },
+      include: {
+        policy: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    // If no entitlement exists, create one
+    if (!entitlement) {
+      const policy = await prisma.annualLeavePolicy.findFirst({
+        where: { tenantId },
+      });
+
+      if (!policy) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave policy not configured for this tenant",
+        });
+      }
+
+      const currentDate = new Date();
+      const yearStartDate = new Date(currentYear, 0, 1);
+      const yearEndDate = new Date(currentYear, 11, 31);
+
+      let allocatedDays = 0;
+      let accruedDays = 0;
+
+      if (policy.accrualMethod === "FRONT_LOADED") {
+        allocatedDays = policy.defaultDaysPerYear;
+        accruedDays = 0;
+      } else {
+        allocatedDays = 0;
+        accruedDays = 0;
+      }
+
+      let carryoverExpiryDate = null;
+      if (policy.carryoverExpiryMonths) {
+        carryoverExpiryDate = new Date(
+          currentYear,
+          policy.carryoverExpiryMonths,
+          0
+        );
+      }
+
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId,
+          policyId: policy.id,
+          year: currentYear,
+          allocatedDays,
+          accruedDays,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: {
+          policy: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              employeeId: true,
+            },
+          },
+        },
+      });
+
+      logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
+    }
+
+    // Calculate available balance
+    const availableBalance =
+      entitlement.allocatedDays +
+      entitlement.accruedDays +
+      entitlement.carriedOverDays +
+      entitlement.adjustmentDays -
+      entitlement.usedDays -
+      entitlement.pendingDays;
+
+    // Audit log
+    await addLog(
+      hrUserId,
+      tenantId,
+      "READ",
+      "YearlyEntitlement",
+      entitlement.id,
+      null,
+      req
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Employee leave balance fetched successfully",
+      data: {
+        ...entitlement,
+        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting employee leave balance: ${error.message}`, {
+      stack: error.stack,
+      userId: req.params?.userId,
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get employee leave balance",
+    });
+  }
 };
 
 export const adjustLeaveBalance = async (req, res) => {
-  // TODO
+  try {
+    const { tenantId, id: hrUserId } = req.user;
+    const { userId } = req.params;
+    const { adjustmentDays, reason } = req.body;
+
+    if (!tenantId || !hrUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Employee user ID is required",
+      });
+    }
+
+    if (adjustmentDays === undefined || adjustmentDays === null) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "adjustmentDays is required",
+      });
+    }
+
+    if (typeof adjustmentDays !== "number") {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "adjustmentDays must be a number",
+      });
+    }
+
+    // Verify employee belongs to same tenant
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Employee not found",
+      });
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Get or create entitlement
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: currentYear,
+      },
+      include: {
+        policy: true,
+      },
+    });
+
+    if (!entitlement) {
+      const policy = await prisma.annualLeavePolicy.findFirst({
+        where: { tenantId },
+      });
+
+      if (!policy) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave policy not configured for this tenant",
+        });
+      }
+
+      const yearStartDate = new Date(currentYear, 0, 1);
+      const yearEndDate = new Date(currentYear, 11, 31);
+
+      let allocatedDays = 0;
+      let accruedDays = 0;
+
+      if (policy.accrualMethod === "FRONT_LOADED") {
+        allocatedDays = policy.defaultDaysPerYear;
+        accruedDays = 0;
+      } else {
+        allocatedDays = 0;
+        accruedDays = 0;
+      }
+
+      let carryoverExpiryDate = null;
+      if (policy.carryoverExpiryMonths) {
+        carryoverExpiryDate = new Date(
+          currentYear,
+          policy.carryoverExpiryMonths,
+          0
+        );
+      }
+
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId,
+          policyId: policy.id,
+          year: currentYear,
+          allocatedDays,
+          accruedDays,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: {
+          policy: true,
+        },
+      });
+
+      logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
+    }
+
+    // Get old value for audit log
+    const oldAdjustmentDays = entitlement.adjustmentDays;
+    const newAdjustmentDays = oldAdjustmentDays + adjustmentDays;
+
+    // Update entitlement
+    const updatedEntitlement = await prisma.yearlyEntitlement.update({
+      where: { id: entitlement.id },
+      data: {
+        adjustmentDays: newAdjustmentDays,
+      },
+      include: {
+        policy: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    // Calculate new available balance
+    const availableBalance =
+      updatedEntitlement.allocatedDays +
+      updatedEntitlement.accruedDays +
+      updatedEntitlement.carriedOverDays +
+      updatedEntitlement.adjustmentDays -
+      updatedEntitlement.usedDays -
+      updatedEntitlement.pendingDays;
+
+    // Audit log
+    await addLog(
+      hrUserId,
+      tenantId,
+      "UPDATE",
+      "YearlyEntitlement",
+      entitlement.id,
+      {
+        adjustmentDays: {
+          before: oldAdjustmentDays,
+          after: newAdjustmentDays,
+          change: adjustmentDays,
+        },
+        reason: reason || "Manual balance adjustment",
+      },
+      req
+    );
+
+    logger.info(
+      `Leave balance adjusted for user ${userId} by HR ${hrUserId}: ${adjustmentDays > 0 ? "+" : ""}${adjustmentDays} days. Reason: ${reason || "N/A"}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave balance adjusted successfully",
+      data: {
+        ...updatedEntitlement,
+        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+        adjustment: {
+          previousAdjustmentDays: oldAdjustmentDays,
+          adjustmentAmount: adjustmentDays,
+          newAdjustmentDays: newAdjustmentDays,
+          reason: reason || null,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error(`Error adjusting leave balance: ${error.message}`, {
+      stack: error.stack,
+      userId: req.params?.userId,
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to adjust leave balance",
+    });
+  }
 };
