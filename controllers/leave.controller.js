@@ -1,6 +1,8 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
+import { generateFilename, uploadFile } from "../config/storage.config.js";
+import { calculateWorkingDays } from "../utils/working-days.utils.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -1265,7 +1267,312 @@ export const getLeaveRequestById = async (req, res, next) => {
 };
 
 export const createLeaveRequest = async (req, res) => {
-  // TODO
+  const { tenantId, id } = req.user
+  const { startDate, endDate, reason, leaveTypeId } = req.body
+
+  try {
+    // Validation: tenantId and userId are required
+    if (!tenantId || !id) {
+      logger.error("TenantId and id are required")
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "TenantId and id are required",
+      })
+    }
+
+    // Validation: required fields
+    if (!startDate || !endDate || !leaveTypeId) {
+      logger.error("startDate, endDate and leaveTypeId are required")
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "startDate, endDate and leaveTypeId are required",
+      })
+    }
+
+    // Parse dates
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+
+    // Validation: startDate <= endDate
+    if (start > end) {
+      logger.error("startDate must be before or equal to endDate")
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "startDate must be before or equal to endDate",
+      })
+    }
+
+    // Get leave type
+    const leaveType = await prisma.leaveType.findFirst({
+      where: {
+        id: leaveTypeId,
+        tenantId,
+        isActive: true,
+        deletedAt: null,
+      },
+    })
+
+    if (!leaveType) {
+      logger.error(`Leave type not found: ${leaveTypeId}`)
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave type not found or inactive",
+      })
+    }
+
+    // Get policy for advance notice check
+    const policy = await prisma.annualLeavePolicy.findFirst({
+      where: { tenantId },
+    })
+
+    // Check advance notice requirement
+    if (policy && policy.advanceNoticeDays > 0) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const daysUntilStart = Math.ceil((start - today) / (1000 * 60 * 60 * 24))
+      
+      if (daysUntilStart < policy.advanceNoticeDays) {
+        logger.error(`Insufficient advance notice: ${daysUntilStart} days, required: ${policy.advanceNoticeDays}`)
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: `Leave request must be submitted at least ${policy.advanceNoticeDays} days in advance`,
+        })
+      }
+    }
+
+    // Check for overlapping leave requests
+    const overlappingRequest = await prisma.leaveRequest.findFirst({
+      where: {
+        tenantId,
+        userId: id,
+        status: {
+          in: ["PENDING", "MANAGER_APPROVED", "APPROVED"],
+        },
+        OR: [
+          {
+            AND: [
+              { startDate: { lte: end } },
+              { endDate: { gte: start } },
+            ],
+          },
+        ],
+      },
+    })
+
+    if (overlappingRequest) {
+      logger.error(`Overlapping leave request found: ${overlappingRequest.id}`)
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You have an overlapping leave request",
+      })
+    }
+
+    // Get or create entitlement
+    const currentYear = new Date().getFullYear()
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId: id,
+        year: currentYear,
+      },
+      include: {
+        policy: true,
+      },
+    })
+
+    // If no entitlement exists, create one (lazy initialization)
+    if (!entitlement) {
+      if (!policy) {
+        logger.error(`No leave policy found for tenant ${tenantId}`)
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Leave policy not configured for this tenant",
+        })
+      }
+
+      const currentDate = new Date()
+      const yearStartDate = new Date(currentYear, 0, 1)
+      const yearEndDate = new Date(currentYear, 11, 31)
+
+      let allocatedDays = 0
+      let accruedDays = 0
+
+      if (policy.accrualMethod === "FRONT_LOADED") {
+        allocatedDays = policy.defaultDaysPerYear
+        accruedDays = 0
+      } else {
+        allocatedDays = 0
+        accruedDays = 0
+      }
+
+      let carryoverExpiryDate = null
+      if (policy.carryoverExpiryMonths) {
+        carryoverExpiryDate = new Date(
+          currentYear,
+          policy.carryoverExpiryMonths,
+          0
+        )
+      }
+
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId: id,
+          policyId: policy.id,
+          year: currentYear,
+          allocatedDays,
+          accruedDays,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: {
+          policy: true,
+        },
+      })
+
+      logger.info(`Created yearly entitlement for user ${id}, year ${currentYear}`)
+    }
+
+    // Calculate working days
+    const totalDays = await calculateWorkingDays(start, end, tenantId)
+
+    // Check available balance if leave type deducts from annual
+    if (leaveType.deductsFromAnnual) {
+      const availableBalance =
+        entitlement.allocatedDays +
+        entitlement.accruedDays +
+        entitlement.carriedOverDays +
+        entitlement.adjustmentDays -
+        entitlement.usedDays -
+        entitlement.pendingDays
+
+      if (totalDays > availableBalance) {
+        logger.error(`Insufficient leave balance: requested ${totalDays}, available ${availableBalance}`)
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: `Insufficient leave balance. Available: ${availableBalance.toFixed(1)} days, Requested: ${totalDays.toFixed(1)} days`,
+        })
+      }
+    }
+
+    // Handle file attachments
+    const attachments = []
+    if (req.file) {
+      try {
+        const filename = generateFilename(
+          req.file.originalname,
+          `leave-requests/${tenantId}/${id}`
+        )
+        const fileUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype)
+        attachments.push(fileUrl)
+      } catch (error) {
+        logger.error(`Error uploading leave attachment: ${error.message}`)
+        return res.status(500).json({
+          success: false,
+          error: "File Upload Failed",
+          message: "Failed to upload attachment",
+        })
+      }
+    }
+
+    // Get user's department manager
+    const user = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        department: {
+          include: {
+            manager: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const managerId = user?.department?.managerId || null
+
+    // Create leave request
+    const leaveRequest = await prisma.leaveRequest.create({
+      data: {
+        tenantId,
+        userId: id,
+        leaveTypeId,
+        startDate: start,
+        endDate: end,
+        totalDays,
+        reason,
+        attachments,
+        managerId,
+        status: "PENDING",
+      },
+      include: {
+        leaveType: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            employeeId: true,
+          },
+        },
+      },
+    })
+
+    // Update entitlement pendingDays if deductsFromAnnual
+    if (leaveType.deductsFromAnnual) {
+      await prisma.yearlyEntitlement.update({
+        where: { id: entitlement.id },
+        data: {
+          pendingDays: {
+            increment: totalDays,
+          },
+        },
+      })
+
+      logger.info(`Updated pendingDays for entitlement ${entitlement.id}: +${totalDays}`)
+    }
+
+    // TODO: Send notification to manager (if notification system exists)
+    // if (managerId) {
+    //   await sendNotification(...)
+    // }
+
+    logger.info(`Leave request created successfully for employee ${id}`)
+
+    res.status(201).json({
+      success: true,
+      message: "Leave request created successfully",
+      data: leaveRequest,
+    })
+
+  } catch (error) {
+    logger.error(`Error creating leave request: ${error.message}`, { stack: error.stack })
+    return res.status(500).json({
+      success: false,
+      error: "Something went wrong",
+      message: "Failed to create leave request",
+    })
+  }
 };
 
 export const managerApproveLeaveRequest = async (req, res, next) => {
