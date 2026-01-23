@@ -21,6 +21,7 @@ import payslipRoutes from "./routes/payslip.route.js";
 import holidayRoutes from "./routes/holiday.route.js";
 import notificationRoutes from "./routes/notification.route.js";
 import attendanceRoutes from "./routes/attendance.route.js";
+import leaveRoutes from "./routes/leave.route.js";
 dotenv.config();
 
 // BullMQ is optional during development
@@ -69,6 +70,7 @@ app.use("/api/holidays", holidayRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/attendance", attendanceRoutes);
+app.use("/api/leave", leaveRoutes);
 
 // Bull Board Dashboard (only if BullMQ is enabled)
 if (ENABLE_BULLMQ) {
