@@ -1337,7 +1337,7 @@ export const createLeaveRequest = async (req, res) => {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const daysUntilStart = Math.ceil((start - today) / (1000 * 60 * 60 * 24))
-      
+
       if (daysUntilStart < policy.advanceNoticeDays) {
         logger.error(`Insufficient advance notice: ${daysUntilStart} days, required: ${policy.advanceNoticeDays}`)
         return res.status(400).json({
@@ -1546,7 +1546,7 @@ export const createLeaveRequest = async (req, res) => {
       await prisma.yearlyEntitlement.update({
         where: { id: entitlement.id },
         data: {
-          pendingDays: {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+          pendingDays: {
             increment: totalDays,
           },
         },
@@ -1559,21 +1559,21 @@ export const createLeaveRequest = async (req, res) => {
     try {
       const employeeName = leaveRequest.user.name || leaveRequest.user.employeeId || "Employee"
       const leaveTypeName = leaveRequest.leaveType.name
-      const formattedStartDate = start.toLocaleDateString("en-US", { 
-        year: "numeric", 
-        month: "long", 
-        day: "numeric" 
+      const formattedStartDate = start.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric"
       })
-      const formattedEndDate = end.toLocaleDateString("en-US", { 
-        year: "numeric", 
-        month: "long", 
-        day: "numeric" 
+      const formattedEndDate = end.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric"
       })
 
       // Notify Manager (if exists)
       if (managerId && user?.department?.manager) {
         const manager = user.department.manager
-        
+
         // In-app notification for manager
         await createNotification(
           tenantId,
@@ -1587,7 +1587,7 @@ export const createLeaveRequest = async (req, res) => {
         // Email notification for manager
         if (manager.email) {
           const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`
-          
+
           await sendLeaveRequestToManagerEmail({
             to: manager.email,
             managerName: manager.name,
@@ -1615,7 +1615,7 @@ export const createLeaveRequest = async (req, res) => {
 
       // Email confirmation for employee
       if (leaveRequest.user.email) {
-        
+
         await sendLeaveRequestConfirmationEmail({
           to: leaveRequest.user.email,
           employeeName,
@@ -2725,3 +2725,354 @@ export const adjustLeaveBalance = async (req, res) => {
     });
   }
 };
+
+
+
+// ... existing code ends at line 2727 ...
+
+export const getAllLeaveBalances = async (req, res) => {
+  try {
+    const { tenantId, id: hrUserId } = req.user;
+
+    if (!tenantId || !hrUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    const currentYear = new Date().getFullYear();
+    const { year, page = 1, limit = 50 } = req.query;
+    const targetYear = year ? parseInt(year) : currentYear;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get all employees in the tenant
+    const employees = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+        email: true,
+      },
+      skip,
+      take: parseInt(limit),
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    // Get entitlements for all employees
+    const entitlements = await prisma.yearlyEntitlement.findMany({
+      where: {
+        tenantId,
+        year: targetYear,
+        userId: {
+          in: employees.map((emp) => emp.id),
+        },
+      },
+      include: {
+        policy: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    // Create a map of userId to entitlement
+    const entitlementMap = new Map();
+    entitlements.forEach((ent) => {
+      entitlementMap.set(ent.userId, ent);
+    });
+
+    // Build response with balances
+    const balances = employees.map((employee) => {
+      const entitlement = entitlementMap.get(employee.id);
+
+      if (!entitlement) {
+        return {
+          userId: employee.id,
+          user: employee,
+          year: targetYear,
+          entitlement: null,
+          availableBalance: 0,
+          allocatedDays: 0,
+          accruedDays: 0,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+        };
+      }
+
+      const availableBalance =
+        entitlement.allocatedDays +
+        entitlement.accruedDays +
+        entitlement.carriedOverDays +
+        entitlement.adjustmentDays -
+        entitlement.usedDays -
+        entitlement.pendingDays;
+
+      return {
+        userId: employee.id,
+        user: employee,
+        year: targetYear,
+        entitlement: {
+          id: entitlement.id,
+          policy: entitlement.policy,
+          yearStartDate: entitlement.yearStartDate,
+          yearEndDate: entitlement.yearEndDate,
+          lastAccrualDate: entitlement.lastAccrualDate,
+          carryoverExpiryDate: entitlement.carryoverExpiryDate,
+        },
+        availableBalance: Math.max(0, availableBalance),
+        allocatedDays: entitlement.allocatedDays,
+        accruedDays: entitlement.accruedDays,
+        carriedOverDays: entitlement.carriedOverDays,
+        adjustmentDays: entitlement.adjustmentDays,
+        usedDays: entitlement.usedDays,
+        pendingDays: entitlement.pendingDays,
+        encashedDays: entitlement.encashedDays,
+        encashmentAmount: entitlement.encashmentAmount,
+      };
+    });
+
+    const totalEmployees = await prisma.user.count({
+      where: {
+        tenantId,
+        isDeleted: false,
+      },
+    });
+
+    await addLog(
+      hrUserId,
+      tenantId,
+      "READ",
+      "YearlyEntitlement",
+      null,
+      { year: targetYear, count: balances.length },
+      req
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Leave balances fetched successfully",
+      data: balances,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalEmployees,
+        totalPages: Math.ceil(totalEmployees / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting all leave balances: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get leave balances",
+    });
+  }
+};
+
+export const initializeLeaveEntitlement = async (req, res) => {
+  try {
+    const { tenantId, id: hrUserId } = req.user;
+    const { userId } = req.params;
+    const { year } = req.body;
+
+    if (!tenantId || !hrUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and user ID are required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Employee user ID is required",
+      });
+    }
+
+    const targetYear = year ? parseInt(year) : new Date().getFullYear();
+
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+        createdAt: true,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Employee not found",
+      });
+    }
+
+    const existingEntitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: targetYear,
+      },
+    });
+
+    if (existingEntitlement) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Entitlement for year ${targetYear} already exists for this employee`,
+        data: existingEntitlement,
+      });
+    }
+
+    const policy = await prisma.annualLeavePolicy.findFirst({
+      where: { tenantId },
+    });
+
+    if (!policy) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave policy not configured for this tenant",
+      });
+    }
+
+    const employeeJoinDate = new Date(employee.createdAt);
+    const joinYear = employeeJoinDate.getFullYear();
+    const yearStartDate = new Date(targetYear, 0, 1);
+    const yearEndDate = new Date(targetYear, 11, 31);
+
+    let allocatedDays = 0;
+    let accruedDays = 0;
+    let actualYearStartDate = yearStartDate;
+
+    if (policy.accrualMethod === "FRONT_LOADED") {
+      allocatedDays = policy.defaultDaysPerYear;
+      accruedDays = 0;
+
+      if (joinYear === targetYear) {
+        const monthsRemaining = 12 - employeeJoinDate.getMonth();
+        allocatedDays = (policy.defaultDaysPerYear / 12) * monthsRemaining;
+        actualYearStartDate = employeeJoinDate;
+      }
+    } else {
+      allocatedDays = 0;
+      accruedDays = 0;
+
+      if (joinYear === targetYear) {
+        actualYearStartDate = employeeJoinDate;
+      }
+    }
+
+    let carryoverExpiryDate = null;
+    if (policy.carryoverExpiryMonths) {
+      carryoverExpiryDate = new Date(
+        targetYear,
+        policy.carryoverExpiryMonths,
+        0
+      );
+    }
+
+    const entitlement = await prisma.yearlyEntitlement.create({
+      data: {
+        tenantId,
+        userId,
+        policyId: policy.id,
+        year: targetYear,
+        allocatedDays,
+        accruedDays,
+        carriedOverDays: 0,
+        adjustmentDays: 0,
+        usedDays: 0,
+        pendingDays: 0,
+        encashedDays: 0,
+        encashmentAmount: 0,
+        yearStartDate: actualYearStartDate,
+        yearEndDate,
+        lastAccrualDate: null,
+        carryoverExpiryDate,
+      },
+      include: {
+        policy: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    const availableBalance =
+      entitlement.allocatedDays +
+      entitlement.accruedDays +
+      entitlement.carriedOverDays +
+      entitlement.adjustmentDays -
+      entitlement.usedDays -
+      entitlement.pendingDays;
+
+    await addLog(
+      hrUserId,
+      tenantId,
+      "CREATE",
+      "YearlyEntitlement",
+      entitlement.id,
+      {
+        userId,
+        year: targetYear,
+        allocatedDays,
+        accrualMethod: policy.accrualMethod,
+        reason: "Manual initialization by HR",
+      },
+      req
+    );
+
+    logger.info(
+      `Leave entitlement initialized for user ${userId}, year ${targetYear} by HR ${hrUserId}`
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Leave entitlement initialized successfully",
+      data: {
+        ...entitlement,
+        availableBalance: Math.max(0, availableBalance),
+      },
+    });
+  } catch (error) {
+    logger.error(`Error initializing leave entitlement: ${error.message}`, {
+      stack: error.stack,
+      userId: req.params?.userId,
+    });
+    return res.status(500).json({ success: false, error: "Something went wrong", message: "Failed to initialize leave entitlement" })
+  }
+}
