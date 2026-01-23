@@ -4,11 +4,9 @@ import { requireRole } from "../middlewares/rbac.middleware.js";
 import {
   // Policy
   getLeavePolicy,
-  createLeavePolicy,
   updateLeavePolicy,
   // Types
   getAllLeaveTypes,
-  getLeaveTypeById,
   createLeaveType,
   updateLeaveType,
   deleteLeaveType,
@@ -91,10 +89,20 @@ router.get(
   requireRole(["HR_ADMIN", "HR_STAFF"]),
   getEmployeeLeaveBalance
 );
+router.get(
+  "/balances",
+  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  getAllLeaveBalances
+);
 router.post(
   "/balance/:userId/adjust",
   requireRole(["HR_ADMIN"]),
   adjustLeaveBalance
+);
+router.post(
+  "/balance/:userId/initialize",
+  requireRole(["HR_ADMIN"]),
+  initializeLeaveEntitlement
 );
 
 export default router;
