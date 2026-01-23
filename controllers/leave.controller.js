@@ -3,6 +3,9 @@ import logger from "../utils/logger.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import { generateFilename, uploadFile } from "../config/storage.config.js";
 import { calculateWorkingDays } from "../utils/working-days.utils.js";
+import { createNotification } from "../services/notification.service.js";
+import { sendLeaveRequestToManagerEmail } from "../views/sendLeaveRequestToManagerEmail.js";
+import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConfirmationEmail.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -1543,7 +1546,7 @@ export const createLeaveRequest = async (req, res) => {
       await prisma.yearlyEntitlement.update({
         where: { id: entitlement.id },
         data: {
-          pendingDays: {
+          pendingDays: {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
             increment: totalDays,
           },
         },
@@ -1552,10 +1555,86 @@ export const createLeaveRequest = async (req, res) => {
       logger.info(`Updated pendingDays for entitlement ${entitlement.id}: +${totalDays}`)
     }
 
-    // TODO: Send notification to manager (if notification system exists)
-    // if (managerId) {
-    //   await sendNotification(...)
-    // }
+    // Send notifications (email + in-app)
+    try {
+      const employeeName = leaveRequest.user.name || leaveRequest.user.employeeId || "Employee"
+      const leaveTypeName = leaveRequest.leaveType.name
+      const formattedStartDate = start.toLocaleDateString("en-US", { 
+        year: "numeric", 
+        month: "long", 
+        day: "numeric" 
+      })
+      const formattedEndDate = end.toLocaleDateString("en-US", { 
+        year: "numeric", 
+        month: "long", 
+        day: "numeric" 
+      })
+
+      // Notify Manager (if exists)
+      if (managerId && user?.department?.manager) {
+        const manager = user.department.manager
+        
+        // In-app notification for manager
+        await createNotification(
+          tenantId,
+          managerId,
+          "New Leave Request Pending Approval",
+          `${employeeName} has submitted a ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate}. Please review and approve.`,
+          "LEAVE",
+          `/leave`
+        )
+
+        // Email notification for manager
+        if (manager.email) {
+          const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`
+          
+          await sendLeaveRequestToManagerEmail({
+            to: manager.email,
+            managerName: manager.name,
+            employeeName,
+            leaveTypeName,
+            totalDays,
+            formattedStartDate,
+            formattedEndDate,
+            reason,
+            requestUrl,
+          })
+
+          logger.info(`Email notification sent to manager ${managerId}`)
+        }
+      }
+
+      await createNotification(
+        tenantId,
+        id,
+        "Leave Request Submitted",
+        `Your ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been submitted and is pending manager approval.`,
+        "LEAVE",
+        null
+      )
+
+      // Email confirmation for employee
+      if (leaveRequest.user.email) {
+        
+        await sendLeaveRequestConfirmationEmail({
+          to: leaveRequest.user.email,
+          employeeName,
+          leaveTypeName,
+          totalDays,
+          formattedStartDate,
+          formattedEndDate,
+          reason,
+        })
+
+        logger.info(`Confirmation email sent to employee ${id}`)
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the request creation
+      logger.error(`Error sending notifications: ${notificationError.message}`, {
+        stack: notificationError.stack,
+        leaveRequestId: leaveRequest.id,
+      })
+    }
 
     logger.info(`Leave request created successfully for employee ${id}`)
 
