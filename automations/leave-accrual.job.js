@@ -238,10 +238,259 @@ function calculateMaxAccruedDays(entitlement, policy, currentYear) {
 /**
  * Automation job for year-end processing
  * Runs on Jan 1st at 00:05 AM
+ * Initializes new year entitlements for all employees and processes carryover
  */
 export const startYearEndJob = async () => {
-    // TODO: Implement
+    let cron;
+    try {
+        const cronModule = await import("node-cron");
+        cron = cronModule.default;
+    } catch (error) {
+        logger.warn("node-cron not installed. Year-end job will not run. Install with: npm install node-cron");
+        return;
+    }
+
+    cron.schedule("5 0 1 1 *", async () => {
+        const startTime = Date.now();
+        const now = new Date();
+        const newYear = now.getFullYear();
+        const previousYear = newYear - 1;
+
+        logger.info(`[Year-End Job] Starting year-end processing for year ${newYear} at ${now.toISOString()}`);
+
+        try {
+            const policies = await prisma.annualLeavePolicy.findMany({
+                include: {
+                    tenant: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                },
+            });
+
+            logger.info(`[Year-End Job] Found ${policies.length} tenants with leave policies`);
+
+            let totalProcessed = 0;
+            let totalCreated = 0;
+            let totalErrors = 0;
+
+            for (const policy of policies) {
+                try {
+                    const activeEmployees = await prisma.user.findMany({
+                        where: {
+                            tenantId: policy.tenantId,
+                            isDeleted: false,
+                        },
+                        select: {
+                            id: true,
+                            name: true,
+                            employeeId: true,
+                        },
+                    });
+
+                    logger.info(
+                        `[Year-End Job] Processing ${activeEmployees.length} employees for tenant ${policy.tenant.name} (${policy.tenantId})`
+                    );
+
+                    for (const employee of activeEmployees) {
+                        try {
+                            const previousYearEntitlement = await prisma.yearlyEntitlement.findUnique({
+                                where: {
+                                    tenantId_userId_year: {
+                                        tenantId: policy.tenantId,
+                                        userId: employee.id,
+                                        year: previousYear,
+                                    },
+                                },
+                            });
+
+                            const existingNewYearEntitlement = await prisma.yearlyEntitlement.findUnique({
+                                where: {
+                                    tenantId_userId_year: {
+                                        tenantId: policy.tenantId,
+                                        userId: employee.id,
+                                        year: newYear,
+                                    },
+                                },
+                            });
+
+                            if (existingNewYearEntitlement) {
+                                logger.debug(
+                                    `[Year-End Job] Entitlement for ${employee.name} (${employee.employeeId}) already exists for year ${newYear}, skipping`
+                                );
+                                continue;
+                            }
+
+                            const carryoverResult = calculateCarryover(previousYearEntitlement, policy);
+
+                            const yearStartDate = new Date(newYear, 0, 1);
+                            const yearEndDate = new Date(newYear, 11, 31, 23, 59, 59);
+
+                            let allocatedDays = 0;
+                            let accruedDays = 0;
+
+                            if (policy.accrualMethod === "FRONT_LOADED") {
+                                allocatedDays = policy.defaultDaysPerYear;
+                                accruedDays = 0;
+                            } else {
+                                allocatedDays = 0;
+                                accruedDays = 0;
+                            }
+
+                            let carryoverExpiryDate = null;
+                            if (policy.carryoverExpiryMonths && carryoverResult.carriedOverDays > 0) {
+                                carryoverExpiryDate = new Date(
+                                    newYear,
+                                    policy.carryoverExpiryMonths,
+                                    0,
+                                    23,
+                                    59,
+                                    59
+                                );
+                            }
+
+                            await prisma.yearlyEntitlement.create({
+                                data: {
+                                    tenantId: policy.tenantId,
+                                    userId: employee.id,
+                                    policyId: policy.id,
+                                    year: newYear,
+                                    allocatedDays,
+                                    accruedDays,
+                                    carriedOverDays: carryoverResult.carriedOverDays,
+                                    adjustmentDays: 0,
+                                    usedDays: 0,
+                                    pendingDays: 0,
+                                    encashedDays: carryoverResult.encashedDays,
+                                    encashmentAmount: carryoverResult.encashmentAmount,
+                                    yearStartDate,
+                                    yearEndDate,
+                                    lastAccrualDate: null,
+                                    carryoverExpiryDate,
+                                },
+                            });
+
+                            totalCreated++;
+                            totalProcessed++;
+
+                            logger.info(
+                                `[Year-End Job] Created entitlement for ${employee.name} (${employee.employeeId}): ` +
+                                    `carriedOver=${carryoverResult.carriedOverDays.toFixed(2)}, ` +
+                                    `encashed=${carryoverResult.encashedDays.toFixed(2)}, ` +
+                                    `encashmentAmount=${carryoverResult.encashmentAmount.toFixed(2)}`
+                            );
+                        } catch (error) {
+                            totalErrors++;
+                            logger.error(
+                                `[Year-End Job] Error processing employee ${employee.id} (${employee.employeeId}): ${error.message}`,
+                                {
+                                    error: error.stack,
+                                    userId: employee.id,
+                                    tenantId: policy.tenantId,
+                                }
+                            );
+                        }
+                    }
+                } catch (error) {
+                    totalErrors++;
+                    logger.error(
+                        `[Year-End Job] Error processing tenant ${policy.tenantId}: ${error.message}`,
+                        {
+                            error: error.stack,
+                            tenantId: policy.tenantId,
+                        }
+                    );
+                }
+            }
+
+            const duration = Date.now() - startTime;
+            logger.info(
+                `[Year-End Job] Completed in ${duration}ms. Processed: ${totalProcessed}, Created: ${totalCreated}, Errors: ${totalErrors}`
+            );
+        } catch (error) {
+            logger.error(`[Year-End Job] Fatal error: ${error.message}`, {
+                error: error.stack,
+            });
+        }
+    });
+
+    logger.info("[Year-End Job] Scheduled to run on Jan 1st at 00:05 AM");
 };
+
+/**
+ * Calculate carryover from previous year entitlement based on policy
+ */
+function calculateCarryover(previousYearEntitlement, policy) {
+    if (!previousYearEntitlement) {
+        return {
+            carriedOverDays: 0,
+            encashedDays: 0,
+            encashmentAmount: 0,
+        };
+    }
+
+    const unusedDays =
+        previousYearEntitlement.allocatedDays +
+        previousYearEntitlement.accruedDays +
+        previousYearEntitlement.carriedOverDays +
+        previousYearEntitlement.adjustmentDays -
+        previousYearEntitlement.usedDays -
+        previousYearEntitlement.encashedDays;
+
+    if (unusedDays <= 0) {
+        return {
+            carriedOverDays: 0,
+            encashedDays: 0,
+            encashmentAmount: 0,
+        };
+    }
+
+    switch (policy.carryoverType) {
+        case "NONE":
+            return {
+                carriedOverDays: 0,
+                encashedDays: 0,
+                encashmentAmount: 0,
+            };
+
+        case "FULL":
+            return {
+                carriedOverDays: unusedDays,
+                encashedDays: 0,
+                encashmentAmount: 0,
+            };
+
+        case "LIMITED": {
+            const maxCarryover = policy.maxCarryoverDays || 0;
+            const carriedOver = Math.min(unusedDays, maxCarryover);
+            return {
+                carriedOverDays: carriedOver,
+                encashedDays: 0,
+                encashmentAmount: 0,
+            };
+        }
+
+        case "ENCASHMENT": {
+            const encashmentRate = policy.encashmentRate || 0;
+            const encashmentAmount = unusedDays * encashmentRate;
+            return {
+                carriedOverDays: 0,
+                encashedDays: unusedDays,
+                encashmentAmount: encashmentAmount,
+            };
+        }
+
+        default:
+            logger.warn(`[Year-End Job] Unknown carryover type: ${policy.carryoverType}`);
+            return {
+                carriedOverDays: 0,
+                encashedDays: 0,
+                encashmentAmount: 0,
+            };
+    }
+}
 
 /**
  * Automation job for leave ending notifications
