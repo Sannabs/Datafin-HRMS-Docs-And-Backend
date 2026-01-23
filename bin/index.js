@@ -1,6 +1,7 @@
 import http from "http";
 import app from "../app.js";
 import logger from "../utils/logger.js";
+import prisma from "../config/prisma.config.js";
 import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job.js";
 import { testRedisConnection, closeRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers, stopAllWorkers } from "../workers/payroll.worker.js";
@@ -15,20 +16,29 @@ const server = http.createServer(app);
 server.listen(process.env.PORT || 5001, async () => {
   logger.info(`Server is running on port ${process.env.PORT || 5001}`);
 
-  // Start BullMQ workers (optional)
-  if (ENABLE_BULLMQ) {
-    try {
-      const redisConnected = await testRedisConnection();
-      if (redisConnected) {
-        startAllWorkers();
-        logger.info("BullMQ workers started successfully");
-      } else {
-        logger.warn("Redis connection failed - BullMQ workers not started. Set ENABLE_BULLMQ_QUEUE=false to disable, or start Redis.");
-      }
-    } catch (error) {
-      logger.warn(`Failed to start BullMQ workers: ${error.message}. Set ENABLE_BULLMQ_QUEUE=false to disable.`);
-    }
+  // Test database connection
+  try {
+    await prisma.$connect();
+    logger.info("✅ Database connected successfully and ready to accept queries");
+  } catch (error) {
+    logger.error(`❌ Database connection failed: ${error.message}`);
+    logger.error("Server will continue but database operations may fail");
   }
+
+  // Start BullMQ workers (optional)
+  // if (ENABLE_BULLMQ) {
+  //   try {
+  //     const redisConnected = await testRedisConnection();
+  //     if (redisConnected) {
+  //       startAllWorkers();
+  //       logger.info("BullMQ workers started successfully");
+  //     } else {
+  //       logger.warn("Redis connection failed - BullMQ workers not started. Set ENABLE_BULLMQ_QUEUE=false to disable, or start Redis.");
+  //     }
+  //   } catch (error) {
+  //     logger.warn(`Failed to start BullMQ workers: ${error.message}. Set ENABLE_BULLMQ_QUEUE=false to disable.`);
+  //   }
+  // }
 
   // Start automation jobs
   // try {
@@ -41,33 +51,33 @@ server.listen(process.env.PORT || 5001, async () => {
 });
 
 // Graceful shutdown
-const gracefulShutdown = async (signal) => {
-  logger.info(`Received ${signal}, shutting down gracefully...`);
+// const gracefulShutdown = async (signal) => {
+//   logger.info(`Received ${signal}, shutting down gracefully...`);
 
-  server.close(async () => {
-    logger.info("HTTP server closed");
+//   server.close(async () => {
+//     logger.info("HTTP server closed");
 
-    // Stop BullMQ workers (if enabled)
-    if (ENABLE_BULLMQ) {
-      try {
-        await stopAllWorkers();
-        await closeQueues();
-        await closeRedisConnection();
-        logger.info("BullMQ resources cleaned up");
-      } catch (error) {
-        logger.error(`Error cleaning up BullMQ: ${error.message}`);
-      }
-    }
+//     // Stop BullMQ workers (if enabled)
+//     if (ENABLE_BULLMQ) {
+//       try {
+//         await stopAllWorkers();
+//         await closeQueues();
+//         await closeRedisConnection();
+//         logger.info("BullMQ resources cleaned up");
+//       } catch (error) {
+//         logger.error(`Error cleaning up BullMQ: ${error.message}`);
+//       }
+//     }
 
-    process.exit(0);
-  });
-};
+//     process.exit(0);
+//   });
+// };
 
 // Force shutdown after 30 seconds
-const shutdownTimer = setTimeout(() => {
-  logger.error("Forced shutdown after timeout");
-  process.exit(1);
-}, 30000);
+// const shutdownTimer = setTimeout(() => {
+//   logger.error("Forced shutdown after timeout");
+//   process.exit(1);
+// }, 30000);
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+// process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+// process.on("SIGINT", () => gracefulShutdown("SIGINT"));
