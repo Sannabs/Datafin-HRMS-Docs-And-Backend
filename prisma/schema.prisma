@@ -565,6 +565,9 @@ model PayrollRun {
   payPeriodId String
   payPeriod   PayPeriod @relation(fields: [payPeriodId], references: [id], onDelete: Restrict)
 
+  // Custom unique identifier (e.g., "PR-2025-001")
+  runCode String?
+
   runDate         DateTime         @default(now())
   totalEmployees  Int              @default(0)
   totalGrossPay   Float            @default(0)
@@ -583,10 +586,12 @@ model PayrollRun {
   payslips  Payslip[]
   progress  PayrollProgress?
 
+  @@unique([tenantId, runCode])
   @@index([tenantId])
   @@index([tenantId, payPeriodId])
   @@index([status, runDate])
   @@index([queueJobId])
+  @@index([runCode])
 }
 
 model Payslip {
