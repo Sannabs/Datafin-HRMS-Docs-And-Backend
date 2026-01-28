@@ -22,6 +22,8 @@ import holidayRoutes from "./routes/holiday.route.js";
 import notificationRoutes from "./routes/notification.route.js";
 import attendanceRoutes from "./routes/attendance.route.js";
 import leaveRoutes from "./routes/leave.route.js";
+import departmentRoutes from "./routes/department.route.js";
+import positionRoutes from "./routes/position.route.js";
 dotenv.config();
 
 // BullMQ is optional during development
@@ -68,6 +70,8 @@ app.use("/api/audit-logs", auditRoutes);
 app.use("/api/payslips", payslipRoutes);
 app.use("/api/holidays", holidayRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/departments", departmentRoutes);
+app.use("/api/positions", positionRoutes);
 app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);

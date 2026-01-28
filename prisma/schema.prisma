@@ -231,20 +231,16 @@ model Department {
   manager   User?   @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
 
   // Department fields
-  code        String?
   name        String
-  description String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
   // Reverse relations
   employees   User[]
-  positions   Position[]
   invitations Invitation[]
 
   @@unique([tenantId, name])
-  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
@@ -255,12 +251,8 @@ model Position {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  // Department relation
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   // Position fields
-  code      String?
   title     String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -271,9 +263,7 @@ model Position {
   invitations Invitation[]
 
   @@unique([tenantId, title])
-  @@unique([tenantId, code])
   @@index([tenantId])
-  @@index([tenantId, departmentId])
 }
 
 model User {
