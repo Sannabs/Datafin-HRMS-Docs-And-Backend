@@ -18,11 +18,12 @@ import {
     getAvailableTransitions,
     getStateMeta,
 } from "../utils/payroll-run.utils.js";
+import { generatePayrollRunCode } from "../utils/generatePayrollRunCode.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { payPeriodId, employeeIds } = req.body;
+        const { payPeriodId, employeeIds, runCode: customRunCode } = req.body;
 
         if (!payPeriodId) {
             return res.status(400).json({
@@ -71,11 +72,34 @@ export const createPayrollRun = async (req, res) => {
             });
         }
 
+        // Generate unique payroll run code if not provided
+        let runCode = customRunCode;
+        if (!runCode) {
+            runCode = await generatePayrollRunCode(tenantId);
+        } else {
+            // Validate that custom run code is unique for this tenant
+            const existingRun = await prisma.payrollRun.findFirst({
+                where: {
+                    tenantId,
+                    runCode,
+                },
+            });
+
+            if (existingRun) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Payroll run code "${runCode}" already exists for this tenant`,
+                });
+            }
+        }
+
         // Create payroll run
         const payrollRun = await prisma.payrollRun.create({
             data: {
                 tenantId,
                 payPeriodId,
+                runCode,
                 processedBy: userId,
                 status: "DRAFT",
                 totalEmployees: 0,
