@@ -80,7 +80,7 @@ export const createDepartment = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: "Bad Request",
-        message: "A department with this name or code already exists",
+        message: "A department with this name already exists",
       });
     }
 

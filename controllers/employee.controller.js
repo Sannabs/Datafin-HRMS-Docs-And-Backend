@@ -21,14 +21,12 @@ export const getAllEmployees = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {
@@ -97,15 +95,12 @@ export const getEmployeeById = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
-                        description: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {
@@ -262,15 +257,12 @@ export const updateEmployee = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
-                        description: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {
@@ -391,15 +383,12 @@ export const terminateEmployee = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
-                        description: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {
@@ -510,15 +499,12 @@ export const reactivateEmployee = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
-                        description: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {
@@ -630,15 +616,12 @@ export const archiveEmployee = async (req, res) => {
                     select: {
                         id: true,
                         name: true,
-                        code: true,
-                        description: true,
                     },
                 },
                 position: {
                     select: {
                         id: true,
                         title: true,
-                        code: true,
                     },
                 },
                 tenant: {

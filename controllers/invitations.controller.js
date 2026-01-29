@@ -176,14 +176,12 @@ export const sendInvitation = async (req, res, next) => {
           select: {
             id: true,
             name: true,
-            code: true,
           },
         },
         position: {
           select: {
             id: true,
             title: true,
-            code: true,
           },
         },
       },
@@ -203,6 +201,7 @@ export const sendInvitation = async (req, res, next) => {
         department: newInvitation.department,
         position: newInvitation.position,
         expiresAt: newInvitation.expiresAt,
+        token: newInvitation.token,
       },
     });
   } catch (error) {
@@ -254,14 +253,12 @@ export const acceptInvitation = async (req, res, next) => {
           select: {
             id: true,
             name: true,
-            code: true,
           },
         },
         position: {
           select: {
             id: true,
             title: true,
-            code: true,
           },
         },
       },
@@ -704,14 +701,12 @@ export const getInvitations = async (req, res, next) => {
             select: {
               id: true,
               name: true,
-              code: true,
             },
           },
           position: {
             select: {
               id: true,
               title: true,
-              code: true,
             },
           },
           tenant: {

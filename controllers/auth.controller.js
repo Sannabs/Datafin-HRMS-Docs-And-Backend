@@ -145,7 +145,7 @@ export const tenantSignUp = async (req, res, next) => {
     try {
       defaultCompanyLeavePolicy = await prisma.annualLeavePolicy.create({
         data: {
-          tenantId: tenant.id, 
+          tenantId: tenant.id,
           defaultDaysPerYear: 21,
           accrualMethod: "FRONT_LOADED",
           carryoverType: "FULL",
@@ -236,14 +236,12 @@ export const getMe = async (req, res, next) => {
           select: {
             id: true,
             name: true,
-            code: true,
           },
         },
         position: {
           select: {
             id: true,
             title: true,
-            code: true,
           },
         },
         shift: {
