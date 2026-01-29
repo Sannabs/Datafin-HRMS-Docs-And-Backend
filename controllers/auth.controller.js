@@ -102,6 +102,18 @@ export const tenantSignUp = async (req, res, next) => {
       `Default shift created: ${defaultShift.name} for tenant ${tenant.id}`
     );
 
+    // Create default HR Department
+    const hrDepartment = await prisma.department.create({
+      data: {
+        tenantId: tenant.id,
+        name: "HR Department",
+      },
+    });
+
+    logger.info(
+      `Default HR Department created: ${hrDepartment.name} for tenant ${tenant.id}`
+    );
+
     const employeeId = await generateEmployeeId(tenant.id, tenant.code);
 
     let signUpResult;
@@ -114,6 +126,7 @@ export const tenantSignUp = async (req, res, next) => {
           tenantId: tenant.id,
           role: "HR_ADMIN",
           employeeId: employeeId,
+          departmentId: hrDepartment.id,
           status: "ACTIVE",
           employmentType: "FULL_TIME",
           shiftId: defaultShift.id,
@@ -121,24 +134,46 @@ export const tenantSignUp = async (req, res, next) => {
         headers: req.headers,
       });
     } catch (userError) {
-      // Rollback: Delete shift and tenant
+      // Rollback: Delete department, shift and tenant
+      await prisma.department
+        .delete({ where: { id: hrDepartment.id } })
+        .catch(() => { });
       await prisma.shift
         .delete({ where: { id: defaultShift.id } })
         .catch(() => { });
       await prisma.tenant.delete({ where: { id: tenant.id } });
       logger.error(
-        `Failed to create user, rolled back tenant and shift: ${userError.message}`
+        `Failed to create user, rolled back tenant, shift and department: ${userError.message}`
       );
       throw userError;
     }
 
     if (!signUpResult?.user) {
-      // Rollback: Delete shift and tenant
+      // Rollback: Delete department, shift and tenant
+      await prisma.department
+        .delete({ where: { id: hrDepartment.id } })
+        .catch(() => { });
       await prisma.shift
         .delete({ where: { id: defaultShift.id } })
         .catch(() => { });
       await prisma.tenant.delete({ where: { id: tenant.id } });
       throw new Error("Failed to create user account");
+    }
+
+    // Update department to set HR admin as manager
+    try {
+      await prisma.department.update({
+        where: { id: hrDepartment.id },
+        data: { managerId: signUpResult.user.id },
+      });
+      logger.info(
+        `HR admin assigned as manager of HR Department for tenant ${tenant.id}`
+      );
+    } catch (error) {
+      logger.warn(
+        `Failed to assign HR admin as department manager: ${error.message}`
+      );
+      // Don't throw - this is not critical for signup
     }
 
     let defaultCompanyLeavePolicy;
