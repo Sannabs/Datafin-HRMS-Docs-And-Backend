@@ -1,4 +1,5 @@
 import http from "http";
+import os from "os";
 import app from "../app.js";
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
@@ -13,8 +14,25 @@ const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 const server = http.createServer(app);
 
-server.listen(process.env.PORT || 5001, async () => {
+
+
+
+const getLocalIP = () => {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return 'localhost';
+};
+server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
+
+
   logger.info(`Server is running on port ${process.env.PORT || 5001}`);
+  logger.info(`Local network: http://${getLocalIP()}:${process.env.PORT || 5001}`);
 
   // Test database connection
   try {
