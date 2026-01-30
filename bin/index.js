@@ -1,5 +1,5 @@
 import http from "http";
-import os from "os";
+import { networkInterfaces } from "os";
 import app from "../app.js";
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
@@ -7,6 +7,7 @@ import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job
 import { testRedisConnection, closeRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers, stopAllWorkers } from "../workers/payroll.worker.js";
 import { closeQueues } from "../queues/payroll.queue.js";
+
 
 // BullMQ is optional during development
 // Set ENABLE_BULLMQ_QUEUE=true in .env to enable queue-based processing
