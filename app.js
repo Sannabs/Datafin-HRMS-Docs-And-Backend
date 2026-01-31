@@ -36,12 +36,18 @@ app.use(morgan(process.env.NODE_ENV === "development" ? "dev" : "combined"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const allowedOrigins = ["http://localhost:3000", process.env.CLIENT_URL];
+// CORS: browser requests send Origin; native mobile (Expo iOS/Android) typically do not.
+// When origin is undefined we allow the request (mobile app). For web, only listed origins are allowed.
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:8081", // Expo web dev server
+  process.env.CLIENT_URL,
+].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, origin);
+      if (!origin) return callback(null, true); // allow mobile app (no Origin header)
 
       if (allowedOrigins.indexOf(origin) !== -1) {
         logger.info(`Allowed by CORS: ${origin}`);
@@ -55,6 +61,12 @@ app.use(
   })
 );
 app.use(cookieParser());
+
+// Log every request to /api/auth so mobile app auth calls are visible
+app.use("/api/auth", (req, res, next) => {
+  logger.info(`[Auth] ${req.method} ${req.path}`);
+  next();
+});
 
 // Routes
 app.use("/api/auth", authRoutes);
