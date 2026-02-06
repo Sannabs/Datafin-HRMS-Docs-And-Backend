@@ -14,6 +14,7 @@ import {
     PAYROLL_EMPLOYEE_QUEUE_NAME,
     addEmployeePayrollJobs,
 } from "../queues/payroll.queue.js";
+import { validateStatusTransition } from "../utils/payroll-run.utils.js";
 
 // Worker configuration
 const WORKER_CONCURRENCY = parseInt(process.env.PAYROLL_WORKER_CONCURRENCY, 10) || 5;
@@ -80,11 +81,27 @@ const processPayrollRunJob = async (job) => {
             stack: error.stack,
         });
 
-        // Mark payroll run as failed
-        await prisma.payrollRun.update({
+        const currentRun = await prisma.payrollRun.findUnique({
             where: { id: payrollRunId },
-            data: { status: "FAILED" },
+            select: { status: true },
         });
+        const transition = validateStatusTransition(
+            currentRun?.status ?? "PROCESSING",
+            "FAILED",
+            {}
+        );
+        if (transition.valid) {
+            await prisma.payrollRun.update({
+                where: { id: payrollRunId },
+                data: { status: "FAILED" },
+            });
+        } else {
+            logger.warn(`Payroll run ${payrollRunId} FAILED transition rejected by state machine`, {
+                payrollRunId,
+                currentStatus: currentRun?.status,
+                message: transition.message,
+            });
+        }
 
         throw error;
     }

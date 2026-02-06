@@ -9,6 +9,7 @@ import { createProgress, updateProgress } from "./payroll-progress.service.js";
 import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 import { addPayrollRunJob } from "../queues/payroll.queue.js";
 import { updatePayPeriodStatusAutomatically } from "./pay-period-automation.service.js";
+import { validateStatusTransition } from "../utils/payroll-run.utils.js";
 
 /**
  * Get active employees for payroll processing
@@ -93,16 +94,49 @@ export const finalizePayrollRun = async (payrollRunId, options = {}) => {
         // Calculate totals from payslips
         const totals = await calculatePayrollRunTotals(payrollRunId);
 
-        // Determine status if checking for failures
+        // Determine status if checking for failures (validate via state machine)
         let finalStatus = null;
         if (checkFailures) {
-            const progress = await prisma.payrollProgress.findUnique({
-                where: { payrollRunId },
-                select: { failedEmployees: true },
-            });
+            const [currentRun, progress] = await Promise.all([
+                prisma.payrollRun.findUnique({
+                    where: { id: payrollRunId },
+                    select: { status: true },
+                }),
+                prisma.payrollProgress.findUnique({
+                    where: { payrollRunId },
+                    select: { totalEmployees: true, completedEmployees: true, failedEmployees: true },
+                }),
+            ]);
 
             const hasFailed = progress && progress.failedEmployees > 0;
-            finalStatus = hasFailed ? "FAILED" : "COMPLETED";
+            const candidateStatus = hasFailed ? "FAILED" : "COMPLETED";
+
+            const context = progress
+                ? {
+                    totalEmployees: progress.totalEmployees,
+                    processedEmployees: progress.completedEmployees ?? 0,
+                    failedEmployees: progress.failedEmployees ?? 0,
+                }
+                : { totalEmployees: 0, processedEmployees: 0, failedEmployees: 0 };
+
+            const transition = validateStatusTransition(
+                currentRun?.status ?? "PROCESSING",
+                candidateStatus,
+                context
+            );
+
+            if (transition.valid) {
+                finalStatus = candidateStatus;
+            } else {
+                logger.warn(`Payroll run ${payrollRunId} status transition rejected by state machine`, {
+                    payrollRunId,
+                    currentStatus: currentRun?.status,
+                    candidateStatus,
+                    message: transition.message,
+                    context,
+                });
+                finalStatus = "FAILED";
+            }
         }
 
         // Update payroll run
