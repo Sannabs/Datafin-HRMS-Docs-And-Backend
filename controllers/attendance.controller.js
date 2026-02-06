@@ -553,26 +553,6 @@ export const clockOutGPS = async (req, res) => {
       });
     }
 
-    // Handle photo upload if required or provided
-    let clockOutPhotoUrl = null;
-    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
-      clockOutPhotoUrl = await handlePhotoUpload(
-        req,
-        userId,
-        tenantId,
-        "clock-out"
-      );
-
-      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
-        logger.error("Photo is required but not provided");
-        return res.status(400).json({
-          success: false,
-          error: "Photo is required",
-          message: "Photo verification is mandatory for clock-out",
-        });
-      }
-    }
-
     // Calculate total hours and overtime
     const { totalHours, overtimeHours } = calculateHours(
       attendanceRecord.clockInTime,
@@ -587,7 +567,6 @@ export const clockOutGPS = async (req, res) => {
         clockOutMethod: "GPS",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl,
         totalHours,
         overtimeHours,
       },
@@ -700,26 +679,6 @@ export const clockOutWiFi = async (req, res) => {
       });
     }
 
-    // Handle photo upload if required or provided
-    let clockOutPhotoUrl = null;
-    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
-      clockOutPhotoUrl = await handlePhotoUpload(
-        req,
-        userId,
-        tenantId,
-        "clock-out"
-      );
-
-      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
-        logger.error("Photo is required but not provided");
-        return res.status(400).json({
-          success: false,
-          error: "Photo is required",
-          message: "Photo verification is mandatory for clock-out",
-        });
-      }
-    }
-
     // Calculate total hours and overtime
     const { totalHours, overtimeHours } = calculateHours(
       attendanceRecord.clockInTime,
@@ -734,7 +693,6 @@ export const clockOutWiFi = async (req, res) => {
         clockOutMethod: "WIFI",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl,
         totalHours,
         overtimeHours,
       },
@@ -876,26 +834,6 @@ export const clockOutQRCode = async (req, res) => {
       });
     }
 
-    // Handle photo upload if required or provided
-    let clockOutPhotoUrl = null;
-    if (employee.tenant.requirePhoto || req.file || req.body.photoUrl) {
-      clockOutPhotoUrl = await handlePhotoUpload(
-        req,
-        userId,
-        tenantId,
-        "clock-out"
-      );
-
-      if (employee.tenant.requirePhoto && !clockOutPhotoUrl) {
-        logger.error("Photo is required but not provided");
-        return res.status(400).json({
-          success: false,
-          error: "Photo is required",
-          message: "Photo verification is mandatory for clock-out",
-        });
-      }
-    }
-
     // Calculate total hours and overtime
     const { totalHours, overtimeHours } = calculateHours(
       attendanceRecord.clockInTime,
@@ -907,10 +845,9 @@ export const clockOutQRCode = async (req, res) => {
       where: { id: attendanceRecord.id },
       data: {
         clockOutTime: now,
-        clockOutMethod: "QR CODE",
+        clockOutMethod: "QR_CODE",
         clockOutDeviceInfo,
         clockOutIpAddress,
-        clockOutPhotoUrl,
         totalHours,
         overtimeHours,
       },

@@ -30,10 +30,10 @@ router.post("/clock-in/gps", uploadSingleImage, clockInGPS);
 router.post("/clock-in/wifi", uploadSingleImage, clockInWiFi);
 router.post("/clock-in/qrcode", uploadSingleImage, clockInQRCode);
 
-// Clock-Out Routes (with optional photo upload)
-router.post("/clock-out/gps", uploadSingleImage, clockOutGPS);
-router.post("/clock-out/wifi", uploadSingleImage, clockOutWiFi);
-router.post("/clock-out/qrcode", uploadSingleImage, clockOutQRCode);
+// Clock-Out Routes (no photo – photo only on clock-in when required by tenant)
+router.post("/clock-out/gps", clockOutGPS);
+router.post("/clock-out/wifi", clockOutWiFi);
+router.post("/clock-out/qrcode", clockOutQRCode);
 
 // Attendance History
 router.get("/history", getAttendanceHistory);
