@@ -37,13 +37,13 @@ router.post("/clock-out/qrcode", uploadSingleImage, clockOutQRCode);
 
 // Attendance History
 router.get("/history", getAttendanceHistory);
-router.get("/my-history/:employeeId", getMyAttendanceHistory);
+router.get("/my-history", getMyAttendanceHistory);
 
 // Late Reason (Employee)
 router.patch("/:attendanceId/late-reason", lateReason);
 
 // Manual Clock-Out (Admin Only)
-router.post("/manual-clock-out", requireRole(["HR_ADMIN", "HR_STAFF"]), manualClockOut);
+router.post("/manual-clock-out/:attendanceId", requireRole(["HR_ADMIN", "HR_STAFF"]), manualClockOut);
 
 // Employee Work Config (Admin/HR)
 router.post("/config/employee-work-day", requireRole(["HR_ADMIN", "HR_STAFF"]), createOrUpdateEmployeeWorkConfig);

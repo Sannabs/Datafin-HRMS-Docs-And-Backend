@@ -1283,7 +1283,9 @@ export const lateReason = async (req, res) => {
 // Manual Clock-Out (Admin Only)
 export const manualClockOut = async (req, res) => {
   const tenantId = req.user.tenantId;
-  const { attendanceId, clockOutTime } = req.body;
+  const { clockOutTime } = req.body;
+
+  const attendanceId = req.params.attendanceId;
 
   try {
     if (!tenantId) {
