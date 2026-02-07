@@ -1049,6 +1049,65 @@ export const getAttendanceHistory = async (req, res) => {
   }
 };
 
+/**
+ * Lightweight endpoint: current user's clock-in status for today only.
+ * Use this for the Clock In / Clock Out button instead of loading full history.
+ */
+export const getMyTodayStatus = async (req, res) => {
+  const userId = req.user.id;
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID or Tenant ID is required",
+        message: "User ID or Tenant ID is required",
+      });
+    }
+
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const todayRecord = await prisma.attendance.findFirst({
+      where: {
+        tenantId,
+        userId,
+        clockInTime: { gte: startOfDay, lte: endOfDay },
+        clockOutTime: null,
+      },
+      orderBy: { clockInTime: "desc" },
+      select: {
+        id: true,
+        clockInTime: true,
+        clockOutTime: true,
+        status: true,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Today's status retrieved successfully",
+      data: {
+        hasOpenClockIn: !!todayRecord,
+        todayRecord: todayRecord || null,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting today status: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get today's attendance status",
+    });
+  }
+};
+
 export const getMyAttendanceHistory = async (req, res) => {
   const userId = req.user.id;
   const tenantId = req.user.tenantId;

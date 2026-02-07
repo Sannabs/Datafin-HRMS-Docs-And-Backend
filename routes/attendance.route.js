@@ -11,6 +11,7 @@ import {
   clockOutQRCode,
   getAttendanceHistory,
   getMyAttendanceHistory,
+  getMyTodayStatus,
   lateReason,
   manualClockOut,
   createOrUpdateEmployeeWorkConfig,
@@ -38,6 +39,7 @@ router.post("/clock-out/qrcode", clockOutQRCode);
 // Attendance History
 router.get("/history", getAttendanceHistory);
 router.get("/my-history", getMyAttendanceHistory);
+router.get("/today-status", getMyTodayStatus);
 
 // Late Reason (Employee)
 router.patch("/:attendanceId/late-reason", lateReason);
