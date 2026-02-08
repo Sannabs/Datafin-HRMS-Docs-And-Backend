@@ -448,56 +448,6 @@ export const calculateRuleAmount = async (rule, employeeContext, baseSalary, gro
 };
 
 /**
- * Get conditional amount for an allowance or deduction
- * Main entry point for conditional calculations
- * @param {string} ruleType - "ALLOWANCE" or "DEDUCTION"
- * @param {string} typeId - AllowanceType or DeductionType ID
- * @param {Object} employeeContext - Employee context data
- * @param {number} baseSalary - Employee's base salary
- * @param {number} grossSalary - Employee's gross salary
- * @param {string} tenantId - Tenant ID
- * @returns {Promise<number>} Calculated amount (0 if no matching rules)
- */
-export const getConditionalAmount = async (
-    ruleType,
-    typeId,
-    employeeContext,
-    baseSalary,
-    grossSalary,
-    tenantId
-) => {
-    try {
-        const matchingEvents = await evaluateRules(ruleType, typeId, employeeContext, tenantId);
-
-        if (matchingEvents.length === 0) {
-            return 0;
-        }
-
-        // Use the highest priority matching rule (first in sorted array)
-        const topEvent = matchingEvents[0];
-        const { action, ruleId, ruleName } = topEvent.params;
-
-        const amount = await calculateRuleAmount(action, employeeContext, baseSalary, grossSalary, {}, tenantId);
-
-        logger.info(`Conditional calculation applied: Rule ${ruleId} (${ruleName}) for ${ruleType} ${typeId}`, {
-            ruleId,
-            ruleName,
-            amount,
-        });
-
-        return amount;
-    } catch (error) {
-        logger.error(`Error calculating conditional amount: ${error.message}`, {
-            error: error.stack,
-            ruleType,
-            typeId,
-            tenantId,
-        });
-        return 0;
-    }
-};
-
-/**
  * Get all matching rules with their calculated amounts
  * Useful for debugging and showing breakdown to users
  * @param {string} ruleType - "ALLOWANCE" or "DEDUCTION"

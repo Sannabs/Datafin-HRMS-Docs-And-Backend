@@ -2,6 +2,7 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
+import { validateFormula } from "../services/formula-evaluator.service.js";
 
 /**
  * Employee self-service: Get my current (active) salary structure
@@ -451,12 +452,32 @@ export const createSalaryStructure = async (req, res) => {
 
         if (allowances && allowances.length > 0) {
             for (const allowance of allowances) {
+                const method = allowance.calculationMethod || "FIXED";
+                if (method === "FORMULA") {
+                    const formula = allowance.formulaExpression?.trim();
+                    if (!formula) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: "formulaExpression is required when calculationMethod is FORMULA for allowances",
+                        });
+                    }
+                    const validation = validateFormula(formula);
+                    if (!validation.valid) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: `Invalid allowance formula: ${validation.error}`,
+                        });
+                    }
+                }
                 await prisma.allowance.create({
                     data: {
                         salaryStructureId: salaryStructure.id,
                         allowanceTypeId: allowance.allowanceTypeId,
-                        amount: allowance.amount,
-                        calculationMethod: allowance.calculationMethod || "FIXED",
+                        amount: method === "FORMULA" ? 0 : (allowance.amount ?? 0),
+                        calculationMethod: method,
+                        formulaExpression: method === "FORMULA" ? allowance.formulaExpression?.trim() : null,
                     },
                 });
             }
@@ -464,12 +485,32 @@ export const createSalaryStructure = async (req, res) => {
 
         if (deductions && deductions.length > 0) {
             for (const deduction of deductions) {
+                const method = deduction.calculationMethod || "FIXED";
+                if (method === "FORMULA") {
+                    const formula = deduction.formulaExpression?.trim();
+                    if (!formula) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: "formulaExpression is required when calculationMethod is FORMULA for deductions",
+                        });
+                    }
+                    const validation = validateFormula(formula);
+                    if (!validation.valid) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: `Invalid deduction formula: ${validation.error}`,
+                        });
+                    }
+                }
                 await prisma.deduction.create({
                     data: {
                         salaryStructureId: salaryStructure.id,
                         deductionTypeId: deduction.deductionTypeId,
-                        amount: deduction.amount,
-                        calculationMethod: deduction.calculationMethod || "FIXED",
+                        amount: method === "FORMULA" ? 0 : (deduction.amount ?? 0),
+                        calculationMethod: method,
+                        formulaExpression: method === "FORMULA" ? deduction.formulaExpression?.trim() : null,
                     },
                 });
             }
@@ -745,14 +786,40 @@ export const addAllowanceToStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { allowanceTypeId, amount, calculationMethod } = req.body;
+        const { allowanceTypeId, amount, calculationMethod, formulaExpression } = req.body;
 
-        if (!allowanceTypeId || amount === undefined) {
+        const method = calculationMethod || "FIXED";
+        if (!allowanceTypeId) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "Allowance type ID and amount are required",
+                message: "Allowance type ID is required",
             });
+        }
+        if (method !== "FORMULA" && amount === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Amount is required when calculation method is not FORMULA",
+            });
+        }
+        if (method === "FORMULA") {
+            const formula = formulaExpression?.trim();
+            if (!formula) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "formulaExpression is required when calculationMethod is FORMULA",
+                });
+            }
+            const validation = validateFormula(formula);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Invalid formula: ${validation.error}`,
+                });
+            }
         }
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -822,8 +889,9 @@ export const addAllowanceToStructure = async (req, res) => {
             data: {
                 salaryStructureId: id,
                 allowanceTypeId,
-                amount,
-                calculationMethod: calculationMethod || "FIXED",
+                amount: method === "FORMULA" ? 0 : (amount ?? 0),
+                calculationMethod: method,
+                formulaExpression: method === "FORMULA" ? formulaExpression?.trim() : null,
             },
             include: {
                 allowanceType: {
@@ -1004,14 +1072,40 @@ export const addDeductionToStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { deductionTypeId, amount, calculationMethod } = req.body;
+        const { deductionTypeId, amount, calculationMethod, formulaExpression } = req.body;
 
-        if (!deductionTypeId || amount === undefined) {
+        const method = calculationMethod || "FIXED";
+        if (!deductionTypeId) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "Deduction type ID and amount are required",
+                message: "Deduction type ID is required",
             });
+        }
+        if (method !== "FORMULA" && amount === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Amount is required when calculation method is not FORMULA",
+            });
+        }
+        if (method === "FORMULA") {
+            const formula = formulaExpression?.trim();
+            if (!formula) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "formulaExpression is required when calculationMethod is FORMULA",
+                });
+            }
+            const validation = validateFormula(formula);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Invalid formula: ${validation.error}`,
+                });
+            }
         }
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -1081,8 +1175,9 @@ export const addDeductionToStructure = async (req, res) => {
             data: {
                 salaryStructureId: id,
                 deductionTypeId,
-                amount,
-                calculationMethod: calculationMethod || "FIXED",
+                amount: method === "FORMULA" ? 0 : (amount ?? 0),
+                calculationMethod: method,
+                formulaExpression: method === "FORMULA" ? formulaExpression?.trim() : null,
             },
             include: {
                 deductionType: {

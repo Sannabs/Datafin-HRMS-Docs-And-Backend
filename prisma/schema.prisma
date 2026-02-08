@@ -231,10 +231,10 @@ model Department {
   manager   User?   @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
 
   // Department fields
-  name        String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   // Reverse relations
   employees   User[]
@@ -250,7 +250,6 @@ model Position {
   // Tenant relation
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
 
   // Position fields
   title     String
@@ -296,7 +295,7 @@ model User {
   email         String
   password      String? // Better Auth - password (nullable, required for email/password auth)
   name          String? // Better Auth - display name (optional, can map to firstName)
-  emailVerified Boolean  @default(false) // Better Auth - email verified flag (boolean; use verifiedAt for timestamp if needed)
+  emailVerified Boolean   @default(false) // Better Auth - email verified flag (boolean; use verifiedAt for timestamp if needed)
   image         String? // Better Auth - profile image URL (optional, can map to avatarUrl)
   role          UserRole  @default(STAFF)
   isDeleted     Boolean   @default(false)
@@ -460,8 +459,9 @@ model Allowance {
   allowanceTypeId String
   allowanceType   AllowanceType @relation(fields: [allowanceTypeId], references: [id], onDelete: Restrict)
 
-  amount            Float             @default(0)
-  calculationMethod CalculationMethod @default(FIXED)
+  amount               Float             @default(0)
+  calculationMethod    CalculationMethod @default(FIXED)
+  formulaExpression    String?            // Used when calculationMethod is FORMULA
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -503,8 +503,9 @@ model Deduction {
   deductionTypeId String
   deductionType   DeductionType @relation(fields: [deductionTypeId], references: [id], onDelete: Restrict)
 
-  amount            Float             @default(0)
-  calculationMethod CalculationMethod @default(FIXED)
+  amount               Float             @default(0)
+  calculationMethod    CalculationMethod @default(FIXED)
+  formulaExpression    String?            // Used when calculationMethod is FORMULA
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
