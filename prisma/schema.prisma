@@ -77,7 +77,7 @@ enum Gender {
 enum CalculationMethod {
   FIXED
   PERCENTAGE
-  CONDITIONAL
+  FORMULA
 }
 
 enum RuleType {
