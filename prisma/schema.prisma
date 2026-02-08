@@ -184,7 +184,7 @@ model Tenant {
   weekendDays Int[] @default([0, 6])
 
   // Clock-in configurations
-  allowedClockInMethods  ClockMethod[]
+  allowedClockInMethods ClockMethod[] @default([GPS, QR_CODE])
   requirePhoto           Boolean       @default(false)
   geofenceRadius         Float         @default(100)
   gracePeriodMinutes     Int           @default(5)
@@ -767,7 +767,7 @@ enum NotificationType {
 // Attendance, Workday, shift models
 // ------------------------------------------------------------
 
-model Attendance {
+model Attendance {  
   id         String  @id @default(uuid())
   tenantId   String
   userId     String
@@ -786,7 +786,6 @@ model Attendance {
   clockInIpAddress  String?
 
   clockOutMethod     ClockMethod?
-  clockOutPhotoUrl   String?
   clockOutDeviceInfo String?
   clockOutIpAddress  String?
 

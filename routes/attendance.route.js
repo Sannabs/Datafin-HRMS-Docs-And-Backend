@@ -11,6 +11,7 @@ import {
   clockOutQRCode,
   getAttendanceHistory,
   getMyAttendanceHistory,
+  getMyTodayStatus,
   lateReason,
   manualClockOut,
   createOrUpdateEmployeeWorkConfig,
@@ -30,20 +31,21 @@ router.post("/clock-in/gps", uploadSingleImage, clockInGPS);
 router.post("/clock-in/wifi", uploadSingleImage, clockInWiFi);
 router.post("/clock-in/qrcode", uploadSingleImage, clockInQRCode);
 
-// Clock-Out Routes (with optional photo upload)
-router.post("/clock-out/gps", uploadSingleImage, clockOutGPS);
-router.post("/clock-out/wifi", uploadSingleImage, clockOutWiFi);
-router.post("/clock-out/qrcode", uploadSingleImage, clockOutQRCode);
+// Clock-Out Routes (no photo – photo only on clock-in when required by tenant)
+router.post("/clock-out/gps", clockOutGPS);
+router.post("/clock-out/wifi", clockOutWiFi);
+router.post("/clock-out/qrcode", clockOutQRCode);
 
 // Attendance History
 router.get("/history", getAttendanceHistory);
-router.get("/my-history/:employeeId", getMyAttendanceHistory);
+router.get("/my-history", getMyAttendanceHistory);
+router.get("/today-status", getMyTodayStatus);
 
 // Late Reason (Employee)
 router.patch("/:attendanceId/late-reason", lateReason);
 
 // Manual Clock-Out (Admin Only)
-router.post("/manual-clock-out", requireRole(["HR_ADMIN", "HR_STAFF"]), manualClockOut);
+router.post("/manual-clock-out/:attendanceId", requireRole(["HR_ADMIN", "HR_STAFF"]), manualClockOut);
 
 // Employee Work Config (Admin/HR)
 router.post("/config/employee-work-day", requireRole(["HR_ADMIN", "HR_STAFF"]), createOrUpdateEmployeeWorkConfig);

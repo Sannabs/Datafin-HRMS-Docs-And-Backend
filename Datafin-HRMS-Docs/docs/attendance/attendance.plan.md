@@ -407,7 +407,6 @@ model Attendance {
   clockInIpAddress  String?
 
   clockOutMethod     ClockMethod?
-  clockOutPhotoUrl   String?
   clockOutDeviceInfo String?
   clockOutIpAddress  String?
 
@@ -794,16 +793,16 @@ HR admins can manually clock out employees who forgot:
 ### Clock-In/Out
 
 ```
-POST /api/v1/attendance/clock-in/gps      (with optional photo)
-POST /api/v1/attendance/clock-in/wifi     (with optional photo)
-POST /api/v1/attendance/clock-in/qrcode   (with optional photo)
+POST /api/v1/attendance/clock-in/gps      (with optional photo when tenant requires it)
+POST /api/v1/attendance/clock-in/wifi     (with optional photo when tenant requires it)
+POST /api/v1/attendance/clock-in/qrcode   (with optional photo when tenant requires it)
 
-POST /api/v1/attendance/clock-out/gps     (with optional photo)
-POST /api/v1/attendance/clock-out/wifi     (with optional photo)
-POST /api/v1/attendance/clock-out/qrcode   (with optional photo)
+POST /api/v1/attendance/clock-out/gps     (no photo)
+POST /api/v1/attendance/clock-out/wifi    (no photo)
+POST /api/v1/attendance/clock-out/qrcode  (no photo)
 ```
 
-**Note:** Photo upload is handled via multer middleware on all clock-in/out endpoints. Photo is an additional layer, not a standalone method.
+**Note:** Photo upload is only used on clock-in when the tenant has `requirePhoto` enabled. Clock-out endpoints do not accept or store photos.
 
 ### Additional Endpoints
 

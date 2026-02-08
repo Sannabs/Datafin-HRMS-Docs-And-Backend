@@ -198,8 +198,7 @@ Clock out using GPS location verification. Requires an existing clock-in record 
 ```json
 {
   "latitude": 6.5244,
-  "longitude": 3.3792,
-  "photoUrl": "https://..." // Optional
+  "longitude": 3.3792
 }
 ```
 
@@ -213,7 +212,6 @@ Clock out using GPS location verification. Requires an existing clock-in record 
     "id": "att_123",
     "clockOutTime": "2025-01-15T17:30:00Z",
     "clockOutMethod": "GPS",
-    "clockOutPhotoUrl": "https://...",
     "totalHours": 8.5,
     "overtimeHours": 0.5,
     "status": "ON_TIME"
@@ -241,12 +239,11 @@ Clock out using WiFi network verification.
 
 ```json
 {
-  "wifiSSID": "CompanyWiFi_5G",
-  "photoUrl": "https://..." // Optional
+  "wifiSSID": "CompanyWiFi_5G"
 }
 ```
 
-**Response:** `200 OK` (Same structure as GPS clock-out)
+**Response:** `200 OK` (Same structure as GPS clock-out; no photo on clock-out)
 
 ---
 
@@ -262,12 +259,11 @@ Clock out by scanning a QR code.
 {
   "qrPayload": "company_secret_token",
   "latitude": 6.5244,
-  "longitude": 3.3792,
-  "photoUrl": "https://..." // Optional
+  "longitude": 3.3792
 }
 ```
 
-**Response:** `200 OK` (Same structure as GPS clock-out)
+**Response:** `200 OK` (Same structure as GPS clock-out; no photo on clock-out)
 
 ---
 
@@ -316,7 +312,6 @@ GET /api/v1/attendance/history?page=1&limit=20&status=LATE&startDate=2025-01-01&
       "clockInMethod": "GPS",
       "clockOutMethod": "GPS",
       "clockInPhotoUrl": "https://...",
-      "clockOutPhotoUrl": "https://...",
       "user": {
         "id": "user_456",
         "name": "John Doe",
