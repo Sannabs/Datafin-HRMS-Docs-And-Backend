@@ -223,6 +223,7 @@ export const getPayPeriodById = async (req, res) => {
     }
 };
 
+// u[]
 export const updatePayPeriodStatus = async (req, res) => {
     try {
         const { id } = req.params;
