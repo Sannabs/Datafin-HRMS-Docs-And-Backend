@@ -110,18 +110,45 @@ export const createAllowanceType = async (req, res) => {
             });
         }
 
-        const allowanceType = await prisma.allowanceType.create({
-            data: {
+        const trimmedName = name.trim();
+        const trimmedCode = code.trim();
+
+        // If a soft-deleted allowance type exists with same name or code, restore it instead of creating (avoids unique constraint)
+        const softDeleted = await prisma.allowanceType.findFirst({
+            where: {
                 tenantId,
-                name,
-                code,
-                description: description || null,
-                isTaxable: isTaxable !== undefined ? isTaxable : true,
-                isActive: isActive !== undefined ? isActive : true,
+                deletedAt: { not: null },
+                OR: [{ name: trimmedName }, { code: trimmedCode }],
             },
         });
 
-        logger.info(`Created allowance type with ID: ${allowanceType.id}`);
+        let allowanceType;
+        if (softDeleted) {
+            allowanceType = await prisma.allowanceType.update({
+                where: { id: softDeleted.id },
+                data: {
+                    deletedAt: null,
+                    name: trimmedName,
+                    code: trimmedCode,
+                    description: description ?? softDeleted.description,
+                    isTaxable: isTaxable !== undefined ? isTaxable : true,
+                    isActive: isActive !== undefined ? isActive : true,
+                },
+            });
+            logger.info(`Restored allowance type with ID: ${allowanceType.id} (was soft-deleted)`);
+        } else {
+            allowanceType = await prisma.allowanceType.create({
+                data: {
+                    tenantId,
+                    name: trimmedName,
+                    code: trimmedCode,
+                    description: description || null,
+                    isTaxable: isTaxable !== undefined ? isTaxable : true,
+                    isActive: isActive !== undefined ? isActive : true,
+                },
+            });
+            logger.info(`Created allowance type with ID: ${allowanceType.id}`);
+        }
         const changes = {
             name: { before: null, after: allowanceType.name },
             code: { before: null, after: allowanceType.code },
