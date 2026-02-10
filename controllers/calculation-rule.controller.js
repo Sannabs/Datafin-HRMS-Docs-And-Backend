@@ -399,6 +399,110 @@ export const updateCalculationRule = async (req, res) => {
     }
 };
 
+/**
+ * Activate a calculation rule. Dedicated endpoint for clear audit trail (ACTION: ACTIVATE).
+ */
+export const activateCalculationRule = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.calculationRule.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Calculation rule not found",
+            });
+        }
+
+        if (existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Calculation rule is already active",
+            });
+        }
+
+        const rule = await prisma.calculationRule.update({
+            where: { id },
+            data: { isActive: true },
+        });
+
+        await addLog(userId, tenantId, "ACTIVATE", "CalculationRule", id, { isActive: { before: false, after: true } }, req);
+        clearRuleCache(tenantId);
+        logger.info(`Calculation rule ${id} activated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: rule,
+            message: "Calculation rule activated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error activating calculation rule: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to activate calculation rule",
+        });
+    }
+};
+
+/**
+ * Deactivate a calculation rule. Dedicated endpoint for clear audit trail (ACTION: DEACTIVATE).
+ */
+export const deactivateCalculationRule = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.calculationRule.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Calculation rule not found",
+            });
+        }
+
+        if (!existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Calculation rule is already inactive",
+            });
+        }
+
+        const rule = await prisma.calculationRule.update({
+            where: { id },
+            data: { isActive: false },
+        });
+
+        await addLog(userId, tenantId, "DEACTIVATE", "CalculationRule", id, { isActive: { before: true, after: false } }, req);
+        clearRuleCache(tenantId);
+        logger.info(`Calculation rule ${id} deactivated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: rule,
+            message: "Calculation rule deactivated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deactivating calculation rule: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to deactivate calculation rule",
+        });
+    }
+};
+
 export const deleteCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;

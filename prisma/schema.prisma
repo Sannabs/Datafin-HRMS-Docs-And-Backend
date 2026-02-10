@@ -103,6 +103,8 @@ enum ActionEnum {
   CREATE
   TERMINATE
   REACTIVATE
+  ACTIVATE
+  DEACTIVATE
   ADD_ALLOWANCE
   REMOVE_ALLOWANCE
   ADD_DEDUCTION
@@ -436,6 +438,7 @@ model AllowanceType {
   code        String
   description String?
   isTaxable   Boolean   @default(true)
+  isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -446,6 +449,7 @@ model AllowanceType {
   @@unique([tenantId, name])
   @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([tenantId, isActive])
 }
 
 model Allowance {
@@ -480,6 +484,7 @@ model DeductionType {
   code        String
   description String?
   isStatutory Boolean   @default(false)
+  isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -490,6 +495,7 @@ model DeductionType {
   @@unique([tenantId, name])
   @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([tenantId, isActive])
 }
 
 model Deduction {

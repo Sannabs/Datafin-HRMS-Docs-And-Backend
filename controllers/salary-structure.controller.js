@@ -234,6 +234,87 @@ export const getEmployeeSalaryStructure = async (req, res) => {
 };
 
 /**
+ * HR view: Get all salary structures for the tenant (optionally filtered by employee).
+ * Enables the Salary Structures setup tab to show one list without "pick employee first".
+ * Access: HR_ADMIN, HR_STAFF only (enforced by route middleware)
+ */
+export const getAllSalaryStructures = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const { employeeId } = req.query;
+
+        const where = {
+            tenantId,
+            ...(employeeId && { userId: employeeId }),
+        };
+
+        const salaryStructures = await prisma.salaryStructure.findMany({
+            where,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        department: {
+                            select: { id: true, name: true },
+                        },
+                        position: {
+                            select: { id: true, title: true },
+                        },
+                    },
+                },
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isTaxable: true,
+                            },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                isStatutory: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { effectiveDate: "desc" },
+        });
+
+        logger.info(`Retrieved ${salaryStructures.length} salary structures for tenant ${tenantId}${employeeId ? ` (employee: ${employeeId})` : ""}`);
+
+        return res.status(200).json({
+            success: true,
+            data: salaryStructures,
+            count: salaryStructures.length,
+        });
+    } catch (error) {
+        logger.error(`Error fetching all salary structures: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch salary structures",
+        });
+    }
+};
+
+/**
  * HR view: Get all salary structures for a specific employee (history)
  * Access: HR_ADMIN, HR_STAFF only (enforced by route middleware)
  */

@@ -5,12 +5,18 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 export const getAllAllowanceTypes = async (req, res) => {
     try {
         const { tenantId } = req.user;
+        const { isActive } = req.query;
+
+        const where = {
+            tenantId,
+            deletedAt: null,
+        };
+        if (isActive !== undefined) {
+            where.isActive = isActive === "true";
+        }
 
         const allowanceTypes = await prisma.allowanceType.findMany({
-            where: {
-                tenantId,
-                deletedAt: null,
-            },
+            where,
             include: {
                 _count: {
                     select: {
@@ -94,7 +100,7 @@ export const getAllowanceTypeById = async (req, res) => {
 export const createAllowanceType = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isTaxable } = req.body;
+        const { name, code, description, isTaxable, isActive } = req.body;
 
         if (!name || !code) {
             return res.status(400).json({
@@ -111,6 +117,7 @@ export const createAllowanceType = async (req, res) => {
                 code,
                 description: description || null,
                 isTaxable: isTaxable !== undefined ? isTaxable : true,
+                isActive: isActive !== undefined ? isActive : true,
             },
         });
 
@@ -145,7 +152,7 @@ export const updateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isTaxable } = req.body;
+        const { name, code, description, isTaxable, isActive } = req.body;
 
         const existing = await prisma.allowanceType.findFirst({
             where: {
@@ -169,6 +176,7 @@ export const updateAllowanceType = async (req, res) => {
         if (code !== undefined) updateData.code = code;
         if (description !== undefined) updateData.description = description;
         if (isTaxable !== undefined) updateData.isTaxable = isTaxable;
+        if (isActive !== undefined) updateData.isActive = isActive;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
@@ -201,6 +209,108 @@ export const updateAllowanceType = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to update allowance type",
+        });
+    }
+};
+
+/**
+ * Activate an allowance type. Dedicated endpoint for clear audit trail (ACTION: ACTIVATE).
+ */
+export const activateAllowanceType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.allowanceType.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Allowance type not found",
+            });
+        }
+
+        if (existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Allowance type is already active",
+            });
+        }
+
+        const allowanceType = await prisma.allowanceType.update({
+            where: { id },
+            data: { isActive: true },
+        });
+
+        await addLog(userId, tenantId, "ACTIVATE", "AllowanceType", id, { isActive: { before: false, after: true } }, req);
+        logger.info(`Allowance type ${id} activated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: allowanceType,
+            message: "Allowance type activated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error activating allowance type: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to activate allowance type",
+        });
+    }
+};
+
+/**
+ * Deactivate an allowance type. Dedicated endpoint for clear audit trail (ACTION: DEACTIVATE).
+ */
+export const deactivateAllowanceType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.allowanceType.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Allowance type not found",
+            });
+        }
+
+        if (!existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Allowance type is already inactive",
+            });
+        }
+
+        const allowanceType = await prisma.allowanceType.update({
+            where: { id },
+            data: { isActive: false },
+        });
+
+        await addLog(userId, tenantId, "DEACTIVATE", "AllowanceType", id, { isActive: { before: true, after: false } }, req);
+        logger.info(`Allowance type ${id} deactivated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: allowanceType,
+            message: "Allowance type deactivated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deactivating allowance type: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to deactivate allowance type",
         });
     }
 };

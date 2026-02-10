@@ -5,12 +5,18 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 export const getAllDeductionTypes = async (req, res) => {
     try {
         const { tenantId } = req.user;
+        const { isActive } = req.query;
+
+        const where = {
+            tenantId,
+            deletedAt: null,
+        };
+        if (isActive !== undefined) {
+            where.isActive = isActive === "true";
+        }
 
         const deductionTypes = await prisma.deductionType.findMany({
-            where: {
-                tenantId,
-                deletedAt: null,
-            },
+            where,
             include: {
                 _count: {
                     select: {
@@ -94,7 +100,7 @@ export const getDeductionTypeById = async (req, res) => {
 export const createDeductionType = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isStatutory } = req.body;
+        const { name, code, description, isStatutory, isActive } = req.body;
 
         if (!name || !code) {
             return res.status(400).json({
@@ -111,6 +117,7 @@ export const createDeductionType = async (req, res) => {
                 code,
                 description: description || null,
                 isStatutory: isStatutory !== undefined ? isStatutory : false,
+                isActive: isActive !== undefined ? isActive : true,
             },
         });
 
@@ -145,7 +152,7 @@ export const updateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isStatutory } = req.body;
+        const { name, code, description, isStatutory, isActive } = req.body;
 
         const existing = await prisma.deductionType.findFirst({
             where: {
@@ -169,6 +176,7 @@ export const updateDeductionType = async (req, res) => {
         if (code !== undefined) updateData.code = code;
         if (description !== undefined) updateData.description = description;
         if (isStatutory !== undefined) updateData.isStatutory = isStatutory;
+        if (isActive !== undefined) updateData.isActive = isActive;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
@@ -201,6 +209,108 @@ export const updateDeductionType = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to update deduction type",
+        });
+    }
+};
+
+/**
+ * Activate a deduction type. Dedicated endpoint for clear audit trail (ACTION: ACTIVATE).
+ */
+export const activateDeductionType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.deductionType.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Deduction type not found",
+            });
+        }
+
+        if (existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Deduction type is already active",
+            });
+        }
+
+        const deductionType = await prisma.deductionType.update({
+            where: { id },
+            data: { isActive: true },
+        });
+
+        await addLog(userId, tenantId, "ACTIVATE", "DeductionType", id, { isActive: { before: false, after: true } }, req);
+        logger.info(`Deduction type ${id} activated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: deductionType,
+            message: "Deduction type activated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error activating deduction type: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to activate deduction type",
+        });
+    }
+};
+
+/**
+ * Deactivate a deduction type. Dedicated endpoint for clear audit trail (ACTION: DEACTIVATE).
+ */
+export const deactivateDeductionType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const existing = await prisma.deductionType.findFirst({
+            where: { id, tenantId, deletedAt: null },
+        });
+
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Deduction type not found",
+            });
+        }
+
+        if (!existing.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Deduction type is already inactive",
+            });
+        }
+
+        const deductionType = await prisma.deductionType.update({
+            where: { id },
+            data: { isActive: false },
+        });
+
+        await addLog(userId, tenantId, "DEACTIVATE", "DeductionType", id, { isActive: { before: true, after: false } }, req);
+        logger.info(`Deduction type ${id} deactivated by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: deductionType,
+            message: "Deduction type deactivated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deactivating deduction type: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to deactivate deduction type",
         });
     }
 };

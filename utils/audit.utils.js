@@ -1,7 +1,9 @@
 import logger from "./logger.js";
 import prisma from "../config/prisma.config.js";
+import { ActionEnum } from "@prisma/client";
 
-const VALID_ACTIONS = ["CREATE", "READ", "UPDATE", "DELETE", "OTHER"];
+/** Single source of truth: derived from ActionEnum in schema.prisma */
+const VALID_ACTIONS = Object.values(ActionEnum);
 
 export const addLog = async (
   userId,
