@@ -1,4 +1,4 @@
-import { getConditionalAmount } from "../services/rule-engine.service.js";
+import { evaluateFormula } from "../services/formula-evaluator.service.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -17,7 +17,7 @@ export const calculateAllowanceAmount = async (
     grossSalary = 0,
     tenantId = null
 ) => {
-    const { amount, calculationMethod, allowanceTypeId } = allowance;
+    const { amount, calculationMethod, allowanceTypeId, formulaExpression } = allowance;
 
     switch (calculationMethod) {
         case "FIXED":
@@ -27,31 +27,35 @@ export const calculateAllowanceAmount = async (
             // Amount represents percentage (e.g., 20 means 20% of base salary)
             return (baseSalary * amount) / 100;
 
-        case "CONDITIONAL":
-            // Use rule engine to calculate conditional amount
-            if (employeeContext && tenantId && allowanceTypeId) {
-                try {
-                    const conditionalAmount = await getConditionalAmount(
-                        "ALLOWANCE",
-                        allowanceTypeId,
-                        employeeContext,
-                        baseSalary,
-                        grossSalary || baseSalary, // Use grossSalary if available, otherwise baseSalary
-                        tenantId
-                    );
-                    // If rule engine returns 0 (no matching rules), fallback to stored amount
-                    return conditionalAmount > 0 ? conditionalAmount : amount;
-                } catch (error) {
-                    logger.error(`Error calculating conditional allowance: ${error.message}`, {
-                        error: error.stack,
-                        allowanceTypeId,
-                    });
-                    // Fallback to stored amount on error
-                    return amount;
-                }
+        case "FORMULA":
+            if (!formulaExpression || typeof formulaExpression !== "string") {
+                logger.warn("FORMULA allowance missing formulaExpression", { allowanceId: allowance.id });
+                return 0;
             }
-            // If no context provided, return stored amount (backward compatibility)
-            return amount;
+            try {
+                const result = await evaluateFormula(
+                    formulaExpression,
+                    baseSalary,
+                    grossSalary || baseSalary,
+                    employeeContext || {},
+                    {},
+                    tenantId
+                );
+                if (result.success && typeof result.result === "number") {
+                    return result.result;
+                }
+                logger.warn("Formula allowance evaluation failed", {
+                    allowanceId: allowance.id,
+                    error: result.error,
+                });
+                return 0;
+            } catch (error) {
+                logger.error(`Error evaluating allowance formula: ${error.message}`, {
+                    allowanceId: allowance.id,
+                    error: error.stack,
+                });
+                return 0;
+            }
 
         default:
             return 0;
@@ -74,7 +78,7 @@ export const calculateDeductionAmount = async (
     employeeContext = null,
     tenantId = null
 ) => {
-    const { amount, calculationMethod, deductionTypeId } = deduction;
+    const { amount, calculationMethod, deductionTypeId, formulaExpression } = deduction;
 
     switch (calculationMethod) {
         case "FIXED":
@@ -84,31 +88,35 @@ export const calculateDeductionAmount = async (
             // Amount represents percentage (e.g., 15 means 15% of gross salary)
             return (grossSalary * amount) / 100;
 
-        case "CONDITIONAL":
-            // Use rule engine to calculate conditional amount
-            if (employeeContext && tenantId && deductionTypeId) {
-                try {
-                    const conditionalAmount = await getConditionalAmount(
-                        "DEDUCTION",
-                        deductionTypeId,
-                        employeeContext,
-                        baseSalary,
-                        grossSalary,
-                        tenantId
-                    );
-                    // If rule engine returns 0 (no matching rules), fallback to stored amount
-                    return conditionalAmount > 0 ? conditionalAmount : amount;
-                } catch (error) {
-                    logger.error(`Error calculating conditional deduction: ${error.message}`, {
-                        error: error.stack,
-                        deductionTypeId,
-                    });
-                    // Fallback to stored amount on error
-                    return amount;
-                }
+        case "FORMULA":
+            if (!formulaExpression || typeof formulaExpression !== "string") {
+                logger.warn("FORMULA deduction missing formulaExpression", { deductionId: deduction.id });
+                return 0;
             }
-            // If no context provided, return stored amount (backward compatibility)
-            return amount;
+            try {
+                const result = await evaluateFormula(
+                    formulaExpression,
+                    baseSalary,
+                    grossSalary,
+                    employeeContext || {},
+                    {},
+                    tenantId
+                );
+                if (result.success && typeof result.result === "number") {
+                    return result.result;
+                }
+                logger.warn("Formula deduction evaluation failed", {
+                    deductionId: deduction.id,
+                    error: result.error,
+                });
+                return 0;
+            } catch (error) {
+                logger.error(`Error evaluating deduction formula: ${error.message}`, {
+                    deductionId: deduction.id,
+                    error: error.stack,
+                });
+                return 0;
+            }
 
         default:
             return 0;

@@ -5,6 +5,8 @@ import {
     createCalculationRule,
     updateCalculationRule,
     deleteCalculationRule,
+    activateCalculationRule,
+    deactivateCalculationRule,
     testCalculationRule,
     getRuleOperators,
     getRuleCacheStats,
@@ -34,6 +36,8 @@ router.post("/formula/test", requireRole(["HR_ADMIN", "HR_STAFF"]), testFormula)
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllCalculationRules);
 router.post("/", requireRole(["HR_ADMIN"]), createCalculationRule);
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getCalculationRuleById);
+router.put("/:id/activate", requireRole(["HR_ADMIN"]), activateCalculationRule);
+router.put("/:id/deactivate", requireRole(["HR_ADMIN"]), deactivateCalculationRule);
 router.put("/:id", requireRole(["HR_ADMIN"]), updateCalculationRule);
 router.delete("/:id", requireRole(["HR_ADMIN"]), deleteCalculationRule);
 router.post("/:id/test", requireRole(["HR_ADMIN", "HR_STAFF"]), testCalculationRule);

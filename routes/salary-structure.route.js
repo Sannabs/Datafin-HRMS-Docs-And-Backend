@@ -1,5 +1,6 @@
 import express from "express";
 import {
+    getAllSalaryStructures,
     getEmployeeSalaryStructure,
     getEmployeeSalaryStructures,
     getMySalaryStructure,
@@ -24,6 +25,7 @@ router.get("/me/salary-structure", getMySalaryStructure);
 router.get("/me/salary-structures", getMySalaryStructures);
 
 // HR view routes (HR can view any employee's salary structure)
+router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllSalaryStructures);
 router.get("/employees/:id/salary-structure", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructure);
 router.get("/employees/:id/salary-structures", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructures);
 
