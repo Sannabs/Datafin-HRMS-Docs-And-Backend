@@ -205,6 +205,7 @@ model Tenant {
   invitations        Invitation[]
   holidays           Holiday[]
   notifications      Notification[]
+  recentActivities   RecentActivity[]
   attendances        Attendance[]
   companyWorkDay     CompanyWorkDay?
   shifts             Shift[]
@@ -322,6 +323,7 @@ model User {
   auditLogs             AuditLog[]
   invitations           Invitation[]
   notifications         Notification[]
+  recentActivities      RecentActivity[]
   attendances           Attendance[]
   employeeWorkConfig    EmployeeWorkConfig?
   shiftId               String?
@@ -760,6 +762,37 @@ enum NotificationType {
   PERFORMANCE
   ACTIVITIES
   OTHER
+}
+
+// Recent activity feed (home screen, max 10 per request)
+model RecentActivity {
+  id          String              @id @default(cuid())
+  tenantId    String
+  userId      String
+  type        RecentActivityType
+  description String
+  icon        String
+  color       String
+  createdAt   DateTime            @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([createdAt(sort: Desc)])
+  @@map("recent_activity")
+}
+
+enum RecentActivityType {
+  clock_in
+  clock_out
+  approved_leave
+  rejected_leave
+  leave_submitted
+  payroll
+  attendance
+  other
 }
 
 // ------------------------------------------------------------
