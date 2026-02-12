@@ -360,6 +360,15 @@ async function seed() {
     throw new Error(`Tenant not found: ${TENANT_ID}. Create the tenant first.`);
   }
 
+  // Clear existing notifications and recent activities for this user/tenant
+  const deletedNotifications = await prisma.notification.deleteMany({
+    where: { tenantId: TENANT_ID, userId: USER_ID },
+  });
+  const deletedActivities = await prisma.recentActivity.deleteMany({
+    where: { tenantId: TENANT_ID, userId: USER_ID },
+  });
+  console.log("Cleared existing data: notifications", deletedNotifications.count, "| recent activities", deletedActivities.count);
+
   // Seed recent activities (createdAt will be now() for each, order preserved by creation order)
   const activityData = RECENT_ACTIVITIES.map((a) => ({
     tenantId: TENANT_ID,
