@@ -379,9 +379,9 @@ export const startYearEndJob = async () => {
 
                             logger.info(
                                 `[Year-End Job] Created entitlement for ${employee.name} (${employee.employeeId}): ` +
-                                    `carriedOver=${carryoverResult.carriedOverDays.toFixed(2)}, ` +
-                                    `encashed=${carryoverResult.encashedDays.toFixed(2)}, ` +
-                                    `encashmentAmount=${carryoverResult.encashmentAmount.toFixed(2)}`
+                                `carriedOver=${carryoverResult.carriedOverDays.toFixed(2)}, ` +
+                                `encashed=${carryoverResult.encashedDays.toFixed(2)}, ` +
+                                `encashmentAmount=${carryoverResult.encashmentAmount.toFixed(2)}`
                             );
                         } catch (error) {
                             totalErrors++;

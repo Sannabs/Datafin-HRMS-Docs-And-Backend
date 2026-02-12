@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node ./bin/index.js",
-    "dev": "nodemon ./bin/index.js"
+    "dev": "nodemon ./bin/index.js",
+    "seed:activities": "node ./scripts/seed-recent-activities-and-notifications.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
