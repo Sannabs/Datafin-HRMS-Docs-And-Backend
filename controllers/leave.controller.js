@@ -6,6 +6,7 @@ import { calculateWorkingDays } from "../utils/working-days.utils.js";
 import { createNotification } from "../services/notification.service.js";
 import { sendLeaveRequestToManagerEmail } from "../views/sendLeaveRequestToManagerEmail.js";
 import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConfirmationEmail.js";
+import { recordRecentActivity } from "../utils/activity.util.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -1636,6 +1637,14 @@ export const createLeaveRequest = async (req, res) => {
       })
     }
 
+    const leaveTypeName = leaveRequest.leaveType.name
+    await recordRecentActivity(
+      tenantId,
+      id,
+      "leave_submitted",
+      `${leaveTypeName} request submitted for approval`
+    )
+
     logger.info(`Leave request created successfully for employee ${id}`)
 
     res.status(201).json({
@@ -1735,6 +1744,13 @@ export const managerApproveLeaveRequest = async (req, res, next) => {
     // Audit logging
     const changes = getChangesDiff(leaveRequest, updatedRequest);
     await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    await recordRecentActivity(
+      tenantId,
+      leaveRequest.userId,
+      "approved_leave",
+      "Your leave request has been approved by your manager"
+    );
 
     logger.info(
       `Manager ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
@@ -1875,6 +1891,13 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
     // Audit logging
     const changes = getChangesDiff(leaveRequest, updatedRequest);
     await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    await recordRecentActivity(
+      tenantId,
+      leaveRequest.userId,
+      "approved_leave",
+      "Your leave request has been approved"
+    );
 
     logger.info(
       `HR ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
@@ -2030,6 +2053,13 @@ export const rejectLeaveRequest = async (req, res, next) => {
     // Audit logging
     const changes = getChangesDiff(leaveRequest, result);
     await addLog(userId, tenantId, "UPDATE", "LeaveRequest", id, changes, req);
+
+    await recordRecentActivity(
+      tenantId,
+      leaveRequest.userId,
+      "rejected_leave",
+      "Your leave request has been rejected"
+    );
 
     logger.info(
       `User ${userId} (${role}) rejected leave request ${id} for employee ${leaveRequest.user.employeeId}`

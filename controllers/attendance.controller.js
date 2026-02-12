@@ -9,6 +9,7 @@ import {
   calculateHours,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
+import { recordRecentActivity } from "../utils/activity.util.js";
 
 // Clock-In Controllers
 export const clockInGPS = async (req, res) => {
@@ -139,6 +140,9 @@ export const clockInGPS = async (req, res) => {
         clockInIpAddress,
       },
     });
+
+    const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_in", `Clocked in at ${timeStr}`);
 
     res.status(200).json({
       success: true,
@@ -274,6 +278,9 @@ export const clockInWiFi = async (req, res) => {
         clockInIpAddress,
       },
     });
+
+    const timeStrWifi = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_in", `Clocked in at ${timeStrWifi}`);
 
     res.status(200).json({
       success: true,
@@ -438,6 +445,9 @@ export const clockInQRCode = async (req, res) => {
       },
     });
 
+    const timeStrQR = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_in", `Clocked in at ${timeStrQR}`);
+
     res.status(200).json({
       success: true,
       message: `Clock in successful - ${attendanceStatus}`,
@@ -572,6 +582,9 @@ export const clockOutGPS = async (req, res) => {
       },
     });
 
+    const timeStrOut = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_out", `Clocked out at ${timeStrOut}`);
+
     res.status(200).json({
       success: true,
       message: `Clock out successful - ${updatedAttendance.status}`,
@@ -697,6 +710,9 @@ export const clockOutWiFi = async (req, res) => {
         overtimeHours,
       },
     });
+
+    const timeStrOutWifi = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_out", `Clocked out at ${timeStrOutWifi}`);
 
     res.status(200).json({
       success: true,
@@ -852,6 +868,9 @@ export const clockOutQRCode = async (req, res) => {
         overtimeHours,
       },
     });
+
+    const timeStrOutQR = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    await recordRecentActivity(tenantId, userId, "clock_out", `Clocked out at ${timeStrOutQR}`);
 
     res.status(200).json({
       success: true,
