@@ -443,6 +443,11 @@ model AllowanceType {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
+  // Default calculation when this type is added to a salary structure (enterprise UX)
+  defaultCalculationMethod CalculationMethod?
+  defaultAmount            Float?
+  defaultCalculationRuleId String?
+
   allowances       Allowance[]
   calculationRules CalculationRule[]
 
@@ -466,6 +471,7 @@ model Allowance {
   amount               Float             @default(0)
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
+  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -488,6 +494,11 @@ model DeductionType {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
+
+  // Default calculation when this type is added to a salary structure (enterprise UX)
+  defaultCalculationMethod CalculationMethod?
+  defaultAmount            Float?
+  defaultCalculationRuleId String?
 
   deductions       Deduction[]
   calculationRules CalculationRule[]
@@ -512,6 +523,7 @@ model Deduction {
   amount               Float             @default(0)
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
+  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 

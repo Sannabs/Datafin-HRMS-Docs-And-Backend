@@ -100,7 +100,7 @@ export const getDeductionTypeById = async (req, res) => {
 export const createDeductionType = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isStatutory, isActive } = req.body;
+        const { name, code, description, isStatutory, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         if (!name || !code) {
             return res.status(400).json({
@@ -118,6 +118,9 @@ export const createDeductionType = async (req, res) => {
                 description: description || null,
                 isStatutory: isStatutory !== undefined ? isStatutory : false,
                 isActive: isActive !== undefined ? isActive : true,
+                defaultCalculationMethod: defaultCalculationMethod ?? null,
+                defaultAmount: defaultAmount != null ? Number(defaultAmount) : null,
+                defaultCalculationRuleId: defaultCalculationRuleId || null,
             },
         });
 
@@ -152,7 +155,7 @@ export const updateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isStatutory, isActive } = req.body;
+        const { name, code, description, isStatutory, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         const existing = await prisma.deductionType.findFirst({
             where: {
@@ -177,6 +180,9 @@ export const updateDeductionType = async (req, res) => {
         if (description !== undefined) updateData.description = description;
         if (isStatutory !== undefined) updateData.isStatutory = isStatutory;
         if (isActive !== undefined) updateData.isActive = isActive;
+        if (defaultCalculationMethod !== undefined) updateData.defaultCalculationMethod = defaultCalculationMethod || null;
+        if (defaultAmount !== undefined) updateData.defaultAmount = defaultAmount != null ? Number(defaultAmount) : null;
+        if (defaultCalculationRuleId !== undefined) updateData.defaultCalculationRuleId = defaultCalculationRuleId || null;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({

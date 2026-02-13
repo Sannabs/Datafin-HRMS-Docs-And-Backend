@@ -29,27 +29,15 @@ const ALLOWED_FUNCTIONS = [
     "sum", "mean", "median", "std", "variance",
 ];
 
-// Override dangerous functions with throwing stubs for security
-// Note: We use import() with override instead of deleting functions directly
-// because mathjs uses lazy loading and deleting can break internal dependencies
+// Override only functions that could be invoked from user formula scope.
+// Do NOT override parse, compile, Parser, or chain - math.evaluate() uses them
+// internally to parse the formula string; disabling them breaks all formula validation.
 math.import({
     import: function () {
         throw new Error("Function import is disabled for security reasons");
     },
     createUnit: function () {
         throw new Error("Function createUnit is disabled for security reasons");
-    },
-    parse: function () {
-        throw new Error("Function parse is disabled for security reasons");
-    },
-    compile: function () {
-        throw new Error("Function compile is disabled for security reasons");
-    },
-    Parser: function () {
-        throw new Error("Function Parser is disabled for security reasons");
-    },
-    chain: function () {
-        throw new Error("Function chain is disabled for security reasons");
     },
 }, { override: true });
 

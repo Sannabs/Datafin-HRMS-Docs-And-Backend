@@ -29,8 +29,9 @@ const mapOperator = (operator) => {
         notEquals: "notEqual",
         greaterThan: "greaterThan",
         lessThan: "lessThan",
-        greaterThanOrEqual: "greaterThanOrEqual",
-        lessThanOrEqual: "lessThanOrEqual",
+        // json-rules-engine uses *Inclusive names for >= and <=
+        greaterThanOrEqual: "greaterThanInclusive",
+        lessThanOrEqual: "lessThanInclusive",
         in: "in",
         notIn: "notIn",
         contains: "contains",
@@ -45,6 +46,21 @@ const mapOperator = (operator) => {
     return operatorMap[operator] || operator;
 };
 
+const NUMERIC_OPERATORS = new Set([
+    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual",
+    "equals", "notEquals", "equal", "notEqual", "between", "notBetween"
+]);
+
+/** Coerce value to number for numeric operators when possible, so "100" from DB compares correctly with fact 50000. */
+function coerceConditionValue(operator, value) {
+    if (value === undefined || value === null) return value;
+    if (!NUMERIC_OPERATORS.has(operator)) return value;
+    if (typeof value === "number" && !Number.isNaN(value)) return value;
+    if (Array.isArray(value)) return value.map((v) => (typeof v === "string" && !Number.isNaN(Number(v)) ? Number(v) : v));
+    const n = Number(value);
+    return Number.isNaN(n) ? value : n;
+}
+
 /**
  * Convert internal condition format to json-rules-engine condition
  * @param {Object} condition - Internal condition object
@@ -52,11 +68,12 @@ const mapOperator = (operator) => {
  */
 const convertCondition = (condition) => {
     const { field, operator, value } = condition;
+    const coerced = coerceConditionValue(operator, value);
 
     return {
         fact: field,
         operator: mapOperator(operator),
-        value: value,
+        value: coerced,
     };
 };
 
@@ -382,6 +399,28 @@ export const evaluateRule = async (rule, employeeContext) => {
     } catch (error) {
         logger.error(`Error evaluating single rule: ${error.message}`);
         return false;
+    }
+};
+
+/**
+ * Evaluate a single rule for the test endpoint only. Does not filter by effectiveDate/endDate
+ * so the rule can be tested regardless of dates. Returns the matching event for amount calculation.
+ * @param {Object} rule - CalculationRule object from database
+ * @param {Object} employeeContext - Employee context data
+ * @returns {Promise<{ matched: boolean, event: Object | null }>}
+ */
+export const evaluateSingleRuleForTest = async (rule, employeeContext) => {
+    try {
+        const engine = createEngine();
+        const convertedRule = convertRule(rule);
+        engine.addRule(convertedRule);
+        const facts = { ...employeeContext };
+        const { events } = await engine.run(facts);
+        const event = events.length > 0 ? events[0] : null;
+        return { matched: !!event, event };
+    } catch (error) {
+        logger.error(`Error evaluating rule for test: ${error.message}`);
+        return { matched: false, event: null };
     }
 };
 

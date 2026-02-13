@@ -1,9 +1,9 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import {
-    evaluateRules,
     calculateRuleAmount,
     clearRuleCache,
+    evaluateSingleRuleForTest,
     getAvailableOperators,
     getCacheStats,
     validateConditionsFormat
@@ -571,6 +571,18 @@ export const testCalculationRule = async (req, res) => {
             });
         }
 
+        // Coerce numeric context fields so engine comparisons work (e.g. baseSalary > 100)
+        const numericContextFields = [
+            "baseSalary", "grossSalary", "netSalary", "totalAllowances", "totalDeductions",
+            "yearsOfService", "daysInMonth", "workingDays", "hoursWorked", "overtimeHours",
+        ];
+        for (const key of numericContextFields) {
+            if (employeeContext[key] !== undefined && employeeContext[key] !== null) {
+                const n = Number(employeeContext[key]);
+                if (!Number.isNaN(n)) employeeContext[key] = n;
+            }
+        }
+
         const rule = await prisma.calculationRule.findFirst({
             where: {
                 id,
@@ -587,16 +599,11 @@ export const testCalculationRule = async (req, res) => {
             });
         }
 
-        // Evaluate the rule
-        const typeId = rule.ruleType === "ALLOWANCE" ? rule.allowanceTypeId : rule.deductionTypeId;
-        const matchingEvents = await evaluateRules(rule.ruleType, typeId, employeeContext, tenantId);
-
-        // Check if this specific rule matched
-        const ruleEvent = matchingEvents.find(e => e.params?.ruleId === id);
-        const matches = !!ruleEvent;
+        // Evaluate this rule in isolation (no date filter) so test always runs the rule logic
+        const { matched: matches, event: ruleEvent } = await evaluateSingleRuleForTest(rule, employeeContext);
 
         let calculatedAmount = 0;
-        if (matches && ruleEvent) {
+        if (matches && ruleEvent?.params?.action) {
             calculatedAmount = await calculateRuleAmount(
                 ruleEvent.params.action,
                 employeeContext,

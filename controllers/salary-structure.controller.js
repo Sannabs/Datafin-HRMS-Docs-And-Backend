@@ -5,6 +5,37 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import { validateFormula } from "../services/formula-evaluator.service.js";
 
 /**
+ * Add computed netSalary and totalDeductions to a salary structure for API response.
+ * Does not persist; only enriches the JSON.
+ */
+async function enrichWithNetAndTotalDeductions(structure, tenantId) {
+    const { netSalary, totalDeductions } = await recalculateSalary(
+        structure.baseSalary,
+        structure.allowances || [],
+        structure.deductions || [],
+        null,
+        tenantId
+    );
+    return { ...structure, netSalary, totalDeductions };
+}
+
+/**
+ * Resolve formula from a calculation rule by id (when client sends calculationRuleId instead of formulaExpression).
+ * @returns {Promise<string|null>} Formula string or null
+ */
+async function getFormulaFromRuleId(calculationRuleId, tenantId) {
+    if (!calculationRuleId || !tenantId) return null;
+    const rule = await prisma.calculationRule.findFirst({
+        where: { id: calculationRuleId, tenantId, deletedAt: null },
+        select: { action: true },
+    });
+    if (!rule?.action || typeof rule.action !== "object") return null;
+    const { type, value } = rule.action;
+    if (type === "FORMULA" && typeof value === "string" && value.trim()) return value.trim();
+    return null;
+}
+
+/**
  * Employee self-service: Get my current (active) salary structure
  */
 export const getMySalaryStructure = async (req, res) => {
@@ -64,9 +95,10 @@ export const getMySalaryStructure = async (req, res) => {
 
         logger.info(`Employee ${userId} retrieved their salary structure`);
 
+        const data = await enrichWithNetAndTotalDeductions(salaryStructure, tenantId);
         return res.status(200).json({
             success: true,
-            data: salaryStructure,
+            data,
         });
     } catch (error) {
         logger.error(`Error fetching my salary structure: ${error.message}`, {
@@ -126,10 +158,13 @@ export const getMySalaryStructures = async (req, res) => {
 
         logger.info(`Employee ${userId} retrieved ${salaryStructures.length} salary structures`);
 
+        const data = await Promise.all(
+            salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
+        );
         return res.status(200).json({
             success: true,
-            data: salaryStructures,
-            count: salaryStructures.length,
+            data,
+            count: data.length,
         });
     } catch (error) {
         logger.error(`Error fetching my salary structures: ${error.message}`, {
@@ -216,9 +251,10 @@ export const getEmployeeSalaryStructure = async (req, res) => {
 
         logger.info(`HR retrieved salary structure for employee: ${employeeId}`);
 
+        const data = await enrichWithNetAndTotalDeductions(salaryStructure, tenantId);
         return res.status(200).json({
             success: true,
-            data: salaryStructure,
+            data,
         });
     } catch (error) {
         logger.error(`Error fetching salary structure: ${error.message}`, {
@@ -295,10 +331,13 @@ export const getAllSalaryStructures = async (req, res) => {
 
         logger.info(`Retrieved ${salaryStructures.length} salary structures for tenant ${tenantId}${employeeId ? ` (employee: ${employeeId})` : ""}`);
 
+        const data = await Promise.all(
+            salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
+        );
         return res.status(200).json({
             success: true,
-            data: salaryStructures,
-            count: salaryStructures.length,
+            data,
+            count: data.length,
         });
     } catch (error) {
         logger.error(`Error fetching all salary structures: ${error.message}`, {
@@ -368,10 +407,13 @@ export const getEmployeeSalaryStructures = async (req, res) => {
 
         logger.info(`HR retrieved ${salaryStructures.length} salary structures for employee: ${employeeId}`);
 
+        const data = await Promise.all(
+            salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
+        );
         return res.status(200).json({
             success: true,
-            data: salaryStructures,
-            count: salaryStructures.length,
+            data,
+            count: data.length,
         });
     } catch (error) {
         logger.error(`Error fetching salary structures: ${error.message}`, {
@@ -534,16 +576,20 @@ export const createSalaryStructure = async (req, res) => {
         if (allowances && allowances.length > 0) {
             for (const allowance of allowances) {
                 const method = allowance.calculationMethod || "FIXED";
+                let formulaExpression = allowance.formulaExpression?.trim() || null;
+                const calculationRuleId = allowance.calculationRuleId || null;
                 if (method === "FORMULA") {
-                    const formula = allowance.formulaExpression?.trim();
-                    if (!formula) {
+                    if (!formulaExpression && calculationRuleId) {
+                        formulaExpression = await getFormulaFromRuleId(calculationRuleId, tenantId);
+                    }
+                    if (!formulaExpression) {
                         return res.status(400).json({
                             success: false,
                             error: "Bad Request",
-                            message: "formulaExpression is required when calculationMethod is FORMULA for allowances",
+                            message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA for allowances",
                         });
                     }
-                    const validation = validateFormula(formula);
+                    const validation = validateFormula(formulaExpression);
                     if (!validation.valid) {
                         return res.status(400).json({
                             success: false,
@@ -558,7 +604,8 @@ export const createSalaryStructure = async (req, res) => {
                         allowanceTypeId: allowance.allowanceTypeId,
                         amount: method === "FORMULA" ? 0 : (allowance.amount ?? 0),
                         calculationMethod: method,
-                        formulaExpression: method === "FORMULA" ? allowance.formulaExpression?.trim() : null,
+                        formulaExpression: method === "FORMULA" ? formulaExpression : null,
+                        calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
                     },
                 });
             }
@@ -567,16 +614,20 @@ export const createSalaryStructure = async (req, res) => {
         if (deductions && deductions.length > 0) {
             for (const deduction of deductions) {
                 const method = deduction.calculationMethod || "FIXED";
+                let formulaExpression = deduction.formulaExpression?.trim() || null;
+                const calculationRuleId = deduction.calculationRuleId || null;
                 if (method === "FORMULA") {
-                    const formula = deduction.formulaExpression?.trim();
-                    if (!formula) {
+                    if (!formulaExpression && calculationRuleId) {
+                        formulaExpression = await getFormulaFromRuleId(calculationRuleId, tenantId);
+                    }
+                    if (!formulaExpression) {
                         return res.status(400).json({
                             success: false,
                             error: "Bad Request",
-                            message: "formulaExpression is required when calculationMethod is FORMULA for deductions",
+                            message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA for deductions",
                         });
                     }
-                    const validation = validateFormula(formula);
+                    const validation = validateFormula(formulaExpression);
                     if (!validation.valid) {
                         return res.status(400).json({
                             success: false,
@@ -591,7 +642,8 @@ export const createSalaryStructure = async (req, res) => {
                         deductionTypeId: deduction.deductionTypeId,
                         amount: method === "FORMULA" ? 0 : (deduction.amount ?? 0),
                         calculationMethod: method,
-                        formulaExpression: method === "FORMULA" ? deduction.formulaExpression?.trim() : null,
+                        formulaExpression: method === "FORMULA" ? formulaExpression : null,
+                        calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
                     },
                 });
             }
@@ -615,7 +667,7 @@ export const createSalaryStructure = async (req, res) => {
 
         // Recalculate with all allowances and deductions now that they're saved
         // This ensures gross salary accounts for all percentage-based calculations
-        const { grossSalary: finalGross, netSalary } = await recalculateSalary(
+        const { grossSalary: finalGross, netSalary, totalDeductions } = await recalculateSalary(
             updatedStructure.baseSalary,
             updatedStructure.allowances,
             updatedStructure.deductions,
@@ -674,9 +726,10 @@ export const createSalaryStructure = async (req, res) => {
         };
         await addLog(userId, tenantId, "CREATE", "SalaryStructure", finalStructure.id, changes, req);
 
+        const data = { ...finalStructure, netSalary, totalDeductions };
         return res.status(201).json({
             success: true,
-            data: finalStructure,
+            data,
             message: "Salary structure created successfully",
         });
     } catch (error) {
@@ -794,9 +847,10 @@ export const updateSalaryStructure = async (req, res) => {
         const changes = getChangesDiff(salaryStructure, updated);
         await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
+        const data = await enrichWithNetAndTotalDeductions(updated, tenantId);
         return res.status(200).json({
             success: true,
-            data: updated,
+            data,
             message: "Salary structure updated successfully",
         });
     } catch (error) {
@@ -867,7 +921,7 @@ export const addAllowanceToStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { allowanceTypeId, amount, calculationMethod, formulaExpression } = req.body;
+        const { allowanceTypeId, amount, calculationMethod, formulaExpression, calculationRuleId } = req.body;
 
         const method = calculationMethod || "FIXED";
         if (!allowanceTypeId) {
@@ -884,16 +938,19 @@ export const addAllowanceToStructure = async (req, res) => {
                 message: "Amount is required when calculation method is not FORMULA",
             });
         }
+        let resolvedFormula = formulaExpression?.trim() || null;
         if (method === "FORMULA") {
-            const formula = formulaExpression?.trim();
-            if (!formula) {
+            if (!resolvedFormula && calculationRuleId) {
+                resolvedFormula = await getFormulaFromRuleId(calculationRuleId, tenantId);
+            }
+            if (!resolvedFormula) {
                 return res.status(400).json({
                     success: false,
                     error: "Bad Request",
-                    message: "formulaExpression is required when calculationMethod is FORMULA",
+                    message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA",
                 });
             }
-            const validation = validateFormula(formula);
+            const validation = validateFormula(resolvedFormula);
             if (!validation.valid) {
                 return res.status(400).json({
                     success: false,
@@ -972,7 +1029,8 @@ export const addAllowanceToStructure = async (req, res) => {
                 allowanceTypeId,
                 amount: method === "FORMULA" ? 0 : (amount ?? 0),
                 calculationMethod: method,
-                formulaExpression: method === "FORMULA" ? formulaExpression?.trim() : null,
+                formulaExpression: method === "FORMULA" ? resolvedFormula : null,
+                calculationRuleId: method === "FORMULA" ? (calculationRuleId || null) : null,
             },
             include: {
                 allowanceType: {
@@ -1153,7 +1211,7 @@ export const addDeductionToStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { deductionTypeId, amount, calculationMethod, formulaExpression } = req.body;
+        const { deductionTypeId, amount, calculationMethod, formulaExpression, calculationRuleId } = req.body;
 
         const method = calculationMethod || "FIXED";
         if (!deductionTypeId) {
@@ -1170,16 +1228,19 @@ export const addDeductionToStructure = async (req, res) => {
                 message: "Amount is required when calculation method is not FORMULA",
             });
         }
+        let resolvedFormula = formulaExpression?.trim() || null;
         if (method === "FORMULA") {
-            const formula = formulaExpression?.trim();
-            if (!formula) {
+            if (!resolvedFormula && calculationRuleId) {
+                resolvedFormula = await getFormulaFromRuleId(calculationRuleId, tenantId);
+            }
+            if (!resolvedFormula) {
                 return res.status(400).json({
                     success: false,
                     error: "Bad Request",
-                    message: "formulaExpression is required when calculationMethod is FORMULA",
+                    message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA",
                 });
             }
-            const validation = validateFormula(formula);
+            const validation = validateFormula(resolvedFormula);
             if (!validation.valid) {
                 return res.status(400).json({
                     success: false,
@@ -1258,7 +1319,8 @@ export const addDeductionToStructure = async (req, res) => {
                 deductionTypeId,
                 amount: method === "FORMULA" ? 0 : (amount ?? 0),
                 calculationMethod: method,
-                formulaExpression: method === "FORMULA" ? formulaExpression?.trim() : null,
+                formulaExpression: method === "FORMULA" ? resolvedFormula : null,
+                calculationRuleId: method === "FORMULA" ? (calculationRuleId || null) : null,
             },
             include: {
                 deductionType: {

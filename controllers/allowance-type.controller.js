@@ -100,7 +100,7 @@ export const getAllowanceTypeById = async (req, res) => {
 export const createAllowanceType = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isTaxable, isActive } = req.body;
+        const { name, code, description, isTaxable, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         if (!name || !code) {
             return res.status(400).json({
@@ -133,6 +133,9 @@ export const createAllowanceType = async (req, res) => {
                     description: description ?? softDeleted.description,
                     isTaxable: isTaxable !== undefined ? isTaxable : true,
                     isActive: isActive !== undefined ? isActive : true,
+                    defaultCalculationMethod: defaultCalculationMethod ?? null,
+                    defaultAmount: defaultAmount != null ? Number(defaultAmount) : null,
+                    defaultCalculationRuleId: defaultCalculationRuleId || null,
                 },
             });
             logger.info(`Restored allowance type with ID: ${allowanceType.id} (was soft-deleted)`);
@@ -145,6 +148,9 @@ export const createAllowanceType = async (req, res) => {
                     description: description || null,
                     isTaxable: isTaxable !== undefined ? isTaxable : true,
                     isActive: isActive !== undefined ? isActive : true,
+                    defaultCalculationMethod: defaultCalculationMethod ?? null,
+                    defaultAmount: defaultAmount != null ? Number(defaultAmount) : null,
+                    defaultCalculationRuleId: defaultCalculationRuleId || null,
                 },
             });
             logger.info(`Created allowance type with ID: ${allowanceType.id}`);
@@ -179,7 +185,7 @@ export const updateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { name, code, description, isTaxable, isActive } = req.body;
+        const { name, code, description, isTaxable, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         const existing = await prisma.allowanceType.findFirst({
             where: {
@@ -204,6 +210,9 @@ export const updateAllowanceType = async (req, res) => {
         if (description !== undefined) updateData.description = description;
         if (isTaxable !== undefined) updateData.isTaxable = isTaxable;
         if (isActive !== undefined) updateData.isActive = isActive;
+        if (defaultCalculationMethod !== undefined) updateData.defaultCalculationMethod = defaultCalculationMethod || null;
+        if (defaultAmount !== undefined) updateData.defaultAmount = defaultAmount != null ? Number(defaultAmount) : null;
+        if (defaultCalculationRuleId !== undefined) updateData.defaultCalculationRuleId = defaultCalculationRuleId || null;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
