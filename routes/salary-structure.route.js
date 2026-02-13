@@ -7,6 +7,8 @@ import {
     getMySalaryStructures,
     createSalaryStructure,
     updateSalaryStructure,
+    deactivateSalaryStructure,
+    activateSalaryStructure,
     deleteSalaryStructure,
     addAllowanceToStructure,
     removeAllowanceFromStructure,
@@ -32,6 +34,9 @@ router.get("/employees/:id/salary-structures", requireRole(["HR_ADMIN", "HR_STAF
 // HR Admin only - modify salary structures
 router.post("/employees/:id/salary-structure", requireRole(["HR_ADMIN"]), createSalaryStructure);
 router.put("/salary-structures/:id", requireRole(["HR_ADMIN"]), updateSalaryStructure);
+router.put("/salary-structures/:id/deactivate", requireRole(["HR_ADMIN"]), deactivateSalaryStructure);
+router.put("/salary-structures/:id/activate", requireRole(["HR_ADMIN"]), activateSalaryStructure);
+// Hard delete: HR_ADMIN only (super admin for payroll). Audit logged before delete.
 router.delete("/salary-structures/:id", requireRole(["HR_ADMIN"]), deleteSalaryStructure);
 router.post("/salary-structures/:id/allowances", requireRole(["HR_ADMIN"]), addAllowanceToStructure);
 router.delete("/salary-structures/:id/allowances/:allowanceId", requireRole(["HR_ADMIN"]), removeAllowanceFromStructure);

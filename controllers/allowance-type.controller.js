@@ -351,21 +351,25 @@ export const deactivateAllowanceType = async (req, res) => {
     }
 };
 
+/**
+ * Permanently delete an allowance type (admin cleanup).
+ * Restricted to HR_ADMIN. Only allowed when allowance type is inactive.
+ * Must not be used in any salary structure.
+ * Audit log is written BEFORE the delete for enterprise compliance.
+ */
 export const deleteAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
 
         const allowanceType = await prisma.allowanceType.findFirst({
-            where: {
-                id,
-                tenantId,
-                deletedAt: null,
+            where: { id, tenantId, deletedAt: null },
+            include: {
+                _count: { select: { allowances: true } },
             },
         });
 
         if (!allowanceType) {
-            logger.warn(`Allowance type not found for deletion with ID: ${id}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -373,66 +377,45 @@ export const deleteAllowanceType = async (req, res) => {
             });
         }
 
-        // Prevent deletion if allowance type is used in active salary structures
-        // Active structure = no endDate (currently in use)
-        const activeUsage = await prisma.allowance.findFirst({
-            where: {
-                allowanceTypeId: id,
-                salaryStructure: {
-                    endDate: null,
-                },
-            },
-            include: {
-                salaryStructure: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                name: true,
-                                employeeId: true,
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        if (activeUsage) {
-            logger.warn(`Cannot delete allowance type ${id} - in use by active salary structure`);
+        if (allowanceType.isActive) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "Cannot delete allowance type. It is currently used in active salary structures.",
-                data: {
-                    usedBy: {
-                        employeeId: activeUsage.salaryStructure.user.employeeId,
-                        employeeName: activeUsage.salaryStructure.user.name,
-                    },
-                },
+                message: "Cannot delete an active allowance type. Deactivate it first, then delete.",
             });
         }
 
-        const deleted = await prisma.allowanceType.update({
-            where: { id },
-            data: {
-                deletedAt: new Date(),
-            },
-        });
+        if (allowanceType._count.allowances > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Cannot delete. This allowance type is still used in salary structures. Remove it from all structures first.",
+            });
+        }
 
-        logger.info(`Soft deleted allowance type with ID: ${id}`);
-        const changes = getChangesDiff(allowanceType, deleted);
-        await addLog(userId, tenantId, "DELETE", "AllowanceType", id, changes, req);
+        // Audit log BEFORE delete (enterprise requirement)
+        const auditPayload = {
+            deleted: true,
+            deletedAt: new Date().toISOString(),
+            allowanceTypeSummary: {
+                id,
+                name: allowanceType.name,
+                code: allowanceType.code,
+            },
+        };
+        await addLog(userId, tenantId, "DELETE", "AllowanceType", id, auditPayload, req);
+
+        await prisma.allowanceType.delete({ where: { id } });
+
+        logger.info(`Permanently deleted allowance type with ID: ${id} by user ${userId}`);
 
         return res.status(200).json({
             success: true,
-            data: deleted,
-            message: "Allowance type deleted successfully",
+            data: { id },
+            message: "Allowance type permanently deleted",
         });
     } catch (error) {
-        logger.error(`Error deleting allowance type: ${error.message}`, {
-            error: error.stack,
-        });
-
+        logger.error(`Error deleting allowance type: ${error.message}`, { error: error.stack });
         return res.status(500).json({
             success: false,
             error: "Internal Server Error",

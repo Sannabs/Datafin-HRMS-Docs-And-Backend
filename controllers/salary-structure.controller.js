@@ -489,22 +489,47 @@ export const createSalaryStructure = async (req, res) => {
             });
         }
 
+        // Business rule: Only one active salary structure per employee
+        // If creating a new active structure (no end date or end date in future),
+        // first auto-end any currently active structure so the overlap check passes
+        if (!end || end >= today) {
+            const activeStructure = await prisma.salaryStructure.findFirst({
+                where: {
+                    userId: employeeId,
+                    tenantId,
+                    effectiveDate: { lte: today },
+                    OR: [
+                        { endDate: null },
+                        { endDate: { gte: today } },
+                    ],
+                },
+            });
+
+            if (activeStructure) {
+                const dayBeforeEffective = new Date(effective);
+                dayBeforeEffective.setDate(dayBeforeEffective.getDate() - 1);
+                dayBeforeEffective.setHours(23, 59, 59, 999);
+                await prisma.salaryStructure.update({
+                    where: { id: activeStructure.id },
+                    data: {
+                        endDate: dayBeforeEffective,
+                    },
+                });
+            }
+        }
+
         // Business rule: Prevent overlapping salary structure periods
         // Check if new structure dates overlap with any existing structure
         const overlapping = await prisma.salaryStructure.findFirst({
             where: {
                 userId: employeeId,
                 tenantId,
+                effectiveDate: {
+                    lte: end ? end : new Date("2099-12-31"),
+                },
                 OR: [
-                    {
-                        effectiveDate: {
-                            lte: end || new Date("2099-12-31"),
-                        },
-                        OR: [
-                            { endDate: null },
-                            { endDate: { gte: effective } },
-                        ],
-                    },
+                    { endDate: null },
+                    { endDate: { gte: effective } },
                 ],
             },
         });
@@ -522,33 +547,6 @@ export const createSalaryStructure = async (req, res) => {
                     },
                 },
             });
-        }
-
-        // Business rule: Only one active salary structure per employee
-        // If creating a new active structure (no end date or end date in future),
-        // automatically end the previous active structure
-        if (!end || end >= today) {
-            const activeStructure = await prisma.salaryStructure.findFirst({
-                where: {
-                    userId: employeeId,
-                    tenantId,
-                    effectiveDate: { lte: today },
-                    OR: [
-                        { endDate: null },
-                        { endDate: { gte: today } },
-                    ],
-                },
-            });
-
-            if (activeStructure) {
-                // Set end date to day before new structure starts to prevent gaps
-                await prisma.salaryStructure.update({
-                    where: { id: activeStructure.id },
-                    data: {
-                        endDate: new Date(effective.getTime() - 1),
-                    },
-                });
-            }
         }
 
         // Calculate initial gross salary (without deductions for now)
@@ -749,7 +747,7 @@ export const updateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { baseSalary, effectiveDate, endDate, currency } = req.body;
+        const { baseSalary, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -784,7 +782,9 @@ export const updateSalaryStructure = async (req, res) => {
         if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
         if (currency !== undefined) updateData.currency = currency;
 
-        if (Object.keys(updateData).length === 0) {
+        const hasAllowances = Array.isArray(allowances);
+        const hasDeductions = Array.isArray(deductions);
+        if (Object.keys(updateData).length === 0 && !hasAllowances && !hasDeductions) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
@@ -792,28 +792,142 @@ export const updateSalaryStructure = async (req, res) => {
             });
         }
 
-        // Recalculate gross salary if base salary changed
-        // Base salary change affects percentage-based allowances
-        if (baseSalary !== undefined) {
-            const { grossSalary } = await recalculateSalary(
-                baseSalary,
-                salaryStructure.allowances,
-                salaryStructure.deductions,
-                employeeContext,
-                tenantId
-            );
-            updateData.grossSalary = grossSalary;
+        // Apply base structure update first
+        const baseToUse = baseSalary !== undefined ? baseSalary : salaryStructure.baseSalary;
+        if (Object.keys(updateData).length > 0) {
+            await prisma.salaryStructure.update({
+                where: { id },
+                data: updateData,
+            });
         }
+
+        // Replace allowances if provided (full replace: delete existing, create new)
+        if (hasAllowances) {
+            await prisma.allowance.deleteMany({ where: { salaryStructureId: id } });
+            for (const allowance of allowances) {
+                const method = allowance.calculationMethod || "FIXED";
+                let formulaExpression = allowance.formulaExpression?.trim() || null;
+                const calculationRuleId = allowance.calculationRuleId || null;
+                if (method === "FORMULA") {
+                    if (!formulaExpression && calculationRuleId) {
+                        formulaExpression = await getFormulaFromRuleId(calculationRuleId, tenantId);
+                    }
+                    if (!formulaExpression) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA for allowances",
+                        });
+                    }
+                    const validation = validateFormula(formulaExpression);
+                    if (!validation.valid) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: `Invalid allowance formula: ${validation.error}`,
+                        });
+                    }
+                }
+                await prisma.allowance.create({
+                    data: {
+                        salaryStructureId: id,
+                        allowanceTypeId: allowance.allowanceTypeId,
+                        amount: method === "FORMULA" ? 0 : (allowance.amount ?? 0),
+                        calculationMethod: method,
+                        formulaExpression: method === "FORMULA" ? formulaExpression : null,
+                        calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
+                    },
+                });
+            }
+        }
+
+        // Replace deductions if provided (full replace: delete existing, create new)
+        if (hasDeductions) {
+            await prisma.deduction.deleteMany({ where: { salaryStructureId: id } });
+            for (const deduction of deductions) {
+                const method = deduction.calculationMethod || "FIXED";
+                let formulaExpression = deduction.formulaExpression?.trim() || null;
+                const calculationRuleId = deduction.calculationRuleId || null;
+                if (method === "FORMULA") {
+                    if (!formulaExpression && calculationRuleId) {
+                        formulaExpression = await getFormulaFromRuleId(calculationRuleId, tenantId);
+                    }
+                    if (!formulaExpression) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: "formulaExpression or calculationRuleId is required when calculationMethod is FORMULA for deductions",
+                        });
+                    }
+                    const validation = validateFormula(formulaExpression);
+                    if (!validation.valid) {
+                        return res.status(400).json({
+                            success: false,
+                            error: "Bad Request",
+                            message: `Invalid deduction formula: ${validation.error}`,
+                        });
+                    }
+                }
+                await prisma.deduction.create({
+                    data: {
+                        salaryStructureId: id,
+                        deductionTypeId: deduction.deductionTypeId,
+                        amount: method === "FORMULA" ? 0 : (deduction.amount ?? 0),
+                        calculationMethod: method,
+                        formulaExpression: method === "FORMULA" ? formulaExpression : null,
+                        calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
+                    },
+                });
+            }
+        }
+
+        // Fetch current state and recalculate gross salary
+        const currentStructure = await prisma.salaryStructure.findFirst({
+            where: { id, tenantId },
+            include: {
+                allowances: { include: { allowanceType: true } },
+                deductions: { include: { deductionType: true } },
+            },
+        });
+        if (!currentStructure) {
+            return res.status(404).json({ success: false, error: "Not Found", message: "Salary structure not found" });
+        }
+
+        const employee = await prisma.user.findFirst({
+            where: { id: salaryStructure.userId, tenantId, isDeleted: false },
+            select: { departmentId: true, positionId: true, employmentType: true, status: true, hireDate: true },
+        });
+        const employeeContext = employee
+            ? {
+                departmentId: employee.departmentId,
+                positionId: employee.positionId,
+                employmentType: employee.employmentType,
+                baseSalary: Number(baseToUse),
+                status: employee.status,
+                hireDate: employee.hireDate,
+            }
+            : null;
+
+        const { grossSalary } = await recalculateSalary(
+            currentStructure.baseSalary,
+            currentStructure.allowances,
+            currentStructure.deductions,
+            employeeContext,
+            tenantId
+        );
 
         const updated = await prisma.salaryStructure.update({
             where: { id },
-            data: updateData,
+            data: { grossSalary },
             include: {
                 user: {
                     select: {
                         id: true,
                         name: true,
                         employeeId: true,
+                        email: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
                     },
                 },
                 allowances: {
@@ -866,15 +980,41 @@ export const updateSalaryStructure = async (req, res) => {
     }
 };
 
-export const deleteSalaryStructure = async (req, res) => {
+/**
+ * Deactivate a salary structure (soft end). Sets endDate to yesterday so it no longer overlaps.
+ */
+export const deactivateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
-            where: {
-                id,
-                tenantId,
+            where: { id, tenantId },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
+                    },
+                },
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: { id: true, name: true, code: true, isTaxable: true },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: { id: true, name: true, code: true, isStatutory: true },
+                        },
+                    },
+                },
             },
         });
 
@@ -886,29 +1026,273 @@ export const deleteSalaryStructure = async (req, res) => {
             });
         }
 
-        // Soft delete: Set endDate to today to deactivate the structure
-        // Preserves historical data for audit and payroll processing
-        const deleted = await prisma.salaryStructure.update({
+        const today = new Date();
+        const isActive = !salaryStructure.endDate || new Date(salaryStructure.endDate) >= today;
+        if (!isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Salary structure is already inactive",
+            });
+        }
+
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        yesterday.setHours(23, 59, 59, 999);
+        const updated = await prisma.salaryStructure.update({
             where: { id },
-            data: {
-                endDate: new Date(),
+            data: { endDate: yesterday },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
+                    },
+                },
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: { id: true, name: true, code: true, isTaxable: true },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: { id: true, name: true, code: true, isStatutory: true },
+                        },
+                    },
+                },
             },
         });
 
-        logger.info(`Soft deleted salary structure with ID: ${id}`);
-        const changes = getChangesDiff(salaryStructure, deleted);
-        await addLog(userId, tenantId, "DELETE", "SalaryStructure", id, changes, req);
+        const enriched = await enrichWithNetAndTotalDeductions(updated, tenantId);
+        logger.info(`Deactivated salary structure with ID: ${id}`);
+        const changes = getChangesDiff(salaryStructure, updated);
+        await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
         return res.status(200).json({
             success: true,
-            data: deleted,
-            message: "Salary structure deleted successfully",
+            data: enriched,
+            message: "Salary structure ended successfully",
         });
     } catch (error) {
-        logger.error(`Error deleting salary structure: ${error.message}`, {
-            error: error.stack,
+        logger.error(`Error deactivating salary structure: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to end salary structure",
+        });
+    }
+};
+
+/**
+ * Activate a salary structure (reopen). Sets endDate to null. Fails if dates would overlap with another structure.
+ */
+export const activateSalaryStructure = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const salaryStructure = await prisma.salaryStructure.findFirst({
+            where: { id, tenantId },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
+                    },
+                },
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: { id: true, name: true, code: true, isTaxable: true },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: { id: true, name: true, code: true, isStatutory: true },
+                        },
+                    },
+                },
+            },
         });
 
+        if (!salaryStructure) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Salary structure not found",
+            });
+        }
+
+        const today = new Date();
+        const isActive = !salaryStructure.endDate || new Date(salaryStructure.endDate) >= today;
+        if (isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Salary structure is already active",
+            });
+        }
+
+        const effective = new Date(salaryStructure.effectiveDate);
+        // Check overlap with other structures (excluding this one)
+        const overlapping = await prisma.salaryStructure.findFirst({
+            where: {
+                userId: salaryStructure.userId,
+                tenantId,
+                id: { not: id },
+                effectiveDate: { lte: new Date("2099-12-31") },
+                OR: [
+                    { endDate: null },
+                    { endDate: { gte: effective } },
+                ],
+            },
+        });
+
+        if (overlapping) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Reactivating would overlap with existing structure",
+                data: {
+                    conflictingStructure: {
+                        id: overlapping.id,
+                        effectiveDate: overlapping.effectiveDate,
+                        endDate: overlapping.endDate,
+                    },
+                },
+            });
+        }
+
+        const updated = await prisma.salaryStructure.update({
+            where: { id },
+            data: { endDate: null },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
+                    },
+                },
+                allowances: {
+                    include: {
+                        allowanceType: {
+                            select: { id: true, name: true, code: true, isTaxable: true },
+                        },
+                    },
+                },
+                deductions: {
+                    include: {
+                        deductionType: {
+                            select: { id: true, name: true, code: true, isStatutory: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        const enriched = await enrichWithNetAndTotalDeductions(updated, tenantId);
+        logger.info(`Activated salary structure with ID: ${id}`);
+        const changes = getChangesDiff(salaryStructure, updated);
+        await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
+
+        return res.status(200).json({
+            success: true,
+            data: enriched,
+            message: "Salary structure reactivated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error activating salary structure: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to reactivate salary structure",
+        });
+    }
+};
+
+/**
+ * Permanently delete a salary structure (admin cleanup).
+ * Restricted to HR_ADMIN. Only allowed when structure is inactive.
+ * Audit log is written BEFORE the delete for enterprise compliance.
+ */
+export const deleteSalaryStructure = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const salaryStructure = await prisma.salaryStructure.findFirst({
+            where: { id, tenantId },
+            include: {
+                user: { select: { name: true, employeeId: true, email: true } },
+                allowances: { select: { id: true } },
+                deductions: { select: { id: true } },
+            },
+        });
+
+        if (!salaryStructure) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Salary structure not found",
+            });
+        }
+
+        const today = new Date();
+        const isActive = !salaryStructure.endDate || new Date(salaryStructure.endDate) >= today;
+        if (isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Cannot delete an active salary structure. Deactivate it first, then delete.",
+            });
+        }
+
+        // Audit log BEFORE delete (enterprise requirement: log before destructive action)
+        const auditPayload = {
+            deleted: true,
+            deletedAt: new Date().toISOString(),
+            structureSummary: {
+                id,
+                userId: salaryStructure.userId,
+                employeeName: salaryStructure.user?.name,
+                employeeId: salaryStructure.user?.employeeId,
+                baseSalary: salaryStructure.baseSalary,
+                effectiveDate: salaryStructure.effectiveDate,
+                endDate: salaryStructure.endDate,
+                allowanceCount: salaryStructure.allowances?.length ?? 0,
+                deductionCount: salaryStructure.deductions?.length ?? 0,
+            },
+        };
+        await addLog(userId, tenantId, "DELETE", "SalaryStructure", id, auditPayload, req);
+
+        await prisma.salaryStructure.delete({ where: { id } });
+
+        logger.info(`Permanently deleted salary structure with ID: ${id} by user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: { id },
+            message: "Salary structure permanently deleted",
+        });
+    } catch (error) {
+        logger.error(`Error deleting salary structure: ${error.message}`, { error: error.stack });
         return res.status(500).json({
             success: false,
             error: "Internal Server Error",
