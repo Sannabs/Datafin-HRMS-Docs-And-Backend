@@ -146,9 +146,11 @@ export const getPayPeriods = async (req, res) => {
                     },
                 },
             },
-            orderBy: {
-                startDate: "desc",
-            },
+            orderBy: [
+                { calendarYear: "asc" },
+                { calendarMonth: "asc" },
+                { startDate: "asc" },
+            ],
         });
 
         const formatted = payPeriods.map(formatPayPeriodResponse);
