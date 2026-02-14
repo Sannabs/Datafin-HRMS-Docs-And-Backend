@@ -85,6 +85,13 @@ enum RuleType {
   DEDUCTION
 }
 
+enum PayScheduleFrequency {
+  SEMI_MONTHLY
+  BI_WEEKLY
+  MONTHLY
+  WEEKLY
+}
+
 enum PayPeriodStatus {
   DRAFT
   PROCESSING
@@ -201,6 +208,7 @@ model Tenant {
   allowanceTypes     AllowanceType[]
   deductionTypes     DeductionType[]
   payPeriods         PayPeriod[]
+  paySchedules       PaySchedule[]
   payrollRuns        PayrollRun[]
   calculationRules   CalculationRule[]
   auditLogs          AuditLog[]
@@ -577,12 +585,34 @@ model CalculationRule {
   @@index([deductionTypeId])
 }
 
+model PaySchedule {
+  id        String               @id @default(uuid())
+  tenantId  String
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  frequency PayScheduleFrequency
+  config    Json?                // e.g. { "dates": [1, 15] } for semi-monthly, { "anchorDate": "2025-01-03" } for bi-weekly
+  isActive  Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  deletedAt DateTime?
+
+  payPeriods PayPeriod[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
 model PayPeriod {
   id String @id @default(uuid())
 
   // Tenant relation
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Optional: which schedule generated this period
+  payScheduleId String?
+  paySchedule   PaySchedule? @relation(fields: [payScheduleId], references: [id], onDelete: SetNull)
 
   periodName      String
   startDate       DateTime
@@ -597,8 +627,8 @@ model PayPeriod {
   payrollRuns PayrollRun[]
 
   @@unique([tenantId, periodName])
-  @@unique([tenantId, calendarYear, calendarMonth])
   @@index([tenantId])
+  @@index([payScheduleId])
 }
 
 model PayrollRun {
