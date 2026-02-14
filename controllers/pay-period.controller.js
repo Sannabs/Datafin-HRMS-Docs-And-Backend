@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import {
     getCalendarMetadata,
+    formatPeriodNameFromDates,
     validateStatusTransition,
     getAvailableTransitions,
     getStateMeta,
@@ -38,13 +39,13 @@ const formatPayPeriodResponse = (payPeriod) => {
 export const createPayPeriod = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { periodName, startDate, endDate } = req.body;
+        const { periodName: periodNameRaw, startDate, endDate } = req.body;
 
-        if (!periodName || !startDate || !endDate) {
+        if (!startDate || !endDate) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "periodName, startDate, and endDate are required",
+                message: "startDate and endDate are required",
             });
         }
 
@@ -66,6 +67,11 @@ export const createPayPeriod = async (req, res) => {
                 message: "startDate must be earlier than endDate",
             });
         }
+
+        const periodName =
+            periodNameRaw != null && String(periodNameRaw).trim() !== ""
+                ? String(periodNameRaw).trim()
+                : formatPeriodNameFromDates(start, end);
 
         const overlap = await prisma.payPeriod.findFirst({
             where: {
@@ -306,6 +312,7 @@ export const updatePayPeriod = async (req, res) => {
             }
             updates.startDate = start;
             updates.endDate = end;
+            updates.periodName = formatPeriodNameFromDates(start, end);
             const { calendarMonth, calendarYear } = getCalendarMetadata(start);
             updates.calendarMonth = calendarMonth;
             updates.calendarYear = calendarYear;
