@@ -644,6 +644,7 @@ model PayrollRun {
   runDate         DateTime         @default(now())
   totalEmployees  Int              @default(0)
   totalGrossPay   Float            @default(0)
+  totalAllowances Float            @default(0)
   totalDeductions Float            @default(0)
   totalNetPay     Float            @default(0)
   status          PayrollRunStatus @default(DRAFT)
@@ -690,6 +691,9 @@ model Payslip {
   // Warning flags (for review by HR)
   hasWarnings Boolean @default(false)
   warnings    Json? // Stores warning details (e.g., negative net salary)
+
+  // Snapshot of allowance/deduction breakdown at calculation time (so later config changes don't change past payslips)
+  breakdownSnapshot Json? // { baseSalary, currency, allowances: [{ name, amount, calculationMethod, description }], deductions: [...] }
 
   // Application logic enforces one payslip per employee per run
   @@index([payrollRunId])

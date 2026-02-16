@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "PayrollRun" ADD COLUMN "totalAllowances" DOUBLE PRECISION NOT NULL DEFAULT 0;

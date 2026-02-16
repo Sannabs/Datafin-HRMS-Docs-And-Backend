@@ -225,21 +225,26 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
             position = pos?.title || "";
         }
 
-        // Get itemized breakdown with calculated amounts (percentage/formula resolved)
-        const breakdown = await getPayslipBreakdown(
-            payslip.userId,
-            tenantId,
-            payslip.payrollRun.payPeriod.startDate,
-            payslip.payrollRun.payPeriod.endDate
-        );
+        // Use snapshot if present so later config changes don't change this payslip's PDF; else recompute
+        let breakdown;
+        if (payslip.breakdownSnapshot != null) {
+            breakdown = payslip.breakdownSnapshot;
+        } else {
+            breakdown = await getPayslipBreakdown(
+                payslip.userId,
+                tenantId,
+                payslip.payrollRun.payPeriod.startDate,
+                payslip.payrollRun.payPeriod.endDate
+            );
+        }
 
-        const allowances = breakdown.allowances.map((a) => ({
+        const allowances = (breakdown.allowances || []).map((a) => ({
             name: a.name,
             amount: a.amount,
             description: a.description,
         }));
 
-        const deductions = breakdown.deductions.map((d) => ({
+        const deductions = (breakdown.deductions || []).map((d) => ({
             name: d.name,
             amount: d.amount,
             description: d.description,

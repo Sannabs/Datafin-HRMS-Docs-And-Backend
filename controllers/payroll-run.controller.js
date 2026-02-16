@@ -127,6 +127,7 @@ export const createPayrollRun = async (req, res) => {
                         id: true,
                         name: true,
                         email: true,
+                        role: true,
                     },
                 },
             },
@@ -462,6 +463,7 @@ export const updatePayrollRun = async (req, res) => {
                         id: true,
                         name: true,
                         email: true,
+                        role: true,
                     },
                 },
             },
@@ -516,6 +518,7 @@ export const getPayrollRuns = async (req, res) => {
                         id: true,
                         name: true,
                         email: true,
+                        role: true,
                     },
                 },
                 _count: {
@@ -578,6 +581,7 @@ export const exportPayrollRuns = async (req, res) => {
                 processor: {
                     select: {
                         name: true,
+                        role: true,
                     },
                 },
             },
@@ -667,6 +671,7 @@ export const getPayrollRunById = async (req, res) => {
                         id: true,
                         name: true,
                         email: true,
+                        role: true,
                     },
                 },
                 payslips: {

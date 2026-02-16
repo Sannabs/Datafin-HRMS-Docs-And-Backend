@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { getPayslipUrl, getPayslipBuffer } from "../services/file-storage.service.js";
+import { generatePayslipFromRecord } from "../services/payslip-generator.service.js";
 import { addLog } from "../utils/audit.utils.js";
 import { getPayslipBreakdown, formatCurrency } from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
@@ -250,12 +251,15 @@ export const getPayslipsByPayrollRun = async (req, res) => {
                 };
 
                 if (includeBreakdown === "true") {
-                    result.breakdown = await getPayslipBreakdown(
-                        payslip.userId,
-                        tenantId,
-                        payrollRun.payPeriod.startDate,
-                        payrollRun.payPeriod.endDate
-                    );
+                    result.breakdown =
+                        payslip.breakdownSnapshot != null
+                            ? payslip.breakdownSnapshot
+                            : await getPayslipBreakdown(
+                                payslip.userId,
+                                tenantId,
+                                payrollRun.payPeriod.startDate,
+                                payrollRun.payPeriod.endDate
+                            );
                 }
 
                 return result;
@@ -667,12 +671,16 @@ export const getPayslipById = async (req, res) => {
 
         let breakdown = null;
         if (includeBreakdown !== "false") {
-            breakdown = await getPayslipBreakdown(
-                payslip.userId,
-                tenantId,
-                payslip.payrollRun.payPeriod.startDate,
-                payslip.payrollRun.payPeriod.endDate
-            );
+            if (payslip.breakdownSnapshot != null) {
+                breakdown = payslip.breakdownSnapshot;
+            } else {
+                breakdown = await getPayslipBreakdown(
+                    payslip.userId,
+                    tenantId,
+                    payslip.payrollRun.payPeriod.startDate,
+                    payslip.payrollRun.payPeriod.endDate
+                );
+            }
         }
 
         // Log audit
@@ -753,11 +761,21 @@ export const downloadPayslip = async (req, res) => {
         }
 
         if (!payslip.filePath) {
-            return res.status(404).json({
-                success: false,
-                error: "Not Found",
-                message: "Payslip PDF not generated yet",
-            });
+            try {
+                const uploadResult = await generatePayslipFromRecord(id, tenantId);
+                payslip.filePath = uploadResult.public_id;
+            } catch (genErr) {
+                logger.error(`Error generating payslip PDF on download: ${genErr.message}`, {
+                    error: genErr.stack,
+                    payslipId: id,
+                    tenantId,
+                });
+                return res.status(500).json({
+                    success: false,
+                    error: "Internal Server Error",
+                    message: "Failed to generate PDF for this payslip",
+                });
+            }
         }
 
         // Log audit for download
@@ -876,12 +894,15 @@ export const getEmployeePayslips = async (req, res) => {
                 };
 
                 if (includeBreakdown === "true") {
-                    result.breakdown = await getPayslipBreakdown(
-                        payslip.userId,
-                        tenantId,
-                        payslip.payrollRun.payPeriod.startDate,
-                        payslip.payrollRun.payPeriod.endDate
-                    );
+                    result.breakdown =
+                        payslip.breakdownSnapshot != null
+                            ? payslip.breakdownSnapshot
+                            : await getPayslipBreakdown(
+                                payslip.userId,
+                                tenantId,
+                                payslip.payrollRun.payPeriod.startDate,
+                                payslip.payrollRun.payPeriod.endDate
+                            );
                 }
 
                 return result;
@@ -1059,13 +1080,16 @@ export const distributePayslips = async (req, res) => {
                     continue;
                 }
 
-                // Get salary structure for currency
-                const breakdown = await getPayslipBreakdown(
-                    payslip.userId,
-                    tenantId,
-                    payrollRun.payPeriod.startDate,
-                    payrollRun.payPeriod.endDate
-                );
+                // Use snapshot for currency when available so past payslips are consistent
+                const breakdown =
+                    payslip.breakdownSnapshot != null
+                        ? payslip.breakdownSnapshot
+                        : await getPayslipBreakdown(
+                            payslip.userId,
+                            tenantId,
+                            payrollRun.payPeriod.startDate,
+                            payrollRun.payPeriod.endDate
+                        );
 
                 // Prepare email data
                 const emailData = {
