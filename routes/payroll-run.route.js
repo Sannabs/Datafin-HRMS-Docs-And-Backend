@@ -1,9 +1,12 @@
 import express from "express";
 import {
     createPayrollRun,
+    updatePayrollRun,
+    deletePayrollRun,
     startPayrollRun,
     getPayrollRuns,
     getPayrollRunById,
+    exportPayrollRuns,
     processSingleEmployee,
     getPayrollRunStatus,
     getPayrollRunStatusStream,
@@ -22,11 +25,14 @@ router.use(requireAuth);
 
 // Payroll run CRUD and processing
 router.post("/", requireRole(["HR_ADMIN"]), createPayrollRun);
+router.patch("/:id", requireRole(["HR_ADMIN"]), updatePayrollRun);
+router.delete("/:id", requireRole(["HR_ADMIN"]), deletePayrollRun);
 router.post("/preview", requireRole(["HR_ADMIN"]), previewPayrollRun);
 router.post("/:id/start", requireRole(["HR_ADMIN"]), startPayrollRun);
 router.post("/:id/process-employee", requireRole(["HR_ADMIN"]), processSingleEmployee);
 router.post("/:id/retry", requireRole(["HR_ADMIN"]), retryPayrollJob);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRuns);
+router.get("/export", requireRole(["HR_ADMIN", "HR_STAFF"]), exportPayrollRuns);
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunById);
 router.get("/:id/status", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatus);
 router.get("/:id/status/stream", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatusStream);

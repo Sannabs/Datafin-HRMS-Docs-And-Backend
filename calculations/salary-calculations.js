@@ -245,3 +245,80 @@ export const recalculateSalary = async (
         },
     };
 };
+
+/**
+ * Build itemized allowance and deduction lines with calculated amounts (for payslip breakdown and PDF).
+ * Uses the same calculation logic as payroll (FIXED, PERCENTAGE, FORMULA).
+ * @param {number} baseSalary - Base salary
+ * @param {Array} allowances - Allowance rows with allowanceType: { name }, amount, calculationMethod, formulaExpression
+ * @param {Array} deductions - Deduction rows with deductionType: { name }, amount, calculationMethod, formulaExpression
+ * @param {Object} [employeeContext] - Employee context for formula evaluation
+ * @param {string} [tenantId] - Tenant ID
+ * @returns {Promise<Object>} { grossSalary, netSalary, totalDeductions, allowanceLines: [{ name, amount, calculationMethod, description }], deductionLines: [{ name, amount, calculationMethod, description }] }
+ */
+export const getSalaryBreakdownItemized = async (
+    baseSalary,
+    allowances = [],
+    deductions = [],
+    employeeContext = null,
+    tenantId = null
+) => {
+    const allowanceLines = [];
+    let totalAllowances = 0;
+    let currentGross = baseSalary;
+
+    for (const allowance of allowances) {
+        const amount = await calculateAllowanceAmount(
+            allowance,
+            baseSalary,
+            employeeContext,
+            currentGross,
+            tenantId
+        );
+        totalAllowances += amount;
+        currentGross = baseSalary + totalAllowances;
+        const name = allowance.allowanceType?.name ?? "Allowance";
+        const method = allowance.calculationMethod ?? "FIXED";
+        let description = "";
+        if (method === "PERCENTAGE" && typeof allowance.amount === "number") {
+            description = `${allowance.amount}% of base`;
+        } else if (method === "FORMULA") {
+            description = "Formula";
+        }
+        allowanceLines.push({ name, amount, calculationMethod: method, description });
+    }
+
+    const grossSalary = baseSalary + totalAllowances;
+    const deductionLines = [];
+    let totalDeductions = 0;
+
+    for (const deduction of deductions) {
+        const amount = await calculateDeductionAmount(
+            deduction,
+            grossSalary,
+            baseSalary,
+            employeeContext,
+            tenantId
+        );
+        totalDeductions += amount;
+        const name = deduction.deductionType?.name ?? "Deduction";
+        const method = deduction.calculationMethod ?? "FIXED";
+        let description = "";
+        if (method === "PERCENTAGE" && typeof deduction.amount === "number") {
+            description = `${deduction.amount}% of gross`;
+        } else if (method === "FORMULA") {
+            description = "Formula";
+        }
+        deductionLines.push({ name, amount, calculationMethod: method, description });
+    }
+
+    const netSalary = Math.max(0, grossSalary - totalDeductions);
+
+    return {
+        grossSalary,
+        netSalary,
+        totalDeductions,
+        allowanceLines,
+        deductionLines,
+    };
+};

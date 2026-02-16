@@ -139,13 +139,6 @@ enum HolidayType {
   OPTIONAL // Optional holiday (employee choice)
 }
 
-enum AdjustmentType {
-  CORRECTION // Fix calculation error
-  SUPPLEMENT // Additional payment (bonus, arrears)
-  REVERSAL // Reverse/cancel previous payslip
-  AMENDMENT // Mid-period salary change
-}
-
 enum AccrualMethod {
   FRONT_LOADED // All days available at year start
   ACCRUAL // Days accrue over time
@@ -645,6 +638,9 @@ model PayrollRun {
   // Custom unique identifier (e.g., "PR-2025-001")
   runCode String?
 
+  // Optional: when set, only these employees are processed when run is started (User ids)
+  selectedEmployeeIds Json?
+
   runDate         DateTime         @default(now())
   totalEmployees  Int              @default(0)
   totalGrossPay   Float            @default(0)
@@ -695,27 +691,10 @@ model Payslip {
   hasWarnings Boolean @default(false)
   warnings    Json? // Stores warning details (e.g., negative net salary)
 
-  // Adjustment tracking
-  isAdjustment      Boolean         @default(false)
-  adjustmentType    AdjustmentType?
-  adjustmentReason  String?
-  originalPayslipId String?
-  originalPayslip   Payslip?        @relation("PayslipAdjustments", fields: [originalPayslipId], references: [id], onDelete: SetNull)
-  adjustments       Payslip[]       @relation("PayslipAdjustments")
-
-  // Snapshot of original values (for audit trail)
-  previousGrossSalary     Float?
-  previousNetSalary       Float?
-  previousTotalAllowances Float?
-  previousTotalDeductions Float?
-
-  // Note: Removed unique constraint on [payrollRunId, userId] to allow adjustments
-  // Application logic enforces one original payslip per employee per run
+  // Application logic enforces one payslip per employee per run
   @@index([payrollRunId])
   @@index([userId])
   @@index([payrollRunId, userId])
-  @@index([isAdjustment])
-  @@index([originalPayslipId])
 }
 
 model PayrollProgress {

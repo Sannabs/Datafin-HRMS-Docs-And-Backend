@@ -200,12 +200,11 @@ export const createOrUpdatePayslip = async (payrollRunId, employeeId, payslipDat
     try {
         const { includeUser = false } = options;
 
-        // Check for existing payslip (non-adjustment)
+        // Check for existing payslip
         const existingPayslip = await prisma.payslip.findFirst({
             where: {
                 payrollRunId,
                 userId: employeeId,
-                isAdjustment: false,
             },
         });
 

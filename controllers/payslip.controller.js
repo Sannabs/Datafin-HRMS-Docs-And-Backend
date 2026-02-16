@@ -363,10 +363,13 @@ export const bulkDownloadPayslips = async (req, res) => {
             });
         }
 
-        // Set response headers for ZIP download
-        const zipFilename = `payslips-${payrollRun.payPeriod.periodName.replace(/\s+/g, "-")}.zip`;
+        // Set response headers for ZIP download (filename must be ASCII, no quotes/newlines)
+        const safePeriodName = (payrollRun.payPeriod.periodName || "run")
+            .replace(/[\s"\\\r\n]+/g, "-")
+            .replace(/[^\w\-.]/g, "");
+        const zipFilename = `payslips-${safePeriodName || "run"}.zip`;
         res.setHeader("Content-Type", "application/zip");
-        res.setHeader("Content-Disposition", `attachment; filename="${zipFilename}"`);
+        res.setHeader("Content-Disposition", `attachment; filename=${zipFilename}`);
 
         // Create archive
         const archive = archiver("zip", {
@@ -762,14 +765,14 @@ export const downloadPayslip = async (req, res) => {
             employeeId: payslip.user.employeeId,
         }, req);
 
-        // Generate secure URL and redirect
-        const downloadUrl = getPayslipUrl(payslip.filePath, 3600); // 1 hour expiration
-
-        logger.info(`Generated download URL for payslip ${id}`);
-
-        return res.redirect(downloadUrl);
+        // Stream PDF from R2 through backend (same as bulk download) so browser never hits R2 directly
+        const pdfBuffer = await getPayslipBuffer(payslip.filePath);
+        const safeName = `payslip-${payslip.user.employeeId || id.slice(0, 8)}.pdf`;
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+        return res.send(pdfBuffer);
     } catch (error) {
-        logger.error(`Error generating payslip download URL: ${error.message}`, {
+        logger.error(`Error downloading payslip: ${error.message}`, {
             error: error.stack,
             payslipId: req.params.id,
             tenantId: req.user?.tenantId,
@@ -921,7 +924,7 @@ export const distributePayslips = async (req, res) => {
     try {
         const { runId } = req.params;
         const { tenantId, id: userId } = req.user;
-        const { employeeIds, includeLink = true } = req.body;
+        const { employeeIds } = req.body;
 
         // Verify payroll run exists and belongs to tenant
         const payrollRun = await prisma.payrollRun.findFirst({
@@ -1006,10 +1009,7 @@ export const distributePayslips = async (req, res) => {
             details: [],
         };
 
-        // Portal URL for viewing payslips
-        const portalUrl = process.env.FRONTEND_URL || "https://hrms.datafin.info";
-
-        // Send emails to each employee
+        // Send emails to each employee (with payslip PDF attached)
         for (const payslip of payslips) {
             try {
                 // Skip if no email
@@ -1021,6 +1021,41 @@ export const distributePayslips = async (req, res) => {
                         status: "skipped",
                         reason: "No email address",
                     });
+                    continue;
+                }
+
+                // Skip if no PDF generated yet
+                if (!payslip.filePath) {
+                    results.skipped++;
+                    results.details.push({
+                        employeeId: payslip.user.employeeId,
+                        name: payslip.user.name,
+                        status: "skipped",
+                        reason: "No payslip PDF available",
+                    });
+                    continue;
+                }
+
+                // Get PDF buffer for attachment
+                let attachments = [];
+                try {
+                    const pdfBuffer = await getPayslipBuffer(payslip.filePath);
+                    const safePeriodName = (payrollRun.payPeriod.periodName || "payslip")
+                        .replace(/[\s"\\\r\n]+/g, "-")
+                        .replace(/[^\w\-.]/g, "") || "payslip";
+                    attachments = [
+                        { filename: `Payslip-${safePeriodName}.pdf`, content: pdfBuffer },
+                    ];
+                } catch (bufferError) {
+                    results.failed++;
+                    results.details.push({
+                        employeeId: payslip.user.employeeId,
+                        name: payslip.user.name,
+                        email: payslip.user.email,
+                        status: "failed",
+                        reason: bufferError.message || "Could not load payslip PDF",
+                    });
+                    logger.warn(`Could not load PDF for payslip ${payslip.id}: ${bufferError.message}`);
                     continue;
                 }
 
@@ -1044,7 +1079,6 @@ export const distributePayslips = async (req, res) => {
                     grossSalary: formatCurrency(payslip.grossSalary, breakdown.currency),
                     totalDeductions: formatCurrency(payslip.totalDeductions, breakdown.currency),
                     netSalary: formatCurrency(payslip.netSalary, breakdown.currency),
-                    portalUrl: includeLink ? `${portalUrl}/payslips` : "#",
                     companyName: tenant?.name || "Your Company",
                 };
 
@@ -1052,12 +1086,13 @@ export const distributePayslips = async (req, res) => {
                 const html = await renderEmailTemplate("payslip-distribution", emailData);
                 const text = htmlToText(html);
 
-                // Send email
+                // Send email with payslip PDF attached
                 await sendEmail({
                     to: payslip.user.email,
                     subject: `Your Payslip for ${payrollRun.payPeriod.periodName} is Ready`,
                     html,
                     text,
+                    attachments,
                 });
 
                 results.sent++;
@@ -1269,408 +1304,6 @@ export const getDistributionReport = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch distribution report",
-        });
-    }
-};
-
-/**
- * Create an adjustment payslip for corrections
- */
-export const createAdjustmentPayslip = async (req, res) => {
-    try {
-        const { id: originalPayslipId } = req.params;
-        const { tenantId, id: userId } = req.user;
-        const {
-            adjustmentType,
-            adjustmentReason,
-            grossSalary,
-            totalAllowances,
-            totalDeductions,
-            netSalary,
-        } = req.body;
-
-        // Validate adjustment type
-        const validTypes = ["CORRECTION", "SUPPLEMENT", "REVERSAL", "AMENDMENT"];
-        if (!adjustmentType || !validTypes.includes(adjustmentType)) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: `adjustmentType is required and must be one of: ${validTypes.join(", ")}`,
-            });
-        }
-
-        // Validate reason
-        if (!adjustmentReason || adjustmentReason.trim().length === 0) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "adjustmentReason is required",
-            });
-        }
-
-        // Get the original payslip
-        const originalPayslip = await prisma.payslip.findFirst({
-            where: {
-                id: originalPayslipId,
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        employeeId: true,
-                        tenantId: true,
-                    },
-                },
-                payrollRun: {
-                    include: {
-                        payPeriod: {
-                            select: {
-                                id: true,
-                                periodName: true,
-                                status: true,
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        if (!originalPayslip) {
-            return res.status(404).json({
-                success: false,
-                error: "Not Found",
-                message: "Original payslip not found",
-            });
-        }
-
-        // Check tenant access
-        if (originalPayslip.user.tenantId !== tenantId) {
-            return res.status(403).json({
-                success: false,
-                error: "Forbidden",
-                message: "Access denied",
-            });
-        }
-
-        // Check if pay period is closed (can still create adjustments for closed periods)
-        // But warn if it's closed
-        const isClosedPeriod = originalPayslip.payrollRun.payPeriod.status === "CLOSED";
-
-        // Determine new values
-        // For REVERSAL, we negate the original values
-        let newGrossSalary, newTotalAllowances, newTotalDeductions, newNetSalary;
-
-        if (adjustmentType === "REVERSAL") {
-            // Reversal creates a negative adjustment to cancel out the original
-            newGrossSalary = -originalPayslip.grossSalary;
-            newTotalAllowances = -originalPayslip.totalAllowances;
-            newTotalDeductions = -originalPayslip.totalDeductions;
-            newNetSalary = -originalPayslip.netSalary;
-        } else {
-            // For other types, use provided values or calculate difference
-            newGrossSalary = grossSalary !== undefined ? grossSalary : originalPayslip.grossSalary;
-            newTotalAllowances = totalAllowances !== undefined ? totalAllowances : originalPayslip.totalAllowances;
-            newTotalDeductions = totalDeductions !== undefined ? totalDeductions : originalPayslip.totalDeductions;
-            newNetSalary = netSalary !== undefined ? netSalary : (newGrossSalary - newTotalDeductions);
-        }
-
-        // Create the adjustment payslip
-        const adjustmentPayslip = await prisma.payslip.create({
-            data: {
-                payrollRunId: originalPayslip.payrollRunId,
-                userId: originalPayslip.userId,
-                grossSalary: newGrossSalary,
-                totalAllowances: newTotalAllowances,
-                totalDeductions: newTotalDeductions,
-                netSalary: newNetSalary,
-                isAdjustment: true,
-                adjustmentType,
-                adjustmentReason,
-                originalPayslipId,
-                // Store previous values for audit trail
-                previousGrossSalary: originalPayslip.grossSalary,
-                previousNetSalary: originalPayslip.netSalary,
-                previousTotalAllowances: originalPayslip.totalAllowances,
-                previousTotalDeductions: originalPayslip.totalDeductions,
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        employeeId: true,
-                    },
-                },
-                payrollRun: {
-                    include: {
-                        payPeriod: {
-                            select: {
-                                id: true,
-                                periodName: true,
-                            },
-                        },
-                    },
-                },
-                originalPayslip: {
-                    select: {
-                        id: true,
-                        grossSalary: true,
-                        netSalary: true,
-                        totalAllowances: true,
-                        totalDeductions: true,
-                        generatedAt: true,
-                    },
-                },
-            },
-        });
-
-        // Update payroll run totals using shared function
-        const totals = await calculatePayrollRunTotals(originalPayslip.payrollRunId);
-        await prisma.payrollRun.update({
-            where: { id: originalPayslip.payrollRunId },
-            data: {
-                totalEmployees: totals.totalEmployees,
-                totalGrossPay: totals.totalGrossPay,
-                totalDeductions: totals.totalDeductions,
-                totalNetPay: totals.totalNetPay,
-            },
-        });
-
-        // Calculate differences for response
-        const differences = {
-            grossSalary: newGrossSalary - originalPayslip.grossSalary,
-            netSalary: newNetSalary - originalPayslip.netSalary,
-            totalAllowances: newTotalAllowances - originalPayslip.totalAllowances,
-            totalDeductions: newTotalDeductions - originalPayslip.totalDeductions,
-        };
-
-        // Log audit
-        await addLog(userId, tenantId, "CREATE", "Payslip", adjustmentPayslip.id, {
-            action: "create_adjustment",
-            adjustmentType,
-            adjustmentReason,
-            originalPayslipId,
-            differences,
-            isClosedPeriod,
-        }, req);
-
-        logger.info(`Created adjustment payslip ${adjustmentPayslip.id} for original ${originalPayslipId}`, {
-            adjustmentType,
-            employeeId: originalPayslip.user.employeeId,
-        });
-
-        return res.status(201).json({
-            success: true,
-            message: `Adjustment payslip created successfully${isClosedPeriod ? " (Note: Pay period is closed)" : ""}`,
-            data: {
-                ...adjustmentPayslip,
-                differences,
-                comparison: {
-                    before: {
-                        grossSalary: originalPayslip.grossSalary,
-                        netSalary: originalPayslip.netSalary,
-                        totalAllowances: originalPayslip.totalAllowances,
-                        totalDeductions: originalPayslip.totalDeductions,
-                    },
-                    after: {
-                        grossSalary: newGrossSalary,
-                        netSalary: newNetSalary,
-                        totalAllowances: newTotalAllowances,
-                        totalDeductions: newTotalDeductions,
-                    },
-                },
-            },
-        });
-    } catch (error) {
-        logger.error(`Error creating adjustment payslip: ${error.message}`, {
-            error: error.stack,
-            originalPayslipId: req.params.id,
-            tenantId: req.user?.tenantId,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: "Internal Server Error",
-            message: "Failed to create adjustment payslip",
-        });
-    }
-};
-
-/**
- * Get adjustment history for a payslip
- */
-export const getPayslipAdjustments = async (req, res) => {
-    try {
-        const { id: payslipId } = req.params;
-        const { tenantId, id: userId, role } = req.user;
-
-        // Get the payslip (could be original or adjustment)
-        const payslip = await prisma.payslip.findFirst({
-            where: {
-                id: payslipId,
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        employeeId: true,
-                        tenantId: true,
-                    },
-                },
-            },
-        });
-
-        if (!payslip) {
-            return res.status(404).json({
-                success: false,
-                error: "Not Found",
-                message: "Payslip not found",
-            });
-        }
-
-        // Check tenant access
-        if (payslip.user.tenantId !== tenantId) {
-            return res.status(403).json({
-                success: false,
-                error: "Forbidden",
-                message: "Access denied",
-            });
-        }
-
-        // Check if staff or department admin can only see their own payslips
-        if ((role === "STAFF" || role === "DEPARTMENT_ADMIN") && payslip.userId !== userId) {
-            return res.status(403).json({
-                success: false,
-                error: "Forbidden",
-                message: "You can only access your own payslips",
-            });
-        }
-
-        // Find the original payslip ID
-        let originalId = payslipId;
-        if (payslip.isAdjustment && payslip.originalPayslipId) {
-            originalId = payslip.originalPayslipId;
-        }
-
-        // Get the original payslip
-        const originalPayslip = await prisma.payslip.findUnique({
-            where: { id: originalId },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        employeeId: true,
-                    },
-                },
-                payrollRun: {
-                    include: {
-                        payPeriod: {
-                            select: {
-                                id: true,
-                                periodName: true,
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        // Get all adjustments for this original payslip
-        const adjustments = await prisma.payslip.findMany({
-            where: {
-                originalPayslipId: originalId,
-                isAdjustment: true,
-            },
-            orderBy: {
-                createdAt: "asc",
-            },
-        });
-
-        // Calculate cumulative totals
-        let cumulativeGross = originalPayslip.grossSalary;
-        let cumulativeNet = originalPayslip.netSalary;
-        let cumulativeAllowances = originalPayslip.totalAllowances;
-        let cumulativeDeductions = originalPayslip.totalDeductions;
-
-        const adjustmentHistory = adjustments.map((adj) => {
-            const diffGross = adj.grossSalary - (adj.previousGrossSalary || 0);
-            const diffNet = adj.netSalary - (adj.previousNetSalary || 0);
-
-            // For corrections/amendments, add the difference
-            // For reversals, the values are already negative
-            if (adj.adjustmentType !== "REVERSAL") {
-                cumulativeGross += diffGross;
-                cumulativeNet += diffNet;
-                cumulativeAllowances += (adj.totalAllowances - (adj.previousTotalAllowances || 0));
-                cumulativeDeductions += (adj.totalDeductions - (adj.previousTotalDeductions || 0));
-            } else {
-                cumulativeGross += adj.grossSalary;
-                cumulativeNet += adj.netSalary;
-            }
-
-            return {
-                id: adj.id,
-                adjustmentType: adj.adjustmentType,
-                adjustmentReason: adj.adjustmentReason,
-                createdAt: adj.createdAt,
-                before: {
-                    grossSalary: adj.previousGrossSalary,
-                    netSalary: adj.previousNetSalary,
-                    totalAllowances: adj.previousTotalAllowances,
-                    totalDeductions: adj.previousTotalDeductions,
-                },
-                after: {
-                    grossSalary: adj.grossSalary,
-                    netSalary: adj.netSalary,
-                    totalAllowances: adj.totalAllowances,
-                    totalDeductions: adj.totalDeductions,
-                },
-                difference: {
-                    grossSalary: adj.grossSalary - (adj.previousGrossSalary || 0),
-                    netSalary: adj.netSalary - (adj.previousNetSalary || 0),
-                },
-            };
-        });
-
-        logger.info(`Retrieved adjustment history for payslip ${payslipId}`);
-
-        return res.status(200).json({
-            success: true,
-            data: {
-                original: {
-                    id: originalPayslip.id,
-                    grossSalary: originalPayslip.grossSalary,
-                    netSalary: originalPayslip.netSalary,
-                    totalAllowances: originalPayslip.totalAllowances,
-                    totalDeductions: originalPayslip.totalDeductions,
-                    generatedAt: originalPayslip.generatedAt,
-                    employee: originalPayslip.user,
-                    payPeriod: originalPayslip.payrollRun.payPeriod,
-                },
-                adjustments: adjustmentHistory,
-                adjustmentCount: adjustments.length,
-                currentTotals: {
-                    grossSalary: cumulativeGross,
-                    netSalary: cumulativeNet,
-                    totalAllowances: cumulativeAllowances,
-                    totalDeductions: cumulativeDeductions,
-                },
-            },
-        });
-    } catch (error) {
-        logger.error(`Error fetching payslip adjustments: ${error.message}`, {
-            error: error.stack,
-            payslipId: req.params.id,
-            tenantId: req.user?.tenantId,
-        });
-
-        return res.status(500).json({
-            success: false,
-            error: "Internal Server Error",
-            message: "Failed to fetch payslip adjustments",
         });
     }
 };

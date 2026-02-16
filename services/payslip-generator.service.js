@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import logger from "../utils/logger.js";
 import { uploadPayslip } from "./file-storage.service.js";
 import prisma from "../config/prisma.config.js";
+import { getPayslipBreakdown } from "../utils/payslip.utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,10 +32,14 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
             }).format(amount || 0);
         };
 
-        // Prepare template data
+        // Prepare template data (use passed company name so PDF shows actual company)
+        const companyName =
+            payslipData.companyName != null && String(payslipData.companyName).trim() !== ""
+                ? String(payslipData.companyName).trim()
+                : "Company Name";
         const templateData = {
-            companyName: payslipData.companyName || "Company Name",
-            companyAddress: payslipData.companyAddress || "",
+            companyName,
+            companyAddress: payslipData.companyAddress != null ? String(payslipData.companyAddress) : "",
             employeeId: payslipData.employeeId || "",
             employeeName: payslipData.employeeName || "",
             department: payslipData.department || "",
@@ -50,14 +55,18 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
             generatedAt: new Date().toLocaleString(),
         };
 
-        // Generate allowances HTML
+        // Generate allowances HTML (with optional description e.g. "10% of base")
+        const cellWithDesc = (name, desc) =>
+            desc
+                ? `<td>${name}<br><span style="font-size:0.8em;color:#666">${desc}</span></td>`
+                : `<td>${name}</td>`;
         let allowancesHTML = "";
         if (payslipData.allowances && payslipData.allowances.length > 0) {
             allowancesHTML = payslipData.allowances
                 .map(
                     (allowance) => `
                 <tr>
-                    <td>${allowance.name || allowance.type || "Allowance"}</td>
+                    ${cellWithDesc(allowance.name || allowance.type || "Allowance", allowance.description)}
                     <td class="amount">${formatCurrency(allowance.amount || 0)}</td>
                 </tr>
             `
@@ -67,14 +76,14 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
             allowancesHTML = '<tr><td colspan="2" style="text-align: center; color: #999;">No allowances</td></tr>';
         }
 
-        // Generate deductions HTML
+        // Generate deductions HTML (with optional description)
         let deductionsHTML = "";
         if (payslipData.deductions && payslipData.deductions.length > 0) {
             deductionsHTML = payslipData.deductions
                 .map(
                     (deduction) => `
                 <tr>
-                    <td>${deduction.name || deduction.type || "Deduction"}</td>
+                    ${cellWithDesc(deduction.name || deduction.type || "Deduction", deduction.description)}
                     <td class="amount">${formatCurrency(deduction.amount || 0)}</td>
                 </tr>
             `
@@ -183,6 +192,9 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
                                 calendarMonth: true,
                             },
                         },
+                        tenant: {
+                            select: { name: true, address: true },
+                        },
                     },
                 },
             },
@@ -191,6 +203,9 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
         if (!payslip) {
             throw new Error(`Payslip ${payslipId} not found`);
         }
+
+        // Tenant (company) for PDF header – loaded via payrollRun.tenant so we always have the correct company
+        const tenant = payslip.payrollRun?.tenant ?? null;
 
         // Get department and position names if available
         let department = "";
@@ -210,56 +225,35 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
             position = pos?.title || "";
         }
 
-        // Get allowances and deductions from salary structure
-        const salaryStructure = await prisma.salaryStructure.findFirst({
-            where: {
-                userId: payslip.userId,
-                tenantId,
-                effectiveDate: { lte: payslip.payrollRun.payPeriod.endDate },
-                OR: [
-                    { endDate: null },
-                    { endDate: { gte: payslip.payrollRun.payPeriod.startDate } },
-                ],
-            },
-            include: {
-                allowances: {
-                    include: {
-                        allowanceType: {
-                            select: {
-                                name: true,
-                            },
-                        },
-                    },
-                },
-                deductions: {
-                    include: {
-                        deductionType: {
-                            select: {
-                                name: true,
-                            },
-                        },
-                    },
-                },
-            },
-            orderBy: {
-                effectiveDate: "desc",
-            },
-        });
+        // Get itemized breakdown with calculated amounts (percentage/formula resolved)
+        const breakdown = await getPayslipBreakdown(
+            payslip.userId,
+            tenantId,
+            payslip.payrollRun.payPeriod.startDate,
+            payslip.payrollRun.payPeriod.endDate
+        );
 
-        const allowances =
-            salaryStructure?.allowances.map((a) => ({
-                name: a.allowanceType.name,
-                amount: a.amount,
-            })) || [];
+        const allowances = breakdown.allowances.map((a) => ({
+            name: a.name,
+            amount: a.amount,
+            description: a.description,
+        }));
 
-        const deductions =
-            salaryStructure?.deductions.map((d) => ({
-                name: d.deductionType.name,
-                amount: d.amount,
-            })) || [];
+        const deductions = breakdown.deductions.map((d) => ({
+            name: d.name,
+            amount: d.amount,
+            description: d.description,
+        }));
 
-        // Prepare payslip data
+        // Prepare payslip data – use tenant name from DB so PDF shows actual company (never fallback unless missing)
+        const rawCompanyName = tenant?.name;
+        const companyName =
+            typeof rawCompanyName === "string" && rawCompanyName.trim() !== ""
+                ? rawCompanyName.trim()
+                : "Company Name";
         const payslipData = {
+            companyName,
+            companyAddress: (tenant?.address && String(tenant.address).trim()) || "",
             employeeId: payslip.user.employeeId || "",
             employeeName: payslip.user.name || "",
             department,
@@ -268,14 +262,14 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
             startDate: payslip.payrollRun.payPeriod.startDate.toLocaleDateString(),
             endDate: payslip.payrollRun.payPeriod.endDate.toLocaleDateString(),
             paymentDate: new Date().toLocaleDateString(),
-            baseSalary: salaryStructure?.baseSalary || 0,
+            baseSalary: breakdown.baseSalary,
             grossSalary: payslip.grossSalary,
             totalDeductions: payslip.totalDeductions,
             netSalary: payslip.netSalary,
             allowances,
             deductions,
             payPeriodId: payslip.payrollRun.payPeriod.id,
-            currency: salaryStructure?.currency || "USD",
+            currency: breakdown.currency,
         };
 
         // Generate PDF

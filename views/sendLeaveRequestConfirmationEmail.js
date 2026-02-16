@@ -27,7 +27,7 @@ export const sendLeaveRequestConfirmationEmail = async ({
         
         <p>Your leave request has been submitted successfully and is now pending approval.</p>
         
-        <div style="background-color: #ffffff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
+        <div style="background-color: #ffffff; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <p style="margin: 5px 0;"><strong>Leave Type:</strong> ${leaveTypeName}</p>
           <p style="margin: 5px 0;"><strong>Duration:</strong> ${totalDays.toFixed(1)} day(s)</p>
           <p style="margin: 5px 0;"><strong>Start Date:</strong> ${formattedStartDate}</p>

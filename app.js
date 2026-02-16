@@ -90,18 +90,6 @@ app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
 
-// Bull Board Dashboard (only if BullMQ is enabled)
-if (ENABLE_BULLMQ) {
-  import("./config/bull-board.config.js")
-    .then(({ getBullBoardRouter }) => {
-      app.use("/admin/queues", getBullBoardRouter());
-      logger.info("Bull Board dashboard mounted at /admin/queues");
-    })
-    .catch((error) => {
-      logger.warn(`Failed to mount Bull Board dashboard: ${error.message}`);
-    });
-}
-
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({

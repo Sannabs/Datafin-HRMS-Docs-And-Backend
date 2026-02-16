@@ -94,7 +94,7 @@ export const createPayrollRun = async (req, res) => {
             }
         }
 
-        // Create payroll run
+        // Create payroll run (totalEmployees = count that will be processed when run is started)
         const payrollRun = await prisma.payrollRun.create({
             data: {
                 tenantId,
@@ -102,16 +102,39 @@ export const createPayrollRun = async (req, res) => {
                 runCode,
                 processedBy: userId,
                 status: "DRAFT",
-                totalEmployees: 0,
+                totalEmployees: employeesToProcess.length,
+                selectedEmployeeIds: employeesToProcess,
             },
         });
 
         logger.info(`Created payroll run ${payrollRun.id} for pay period ${payPeriodId}`);
         await addLog(userId, tenantId, "CREATE", "PayrollRun", payrollRun.id, null, req);
 
+        // Re-fetch with relations so list shows processor name and period dates immediately
+        const payrollRunWithRelations = await prisma.payrollRun.findUnique({
+            where: { id: payrollRun.id },
+            include: {
+                payPeriod: {
+                    select: {
+                        id: true,
+                        periodName: true,
+                        startDate: true,
+                        endDate: true,
+                    },
+                },
+                processor: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
         return res.status(201).json({
             success: true,
-            data: payrollRun,
+            data: payrollRunWithRelations ?? payrollRun,
             message: "Payroll run created successfully",
         });
     } catch (error) {
@@ -188,8 +211,15 @@ export const startPayrollRun = async (req, res) => {
             });
         }
 
-        // Get all active employees for this tenant
-        const employeeIds = await getActiveEmployeesForPayroll(tenantId);
+        // Use stored selected employees if set, otherwise all active employees for tenant
+        let employeeIds = null;
+        const rawSelected = payrollRun.selectedEmployeeIds;
+        if (rawSelected && Array.isArray(rawSelected) && rawSelected.length > 0) {
+            employeeIds = await getActiveEmployeesForPayroll(tenantId, rawSelected);
+        }
+        if (!employeeIds || employeeIds.length === 0) {
+            employeeIds = await getActiveEmployeesForPayroll(tenantId);
+        }
 
         if (employeeIds.length === 0) {
             return res.status(400).json({
@@ -253,6 +283,212 @@ export const startPayrollRun = async (req, res) => {
 
 // NOTE: Sequential processing has been removed. All payroll processing now uses BullMQ queue-based processing.
 
+export const deletePayrollRun = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: { id, tenantId },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        if (payrollRun.status !== "DRAFT") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Only payroll runs in DRAFT status can be deleted",
+            });
+        }
+
+        await addLog(userId, tenantId, "DELETE", "PayrollRun", payrollRun.id, {
+            runCode: payrollRun.runCode,
+            payPeriodId: payrollRun.payPeriodId,
+        }, req);
+
+        await prisma.payrollRun.delete({
+            where: { id },
+        });
+
+        logger.info(`Deleted payroll run ${id} (${payrollRun.runCode})`);
+        return res.status(200).json({
+            success: true,
+            message: "Payroll run deleted successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deleting payroll run: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to delete payroll run",
+        });
+    }
+};
+
+export const updatePayrollRun = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { id: userId, tenantId } = req.user;
+        const { runCode, payPeriodId: newPayPeriodId, employeeIds: rawEmployeeIds } = req.body;
+
+        const payrollRun = await prisma.payrollRun.findFirst({
+            where: { id, tenantId },
+        });
+
+        if (!payrollRun) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        if (payrollRun.status !== "DRAFT") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Only payroll runs in DRAFT status can be edited",
+            });
+        }
+
+        const updateData = {};
+        const logChanges = {};
+
+        if (runCode !== undefined) {
+            const trimmed = typeof runCode === "string" ? runCode.trim() : "";
+            if (!trimmed) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "runCode cannot be empty",
+                });
+            }
+            const existing = await prisma.payrollRun.findFirst({
+                where: {
+                    tenantId,
+                    runCode: trimmed,
+                    id: { not: id },
+                },
+            });
+            if (existing) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Run code "${trimmed}" is already in use for this tenant`,
+                });
+            }
+            updateData.runCode = trimmed;
+            logChanges.runCode = { before: payrollRun.runCode, after: trimmed };
+        }
+
+        if (newPayPeriodId !== undefined) {
+            const payPeriod = await prisma.payPeriod.findFirst({
+                where: { id: newPayPeriodId, tenantId },
+            });
+            if (!payPeriod) {
+                return res.status(404).json({
+                    success: false,
+                    error: "Not Found",
+                    message: "Pay period not found",
+                });
+            }
+            if (payPeriod.status === "CLOSED") {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Cannot assign a closed pay period to a payroll run",
+                });
+            }
+            updateData.payPeriodId = newPayPeriodId;
+            logChanges.payPeriodId = { before: payrollRun.payPeriodId, after: newPayPeriodId };
+        }
+
+        if (rawEmployeeIds !== undefined) {
+            const ids = Array.isArray(rawEmployeeIds) ? rawEmployeeIds.filter((x) => typeof x === "string") : [];
+            if (ids.length === 0) {
+                // "All employees" – clear selection; totalEmployees = count of all active
+                const allActive = await getActiveEmployeesForPayroll(tenantId);
+                updateData.selectedEmployeeIds = null;
+                updateData.totalEmployees = allActive.length;
+                logChanges.employeeCount = { before: payrollRun.totalEmployees, after: allActive.length };
+            } else {
+                const validatedIds = await getActiveEmployeesForPayroll(tenantId, ids);
+                if (validatedIds.length === 0) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Bad Request",
+                        message: "No eligible employees found; select at least one active employee",
+                    });
+                }
+                updateData.selectedEmployeeIds = validatedIds;
+                updateData.totalEmployees = validatedIds.length;
+                logChanges.employeeCount = { before: payrollRun.totalEmployees, after: validatedIds.length };
+            }
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No valid fields to update (allowed: runCode, payPeriodId, employeeIds)",
+            });
+        }
+
+        const updated = await prisma.payrollRun.update({
+            where: { id },
+            data: updateData,
+            include: {
+                payPeriod: {
+                    select: {
+                        id: true,
+                        periodName: true,
+                        startDate: true,
+                        endDate: true,
+                    },
+                },
+                processor: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+
+        await addLog(userId, tenantId, "UPDATE", "PayrollRun", id, logChanges, req);
+
+        logger.info(`Updated payroll run ${id}`);
+        return res.status(200).json({
+            success: true,
+            data: updated,
+            message: "Payroll run updated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error updating payroll run: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update payroll run",
+        });
+    }
+};
+
 export const getPayrollRuns = async (req, res) => {
     try {
         const { tenantId } = req.user;
@@ -310,6 +546,98 @@ export const getPayrollRuns = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch payroll runs",
+        });
+    }
+};
+
+/**
+ * Export payroll runs list as CSV.
+ * GET /payroll-runs/export?payPeriodId=...&status=...
+ */
+export const exportPayrollRuns = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const { payPeriodId, status } = req.query;
+
+        const where = {
+            tenantId,
+            ...(payPeriodId && { payPeriodId }),
+            ...(status && { status }),
+        };
+
+        const payrollRuns = await prisma.payrollRun.findMany({
+            where,
+            include: {
+                payPeriod: {
+                    select: {
+                        periodName: true,
+                        startDate: true,
+                        endDate: true,
+                    },
+                },
+                processor: {
+                    select: {
+                        name: true,
+                    },
+                },
+            },
+            orderBy: {
+                runDate: "desc",
+            },
+        });
+
+        const escapeCsv = (val) => {
+            if (val == null) return "";
+            const s = String(val);
+            if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+            return s;
+        };
+
+        const formatDate = (d) => {
+            if (!d) return "";
+            const date = d instanceof Date ? d : new Date(d);
+            return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+        };
+
+        const headers = [
+            "Run Code",
+            "Run Date",
+            "Period Name",
+            "Period Start",
+            "Period End",
+            "Status",
+            "Processed By",
+            "Total Employees",
+            "Total Gross Pay",
+            "Total Net Pay",
+        ];
+        const rows = payrollRuns.map((run) => [
+            escapeCsv(run.runCode),
+            escapeCsv(formatDate(run.runDate)),
+            escapeCsv(run.payPeriod?.periodName),
+            escapeCsv(formatDate(run.payPeriod?.startDate)),
+            escapeCsv(formatDate(run.payPeriod?.endDate)),
+            escapeCsv(run.status),
+            escapeCsv(run.processor?.name ?? "System"),
+            escapeCsv(run.totalEmployees),
+            escapeCsv(run.totalGrossPay),
+            escapeCsv(run.totalNetPay),
+        ]);
+        const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+
+        const filename = `payroll-runs-${new Date().toISOString().slice(0, 10)}.csv`;
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.status(200).send(csv);
+    } catch (error) {
+        logger.error(`Error exporting payroll runs: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to export payroll runs",
         });
     }
 };
@@ -446,7 +774,6 @@ export const processSingleEmployee = async (req, res) => {
             where: {
                 payrollRunId,
                 userId: employeeId,
-                isAdjustment: false,
             },
         });
 

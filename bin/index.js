@@ -44,20 +44,19 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
     logger.error("Server will continue but database operations may fail");
   }
 
-  // Start BullMQ workers (optional)
-  // if (ENABLE_BULLMQ) {
-  //   try {
-  //     const redisConnected = await testRedisConnection();
-  //     if (redisConnected) {
-  //       startAllWorkers();
-  //       logger.info("BullMQ workers started successfully");
-  //     } else {
-  //       logger.warn("Redis connection failed - BullMQ workers not started. Set ENABLE_BULLMQ_QUEUE=false to disable, or start Redis.");
-  //     }
-  //   } catch (error) {
-  //     logger.warn(`Failed to start BullMQ workers: ${error.message}. Set ENABLE_BULLMQ_QUEUE=false to disable.`);
-  //   }
-  // }
+  if (ENABLE_BULLMQ) {
+    try {
+      const redisConnected = await testRedisConnection();
+      if (redisConnected) {
+        startAllWorkers();
+        logger.info("BullMQ workers started successfully");
+      } else {
+        logger.warn("Redis connection failed - BullMQ workers not started. Set ENABLE_BULLMQ_QUEUE=false to disable, or start Redis.");
+      }
+    } catch (error) {
+      logger.warn(`Failed to start BullMQ workers: ${error.message}. Set ENABLE_BULLMQ_QUEUE=false to disable.`);
+    }
+  }
 
   // Start automation jobs
   // try {

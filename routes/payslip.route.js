@@ -9,8 +9,6 @@ import {
     exportPayslips,
     distributePayslips,
     getDistributionReport,
-    createAdjustmentPayslip,
-    getPayslipAdjustments,
 } from "../controllers/payslip.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -35,10 +33,6 @@ router.get("/employee/:employeeId", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"
 // Individual payslip routes
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getPayslipById);
 router.get("/:id/download", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), downloadPayslip);
-
-// Adjustment/Correction routes
-router.post("/:id/adjustment", requireRole(["HR_ADMIN"]), createAdjustmentPayslip);
-router.get("/:id/adjustments", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getPayslipAdjustments);
 
 export default router;
 
