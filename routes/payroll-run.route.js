@@ -5,6 +5,7 @@ import {
     deletePayrollRun,
     startPayrollRun,
     getPayrollRuns,
+    getPayrollFilterOptions,
     getPayrollRunById,
     exportPayrollRuns,
     processSingleEmployee,
@@ -32,6 +33,7 @@ router.post("/:id/start", requireRole(["HR_ADMIN"]), startPayrollRun);
 router.post("/:id/process-employee", requireRole(["HR_ADMIN"]), processSingleEmployee);
 router.post("/:id/retry", requireRole(["HR_ADMIN"]), retryPayrollJob);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRuns);
+router.get("/filter-options", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollFilterOptions);
 router.get("/export", requireRole(["HR_ADMIN", "HR_STAFF"]), exportPayrollRuns);
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunById);
 router.get("/:id/status", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatus);

@@ -491,16 +491,81 @@ export const updatePayrollRun = async (req, res) => {
     }
 };
 
+/**
+ * Build date range for "date modified" filter (updatedAt).
+ * Preset: 'today' | 'this-week' | 'this-month'
+ */
+function getDateModifiedRange(preset) {
+    const now = new Date();
+    const todayStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+    if (preset === "today") {
+        return { updatedAfter: todayStart, updatedBefore: todayEnd };
+    }
+    if (preset === "this-week") {
+        const day = now.getUTCDay();
+        const weekStart = new Date(todayStart);
+        weekStart.setUTCDate(weekStart.getUTCDate() - (day === 0 ? 6 : day - 1));
+        return { updatedAfter: weekStart, updatedBefore: todayEnd };
+    }
+    if (preset === "this-month") {
+        const monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0));
+        return { updatedAfter: monthStart, updatedBefore: todayEnd };
+    }
+    return {};
+}
+
+/**
+ * Build Prisma where clause for payroll runs list/export from query params.
+ * Query: payPeriodId, status (single or comma-separated), processedBy, updatedAfter, updatedBefore, dateModified, search
+ */
+function buildPayrollRunsWhere(tenantId, query) {
+    const { payPeriodId, status, processedBy, updatedAfter, updatedBefore, dateModified, search } = query;
+    const where = {
+        tenantId,
+        ...(payPeriodId && { payPeriodId }),
+    };
+
+    if (status) {
+        const statuses = String(status).split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+        if (statuses.length === 1) {
+            where.status = statuses[0];
+        } else if (statuses.length > 1) {
+            where.status = { in: statuses };
+        }
+    }
+
+    if (processedBy) {
+        where.processedBy = processedBy;
+    }
+
+    const range = dateModified ? getDateModifiedRange(dateModified) : {};
+    const after = updatedAfter ? new Date(updatedAfter) : range.updatedAfter;
+    const before = updatedBefore ? new Date(updatedBefore) : range.updatedBefore;
+    if (after) where.updatedAt = { ...where.updatedAt, gte: after };
+    if (before) where.updatedAt = { ...where.updatedAt, lte: before };
+
+    if (search && String(search).trim()) {
+        const q = String(search).trim();
+        const statusOpts = ["DRAFT", "PROCESSING", "COMPLETED", "FAILED"];
+        const statusUpper = q.toUpperCase();
+        const orConditions = [
+            { runCode: { contains: q, mode: "insensitive" } },
+            { processor: { name: { contains: q, mode: "insensitive" } } },
+        ];
+        if (statusOpts.includes(statusUpper)) {
+            orConditions.push({ status: statusUpper });
+        }
+        where.OR = orConditions;
+    }
+
+    return where;
+}
+
 export const getPayrollRuns = async (req, res) => {
     try {
         const { tenantId } = req.user;
-        const { payPeriodId, status } = req.query;
-
-        const where = {
-            tenantId,
-            ...(payPeriodId && { payPeriodId }),
-            ...(status && { status }),
-        };
+        const where = buildPayrollRunsWhere(tenantId, req.query);
 
         const payrollRuns = await prisma.payrollRun.findMany({
             where,
@@ -554,19 +619,48 @@ export const getPayrollRuns = async (req, res) => {
 };
 
 /**
+ * GET /payroll-runs/filter-options
+ * Returns owners (processors) for the Owner filter dropdown.
+ */
+export const getPayrollFilterOptions = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const runs = await prisma.payrollRun.findMany({
+            where: { tenantId },
+            select: { processedBy: true },
+            distinct: ["processedBy"],
+        });
+        const userIds = runs.map((r) => r.processedBy).filter(Boolean);
+        if (userIds.length === 0) {
+            return res.status(200).json({ success: true, data: { owners: [] } });
+        }
+        const users = await prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true },
+        });
+        const owners = users.map((u) => ({ id: u.id, name: u.name ?? "Unknown" }));
+        return res.status(200).json({ success: true, data: { owners } });
+    } catch (error) {
+        logger.error(`Error fetching payroll filter options: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch filter options",
+        });
+    }
+};
+
+/**
  * Export payroll runs list as CSV.
- * GET /payroll-runs/export?payPeriodId=...&status=...
+ * GET /payroll-runs/export?payPeriodId=...&status=...&processedBy=...&dateModified=...&search=...
  */
 export const exportPayrollRuns = async (req, res) => {
     try {
         const { tenantId } = req.user;
-        const { payPeriodId, status } = req.query;
-
-        const where = {
-            tenantId,
-            ...(payPeriodId && { payPeriodId }),
-            ...(status && { status }),
-        };
+        const where = buildPayrollRunsWhere(tenantId, req.query);
 
         const payrollRuns = await prisma.payrollRun.findMany({
             where,
