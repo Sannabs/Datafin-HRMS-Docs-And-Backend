@@ -572,47 +572,75 @@ function buildPayrollRunsWhere(tenantId, query) {
     return where;
 }
 
+/** Valid sort fields for payroll runs list. */
+const SORT_FIELDS = ["runDate", "totalNetPay", "totalGrossPay", "totalEmployees"];
+
+/** Build orderBy from query params sortBy and sortOrder. */
+function buildPayrollRunsOrderBy(query) {
+    const sortBy = String(query.sortBy || "runDate").trim();
+    const sortOrder = String(query.sortOrder || "desc").toLowerCase();
+    const field = SORT_FIELDS.includes(sortBy) ? sortBy : "runDate";
+    const dir = sortOrder === "asc" ? "asc" : "desc";
+    return { [field]: dir };
+}
+
 export const getPayrollRuns = async (req, res) => {
     try {
         const { tenantId } = req.user;
         const where = buildPayrollRunsWhere(tenantId, req.query);
+        const orderBy = buildPayrollRunsOrderBy(req.query);
 
-        const payrollRuns = await prisma.payrollRun.findMany({
-            where,
-            include: {
-                payPeriod: {
-                    select: {
-                        id: true,
-                        periodName: true,
-                        startDate: true,
-                        endDate: true,
-                    },
-                },
-                processor: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        role: true,
-                    },
-                },
-                _count: {
-                    select: {
-                        payslips: true,
-                    },
-                },
-            },
-            orderBy: {
-                runDate: "desc",
-            },
-        });
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
+        const skip = (page - 1) * limit;
 
-        logger.info(`Retrieved ${payrollRuns.length} payroll runs for tenant ${tenantId}`);
+        const [payrollRuns, total] = await Promise.all([
+            prisma.payrollRun.findMany({
+                where,
+                include: {
+                    payPeriod: {
+                        select: {
+                            id: true,
+                            periodName: true,
+                            startDate: true,
+                            endDate: true,
+                        },
+                    },
+                    processor: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            role: true,
+                        },
+                    },
+                    _count: {
+                        select: {
+                            payslips: true,
+                        },
+                    },
+                },
+                orderBy,
+                skip,
+                take: limit,
+            }),
+            prisma.payrollRun.count({ where }),
+        ]);
+
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+
+        logger.info(`Retrieved ${payrollRuns.length} payroll runs (page ${page}/${totalPages}) for tenant ${tenantId}`);
 
         return res.status(200).json({
             success: true,
             data: payrollRuns,
             count: payrollRuns.length,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+            },
         });
     } catch (error) {
         logger.error(`Error fetching payroll runs: ${error.message}`, {
