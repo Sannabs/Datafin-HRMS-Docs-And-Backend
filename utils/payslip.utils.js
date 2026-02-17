@@ -1,12 +1,14 @@
 import prisma from "../config/prisma.config.js";
+import { getSalaryBreakdownItemized } from "../calculations/salary-calculations.js";
 
 /**
- * Get itemized allowances and deductions breakdown for a payslip
+ * Get itemized allowances and deductions breakdown for a payslip with calculated amounts
+ * (FIXED, PERCENTAGE of base/gross, or FORMULA result).
  * @param {string} userId - Employee user ID
  * @param {string} tenantId - Tenant ID
  * @param {Date} payPeriodStartDate - Pay period start date
  * @param {Date} payPeriodEndDate - Pay period end date
- * @returns {Promise<Object>} Breakdown with base salary, currency, allowances, and deductions
+ * @returns {Promise<Object>} Breakdown with base salary, currency, allowances, and deductions (each with calculated amount and calculationMethod/description)
  */
 export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, payPeriodEndDate) => {
     const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -50,25 +52,60 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         },
     });
 
+    if (!salaryStructure) {
+        return {
+            baseSalary: 0,
+            currency: "USD",
+            allowances: [],
+            deductions: [],
+        };
+    }
+
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+            departmentId: true,
+            positionId: true,
+            employmentType: true,
+            status: true,
+            hireDate: true,
+        },
+    });
+
+    const employeeContext = user
+        ? {
+            departmentId: user.departmentId,
+            positionId: user.positionId,
+            employmentType: user.employmentType,
+            status: user.status,
+            hireDate: user.hireDate,
+            baseSalary: salaryStructure.baseSalary,
+          }
+        : null;
+
+    const itemized = await getSalaryBreakdownItemized(
+        salaryStructure.baseSalary,
+        salaryStructure.allowances,
+        salaryStructure.deductions,
+        employeeContext,
+        tenantId
+    );
+
     return {
-        baseSalary: salaryStructure?.baseSalary || 0,
-        currency: salaryStructure?.currency || "USD",
-        allowances: salaryStructure?.allowances.map((a) => ({
-            id: a.id,
-            name: a.allowanceType.name,
-            code: a.allowanceType.code,
-            amount: a.amount,
-            calculationMethod: a.calculationMethod,
-            isTaxable: a.allowanceType.isTaxable,
-        })) || [],
-        deductions: salaryStructure?.deductions.map((d) => ({
-            id: d.id,
-            name: d.deductionType.name,
-            code: d.deductionType.code,
-            amount: d.amount,
-            calculationMethod: d.calculationMethod,
-            isStatutory: d.deductionType.isStatutory,
-        })) || [],
+        baseSalary: salaryStructure.baseSalary,
+        currency: salaryStructure.currency || "USD",
+        allowances: itemized.allowanceLines.map((line) => ({
+            name: line.name,
+            amount: line.amount,
+            calculationMethod: line.calculationMethod,
+            description: line.description,
+        })),
+        deductions: itemized.deductionLines.map((line) => ({
+            name: line.name,
+            amount: line.amount,
+            calculationMethod: line.calculationMethod,
+            description: line.description,
+        })),
     };
 };
 

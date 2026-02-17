@@ -4,6 +4,7 @@ import {
     recalculateSalary,
     calculateAllowanceAmount,
     calculateDeductionAmount,
+    getSalaryBreakdownItemized,
 } from "../calculations/salary-calculations.js";
 import { createProgress, updateProgress } from "./payroll-progress.service.js";
 import { generatePayslipFromRecord } from "./payslip-generator.service.js";
@@ -54,18 +55,21 @@ export const calculatePayrollRunTotals = async (payrollRunId) => {
             where: { payrollRunId },
             select: {
                 grossSalary: true,
+                totalAllowances: true,
                 totalDeductions: true,
                 netSalary: true,
             },
         });
 
         const totalGrossPay = payslips.reduce((sum, p) => sum + Number(p.grossSalary), 0);
+        const totalAllowances = payslips.reduce((sum, p) => sum + Number(p.totalAllowances), 0);
         const totalDeductions = payslips.reduce((sum, p) => sum + Number(p.totalDeductions), 0);
         const totalNetPay = payslips.reduce((sum, p) => sum + Number(p.netSalary), 0);
         const totalEmployees = payslips.length;
 
         return {
             totalGrossPay,
+            totalAllowances,
             totalDeductions,
             totalNetPay,
             totalEmployees,
@@ -143,6 +147,7 @@ export const finalizePayrollRun = async (payrollRunId, options = {}) => {
         const updateData = {
             totalEmployees: totals.totalEmployees,
             totalGrossPay: totals.totalGrossPay,
+            totalAllowances: totals.totalAllowances,
             totalDeductions: totals.totalDeductions,
             totalNetPay: totals.totalNetPay,
             ...(finalStatus && { status: finalStatus }),
@@ -200,12 +205,11 @@ export const createOrUpdatePayslip = async (payrollRunId, employeeId, payslipDat
     try {
         const { includeUser = false } = options;
 
-        // Check for existing payslip (non-adjustment)
+        // Check for existing payslip
         const existingPayslip = await prisma.payslip.findFirst({
             where: {
                 payrollRunId,
                 userId: employeeId,
-                isAdjustment: false,
             },
         });
 
@@ -216,6 +220,7 @@ export const createOrUpdatePayslip = async (payrollRunId, employeeId, payslipDat
             netSalary: payslipData.netSalary,
             hasWarnings: !!payslipData.warnings,
             warnings: payslipData.warnings || null,
+            breakdownSnapshot: payslipData.breakdownSnapshot ?? null,
         };
 
         let payslip;
@@ -395,6 +400,31 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             totalDeductions += amount;
         }
 
+        // Snapshot itemized breakdown so later config changes don't change this payslip's detail/PDF
+        const itemized = await getSalaryBreakdownItemized(
+            salaryStructure.baseSalary,
+            salaryStructure.allowances,
+            salaryStructure.deductions,
+            employeeContext,
+            tenantId
+        );
+        const breakdownSnapshot = {
+            baseSalary: salaryStructure.baseSalary,
+            currency: salaryStructure.currency || "USD",
+            allowances: itemized.allowanceLines.map((line) => ({
+                name: line.name,
+                amount: line.amount,
+                calculationMethod: line.calculationMethod,
+                description: line.description,
+            })),
+            deductions: itemized.deductionLines.map((line) => ({
+                name: line.name,
+                amount: line.amount,
+                calculationMethod: line.calculationMethod,
+                description: line.description,
+            })),
+        };
+
         return {
             employeeId: employee.id,
             grossSalary,
@@ -402,6 +432,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             totalDeductions,
             netSalary,
             warnings: warnings?.hasNegativeNetSalary ? warnings : null,
+            breakdownSnapshot,
         };
     } catch (error) {
         logger.error(`Error processing payroll for employee ${employeeId}: ${error.message}`, {

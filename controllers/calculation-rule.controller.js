@@ -1,9 +1,9 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import {
-    evaluateRules,
     calculateRuleAmount,
     clearRuleCache,
+    evaluateSingleRuleForTest,
     getAvailableOperators,
     getCacheStats,
     validateConditionsFormat
@@ -503,6 +503,12 @@ export const deactivateCalculationRule = async (req, res) => {
     }
 };
 
+/**
+ * Permanently delete a calculation rule (admin cleanup).
+ * Only allowed when rule is inactive.
+ * Must not be used in allowance/deduction types or structure items.
+ * Audit log is written BEFORE the delete for enterprise compliance.
+ */
 export const deleteCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
@@ -524,25 +530,52 @@ export const deleteCalculationRule = async (req, res) => {
             });
         }
 
-        const deleted = await prisma.calculationRule.update({
-            where: { id },
-            data: {
-                deletedAt: new Date(),
+        if (rule.isActive) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Cannot delete an active calculation rule. Deactivate it first, then delete.",
+            });
+        }
+
+        const [allowanceCount, deductionCount, allowanceTypeCount, deductionTypeCount] = await Promise.all([
+            prisma.allowance.count({ where: { calculationRuleId: id } }),
+            prisma.deduction.count({ where: { calculationRuleId: id } }),
+            prisma.allowanceType.count({ where: { defaultCalculationRuleId: id } }),
+            prisma.deductionType.count({ where: { defaultCalculationRuleId: id } }),
+        ]);
+
+        const totalUsages = allowanceCount + deductionCount + allowanceTypeCount + deductionTypeCount;
+        if (totalUsages > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Cannot delete. This calculation rule is still used in allowance/deduction types or salary structures. Remove all references first.",
+            });
+        }
+
+        // Audit log BEFORE delete (enterprise requirement)
+        const auditPayload = {
+            deleted: true,
+            deletedAt: new Date().toISOString(),
+            ruleSummary: {
+                id,
+                name: rule.name,
+                ruleType: rule.ruleType,
             },
-        });
+        };
+        await addLog(userId, tenantId, "DELETE", "CalculationRule", id, auditPayload, req);
 
-        logger.info(`Soft deleted calculation rule with ID: ${id}`);
+        await prisma.calculationRule.delete({ where: { id } });
 
-        // Clear rule cache for this tenant
+        logger.info(`Permanently deleted calculation rule with ID: ${id} by user ${userId}`);
+
         clearRuleCache(tenantId);
-
-        const changes = getChangesDiff(rule, deleted);
-        await addLog(userId, tenantId, "DELETE", "CalculationRule", id, changes, req);
 
         return res.status(200).json({
             success: true,
-            data: deleted,
-            message: "Calculation rule deleted successfully",
+            data: { id },
+            message: "Calculation rule permanently deleted",
         });
     } catch (error) {
         logger.error(`Error deleting calculation rule: ${error.message}`, {
@@ -571,6 +604,18 @@ export const testCalculationRule = async (req, res) => {
             });
         }
 
+        // Coerce numeric context fields so engine comparisons work (e.g. baseSalary > 100)
+        const numericContextFields = [
+            "baseSalary", "grossSalary", "netSalary", "totalAllowances", "totalDeductions",
+            "yearsOfService", "daysInMonth", "workingDays", "hoursWorked", "overtimeHours",
+        ];
+        for (const key of numericContextFields) {
+            if (employeeContext[key] !== undefined && employeeContext[key] !== null) {
+                const n = Number(employeeContext[key]);
+                if (!Number.isNaN(n)) employeeContext[key] = n;
+            }
+        }
+
         const rule = await prisma.calculationRule.findFirst({
             where: {
                 id,
@@ -587,16 +632,11 @@ export const testCalculationRule = async (req, res) => {
             });
         }
 
-        // Evaluate the rule
-        const typeId = rule.ruleType === "ALLOWANCE" ? rule.allowanceTypeId : rule.deductionTypeId;
-        const matchingEvents = await evaluateRules(rule.ruleType, typeId, employeeContext, tenantId);
-
-        // Check if this specific rule matched
-        const ruleEvent = matchingEvents.find(e => e.params?.ruleId === id);
-        const matches = !!ruleEvent;
+        // Evaluate this rule in isolation (no date filter) so test always runs the rule logic
+        const { matched: matches, event: ruleEvent } = await evaluateSingleRuleForTest(rule, employeeContext);
 
         let calculatedAmount = 0;
-        if (matches && ruleEvent) {
+        if (matches && ruleEvent?.params?.action) {
             calculatedAmount = await calculateRuleAmount(
                 ruleEvent.params.action,
                 employeeContext,

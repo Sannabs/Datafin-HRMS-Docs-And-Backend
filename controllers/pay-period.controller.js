@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import {
     getCalendarMetadata,
+    formatPeriodNameFromDates,
     validateStatusTransition,
     getAvailableTransitions,
     getStateMeta,
@@ -38,13 +39,13 @@ const formatPayPeriodResponse = (payPeriod) => {
 export const createPayPeriod = async (req, res) => {
     try {
         const { id: userId, tenantId } = req.user;
-        const { periodName, startDate, endDate } = req.body;
+        const { periodName: periodNameRaw, startDate, endDate } = req.body;
 
-        if (!periodName || !startDate || !endDate) {
+        if (!startDate || !endDate) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "periodName, startDate, and endDate are required",
+                message: "startDate and endDate are required",
             });
         }
 
@@ -66,6 +67,11 @@ export const createPayPeriod = async (req, res) => {
                 message: "startDate must be earlier than endDate",
             });
         }
+
+        const periodName =
+            periodNameRaw != null && String(periodNameRaw).trim() !== ""
+                ? String(periodNameRaw).trim()
+                : formatPeriodNameFromDates(start, end);
 
         const overlap = await prisma.payPeriod.findFirst({
             where: {
@@ -133,6 +139,9 @@ export const getPayPeriods = async (req, res) => {
         const payPeriods = await prisma.payPeriod.findMany({
             where,
             include: {
+                paySchedule: {
+                    select: { id: true, name: true },
+                },
                 payrollRuns: {
                     select: {
                         id: true,
@@ -143,9 +152,11 @@ export const getPayPeriods = async (req, res) => {
                     },
                 },
             },
-            orderBy: {
-                startDate: "desc",
-            },
+            orderBy: [
+                { calendarYear: "asc" },
+                { calendarMonth: "asc" },
+                { startDate: "asc" },
+            ],
         });
 
         const formatted = payPeriods.map(formatPayPeriodResponse);
@@ -182,6 +193,9 @@ export const getPayPeriodById = async (req, res) => {
                 tenantId,
             },
             include: {
+                paySchedule: {
+                    select: { id: true, name: true },
+                },
                 payrollRuns: {
                     select: {
                         id: true,
@@ -223,6 +237,121 @@ export const getPayPeriodById = async (req, res) => {
     }
 };
 
+/**
+ * Update pay period name and/or dates. Only allowed when status is DRAFT.
+ * Body: { periodName?, startDate?, endDate? } (at least one required).
+ */
+export const updatePayPeriod = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { periodName, startDate, endDate } = req.body;
+        const { id: userId, tenantId } = req.user;
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: { id, tenantId },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Pay period not found",
+            });
+        }
+
+        if (payPeriod.status !== "DRAFT") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Only pay periods in DRAFT status can be updated",
+            });
+        }
+
+        const updates = {};
+        if (periodName !== undefined) {
+            if (!periodName || typeof periodName !== "string" || !periodName.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "periodName must be a non-empty string",
+                });
+            }
+            updates.periodName = periodName.trim();
+        }
+        if (startDate !== undefined || endDate !== undefined) {
+            const start = startDate !== undefined ? new Date(startDate) : payPeriod.startDate;
+            const end = endDate !== undefined ? new Date(endDate) : payPeriod.endDate;
+            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Invalid startDate or endDate provided",
+                });
+            }
+            if (start >= end) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "startDate must be earlier than endDate",
+                });
+            }
+            const overlap = await prisma.payPeriod.findFirst({
+                where: {
+                    tenantId,
+                    id: { not: id },
+                    startDate: { lte: end },
+                    endDate: { gte: start },
+                },
+            });
+            if (overlap) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Pay period overlaps with existing period ${overlap.periodName}`,
+                });
+            }
+            updates.startDate = start;
+            updates.endDate = end;
+            updates.periodName = formatPeriodNameFromDates(start, end);
+            const { calendarMonth, calendarYear } = getCalendarMetadata(start);
+            updates.calendarMonth = calendarMonth;
+            updates.calendarYear = calendarYear;
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "At least one of periodName, startDate, or endDate is required",
+            });
+        }
+
+        const updated = await prisma.payPeriod.update({
+            where: { id },
+            data: updates,
+        });
+
+        logger.info(`Updated pay period ${id} for tenant ${tenantId}`);
+        await addLog(userId, tenantId, "UPDATE", "PayPeriod", id, { updates }, req);
+
+        return res.status(200).json({
+            success: true,
+            data: updated,
+            message: "Pay period updated successfully",
+        });
+    } catch (error) {
+        logger.error(`Error updating pay period: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update pay period",
+        });
+    }
+};
 
 export const updatePayPeriodStatus = async (req, res) => {
     try {

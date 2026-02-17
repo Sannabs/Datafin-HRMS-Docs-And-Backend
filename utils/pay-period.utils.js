@@ -25,6 +25,23 @@ export const getCalendarMetadata = (referenceDate) => {
 };
 
 /**
+ * Derives a period name from start and end dates in the same format as schedule-generated periods.
+ * e.g. "Mar 2026 (1–14)"
+ * @param {Date | string} startDate
+ * @param {Date | string} endDate
+ * @returns {string}
+ */
+export const formatPeriodNameFromDates = (startDate, endDate) => {
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        throw new Error("Invalid date provided for period name");
+    }
+    const monthYear = start.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    return `${monthYear} (${start.getUTCDate()}–${end.getUTCDate()})`;
+};
+
+/**
  * Checks whether two date ranges overlap (inclusive).
  * @param {Date | string} startA
  * @param {Date | string} endA

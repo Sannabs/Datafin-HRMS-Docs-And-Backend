@@ -85,6 +85,13 @@ enum RuleType {
   DEDUCTION
 }
 
+enum PayScheduleFrequency {
+  SEMI_MONTHLY
+  BI_WEEKLY
+  MONTHLY
+  WEEKLY
+}
+
 enum PayPeriodStatus {
   DRAFT
   PROCESSING
@@ -130,13 +137,6 @@ enum HolidayType {
   REGIONAL // Regional holiday (state/province)
   RELIGIOUS // Religious holiday
   OPTIONAL // Optional holiday (employee choice)
-}
-
-enum AdjustmentType {
-  CORRECTION // Fix calculation error
-  SUPPLEMENT // Additional payment (bonus, arrears)
-  REVERSAL // Reverse/cancel previous payslip
-  AMENDMENT // Mid-period salary change
 }
 
 enum AccrualMethod {
@@ -201,6 +201,7 @@ model Tenant {
   allowanceTypes     AllowanceType[]
   deductionTypes     DeductionType[]
   payPeriods         PayPeriod[]
+  paySchedules       PaySchedule[]
   payrollRuns        PayrollRun[]
   calculationRules   CalculationRule[]
   auditLogs          AuditLog[]
@@ -448,6 +449,11 @@ model AllowanceType {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
+  // Default calculation when this type is added to a salary structure (enterprise UX)
+  defaultCalculationMethod CalculationMethod?
+  defaultAmount            Float?
+  defaultCalculationRuleId String?
+
   allowances       Allowance[]
   calculationRules CalculationRule[]
 
@@ -471,6 +477,7 @@ model Allowance {
   amount               Float             @default(0)
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
+  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -493,6 +500,11 @@ model DeductionType {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
+
+  // Default calculation when this type is added to a salary structure (enterprise UX)
+  defaultCalculationMethod CalculationMethod?
+  defaultAmount            Float?
+  defaultCalculationRuleId String?
 
   deductions       Deduction[]
   calculationRules CalculationRule[]
@@ -517,6 +529,7 @@ model Deduction {
   amount               Float             @default(0)
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
+  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -570,12 +583,34 @@ model CalculationRule {
   @@index([deductionTypeId])
 }
 
+model PaySchedule {
+  id        String               @id @default(uuid())
+  tenantId  String
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  frequency PayScheduleFrequency
+  config    Json?                // e.g. { "dates": [1, 15] } for semi-monthly, { "anchorDate": "2025-01-03" } for bi-weekly
+  isActive  Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  deletedAt DateTime?
+
+  payPeriods PayPeriod[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
 model PayPeriod {
   id String @id @default(uuid())
 
   // Tenant relation
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Optional: which schedule generated this period
+  payScheduleId String?
+  paySchedule   PaySchedule? @relation(fields: [payScheduleId], references: [id], onDelete: SetNull)
 
   periodName      String
   startDate       DateTime
@@ -590,8 +625,8 @@ model PayPeriod {
   payrollRuns PayrollRun[]
 
   @@unique([tenantId, periodName])
-  @@unique([tenantId, calendarYear, calendarMonth])
   @@index([tenantId])
+  @@index([payScheduleId])
 }
 
 model PayrollRun {
@@ -608,9 +643,13 @@ model PayrollRun {
   // Custom unique identifier (e.g., "PR-2025-001")
   runCode String?
 
+  // Optional: when set, only these employees are processed when run is started (User ids)
+  selectedEmployeeIds Json?
+
   runDate         DateTime         @default(now())
   totalEmployees  Int              @default(0)
   totalGrossPay   Float            @default(0)
+  totalAllowances Float            @default(0)
   totalDeductions Float            @default(0)
   totalNetPay     Float            @default(0)
   status          PayrollRunStatus @default(DRAFT)
@@ -658,27 +697,13 @@ model Payslip {
   hasWarnings Boolean @default(false)
   warnings    Json? // Stores warning details (e.g., negative net salary)
 
-  // Adjustment tracking
-  isAdjustment      Boolean         @default(false)
-  adjustmentType    AdjustmentType?
-  adjustmentReason  String?
-  originalPayslipId String?
-  originalPayslip   Payslip?        @relation("PayslipAdjustments", fields: [originalPayslipId], references: [id], onDelete: SetNull)
-  adjustments       Payslip[]       @relation("PayslipAdjustments")
+  // Snapshot of allowance/deduction breakdown at calculation time (so later config changes don't change past payslips)
+  breakdownSnapshot Json? // { baseSalary, currency, allowances: [{ name, amount, calculationMethod, description }], deductions: [...] }
 
-  // Snapshot of original values (for audit trail)
-  previousGrossSalary     Float?
-  previousNetSalary       Float?
-  previousTotalAllowances Float?
-  previousTotalDeductions Float?
-
-  // Note: Removed unique constraint on [payrollRunId, userId] to allow adjustments
-  // Application logic enforces one original payslip per employee per run
+  // Application logic enforces one payslip per employee per run
   @@index([payrollRunId])
   @@index([userId])
   @@index([payrollRunId, userId])
-  @@index([isAdjustment])
-  @@index([originalPayslipId])
 }
 
 model PayrollProgress {

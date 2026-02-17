@@ -106,7 +106,7 @@ export const tenantSignUp = async (req, res, next) => {
     const hrDepartment = await prisma.department.create({
       data: {
         tenantId: tenant.id,
-        name: "HR Department",
+        name: "Human Resources",
       },
     });
 

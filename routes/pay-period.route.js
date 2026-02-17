@@ -3,6 +3,7 @@ import {
     createPayPeriod,
     getPayPeriods,
     getPayPeriodById,
+    updatePayPeriod,
     updatePayPeriodStatus,
     deletePayPeriod,
     pauseAutoClose,
@@ -19,6 +20,7 @@ router.post("/", requireRole(["HR_ADMIN"]), createPayPeriod);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayPeriods);
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayPeriodById);
 router.patch("/:id/status", requireRole(["HR_ADMIN"]), updatePayPeriodStatus);
+router.patch("/:id", requireRole(["HR_ADMIN"]), updatePayPeriod);
 router.post("/:id/pause-auto-close", requireRole(["HR_ADMIN"]), pauseAutoClose);
 router.post("/:id/resume-auto-close", requireRole(["HR_ADMIN"]), resumeAutoClose);
 router.delete("/:id", requireRole(["HR_ADMIN"]), deletePayPeriod);

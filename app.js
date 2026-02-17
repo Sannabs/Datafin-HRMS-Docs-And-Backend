@@ -15,6 +15,7 @@ import salaryStructureRoutes from "./routes/salary-structure.route.js";
 import calculationRuleRoutes from "./routes/calculation-rule.route.js";
 import invitationRoutes from "./routes/invitation.route.js";
 import payPeriodRoutes from "./routes/pay-period.route.js";
+import payScheduleRoutes from "./routes/pay-schedule.route.js";
 import payrollRunRoutes from "./routes/payroll-run.route.js";
 import auditRoutes from "./routes/audit.route.js";
 import payslipRoutes from "./routes/payslip.route.js";
@@ -78,6 +79,7 @@ app.use("/api/salary-structures", salaryStructureRoutes);
 app.use("/api/calculation-rules", calculationRuleRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/pay-periods", payPeriodRoutes);
+app.use("/api/pay-schedules", payScheduleRoutes);
 app.use("/api/payroll-runs", payrollRunRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/payslips", payslipRoutes);
@@ -89,18 +91,6 @@ app.use("/api/positions", positionRoutes);
 app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
-
-// Bull Board Dashboard (only if BullMQ is enabled)
-if (ENABLE_BULLMQ) {
-  import("./config/bull-board.config.js")
-    .then(({ getBullBoardRouter }) => {
-      app.use("/admin/queues", getBullBoardRouter());
-      logger.info("Bull Board dashboard mounted at /admin/queues");
-    })
-    .catch((error) => {
-      logger.warn(`Failed to mount Bull Board dashboard: ${error.message}`);
-    });
-}
 
 // Health check endpoint
 app.get("/health", (req, res) => {
