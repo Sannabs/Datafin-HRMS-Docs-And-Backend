@@ -517,14 +517,24 @@ function getDateModifiedRange(preset) {
 
 /**
  * Build Prisma where clause for payroll runs list/export from query params.
- * Query: payPeriodId, status (single or comma-separated), processedBy, updatedAfter, updatedBefore, dateModified, search
+ * Query: payPeriodId, status (single or comma-separated), processedBy, updatedAfter, updatedBefore, dateModified, search, ids (comma-separated run IDs)
  */
 function buildPayrollRunsWhere(tenantId, query) {
-    const { payPeriodId, status, processedBy, updatedAfter, updatedBefore, dateModified, search } = query;
+    const { payPeriodId, status, processedBy, updatedAfter, updatedBefore, dateModified, search, ids } = query;
     const where = {
         tenantId,
         ...(payPeriodId && { payPeriodId }),
     };
+
+    if (ids && String(ids).trim()) {
+        const idList = String(ids)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        if (idList.length > 0) {
+            where.id = { in: idList };
+        }
+    }
 
     if (status) {
         const statuses = String(status).split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
