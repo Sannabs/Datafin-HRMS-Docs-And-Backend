@@ -193,10 +193,6 @@ export const updateMyProfle = async (req, res) => {
             "SSN",
             "tinNumber",
             "image",
-            "departmentId",
-            "positionId",
-            "status",
-            "employmentType",
             "hireDate",
         ];
 
