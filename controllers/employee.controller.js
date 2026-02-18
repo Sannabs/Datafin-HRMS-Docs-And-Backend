@@ -1,7 +1,12 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
-
+import {
+    uploadFile,
+    generateFilename,
+    extractFilenameFromUrl,
+    deleteFile,
+} from "../config/storage.config.js";
 // get all employees
 export const getAllEmployees = async (req, res) => {
     try {
@@ -144,7 +149,189 @@ export const getEmployeeById = async (req, res) => {
     }
 };
 
-// update employee
+
+
+
+export const updateMyProfle = async (req, res) => {
+    try {
+        const { id, tenantId } = req.user;
+        const actorId = id;
+        const updateData = req.body;
+
+        if (!id) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        const existingEmployee = await prisma.user.findFirst({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+        });
+
+        if (!existingEmployee) {
+            logger.warn(`Employee not found for update with ID: ${id}`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        // allowed fields to update
+        const allowedFields = [
+            "name",
+            "phone",
+            "address",
+            "gender",
+            "dateOfBirth",
+            "SSN",
+            "tinNumber",
+            "image",
+            "departmentId",
+            "positionId",
+            "status",
+            "employmentType",
+            "hireDate",
+        ];
+
+        // Filter out disallowed fields and build update object
+        const filteredData = {};
+        for (const field of allowedFields) {
+            if (updateData[field] !== undefined) {
+                filteredData[field] = updateData[field];
+            }
+        }
+
+        // If no valid fields to update
+        if (Object.keys(filteredData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No valid fields to update",
+            });
+        }
+
+        // Validate departmentId and positionId if provided
+        if (filteredData.departmentId) {
+            const department = await prisma.department.findFirst({
+                where: {
+                    id: filteredData.departmentId,
+                    tenantId,
+                    deletedAt: null,
+                },
+            });
+
+            if (!department) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Invalid department ID",
+                });
+            }
+        }
+
+        if (filteredData.positionId) {
+            const position = await prisma.position.findFirst({
+                where: {
+                    id: filteredData.positionId,
+                    tenantId,
+                    deletedAt: null,
+                },
+            });
+
+            if (!position) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Invalid position ID",
+                });
+            }
+        }
+
+        // Update employee
+        const updatedEmployee = await prisma.user.update({
+            where: {
+                id,
+                tenantId,
+                isDeleted: false,
+            },
+            data: filteredData,
+            include: {
+                department: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+                position: {
+                    select: {
+                        id: true,
+                        title: true,
+                    },
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+
+        // Remove sensitive information (password) from response
+        const { password, ...sanitizedEmployee } = updatedEmployee;
+
+        logger.info(`Updated employee with ID: ${id}`);
+        const changes = getChangesDiff(existingEmployee, updatedEmployee);
+        await addLog(actorId, tenantId, "UPDATE", "Employee", id, changes, req);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitizedEmployee,
+            message: "Employee updated successfully",
+        });
+    } catch (error) {
+        // Handle Prisma unique constraint errors
+        if (error.code === "P2002") {
+            logger.warn(`Unique constraint violation: ${error.meta?.target}`);
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "A record with this value already exists",
+            });
+        }
+
+        // Handle record not found
+        if (error.code === "P2025") {
+            logger.warn(`Employee not found for update`);
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        logger.error(`Error updating employee: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update employee",
+        });
+    }
+};
+
+
+// update employee by admin
 export const updateEmployee = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
@@ -191,6 +378,7 @@ export const updateEmployee = async (req, res) => {
             "status",
             "employmentType",
             "hireDate",
+            "role",
         ];
 
         // Filter out disallowed fields and build update object
@@ -791,3 +979,96 @@ export const restoreEmployee = async (req, res) => {
     }
 };
 
+
+export const updateProfilePicture = async (req, res) => {
+    const id = req.user.id;
+
+
+
+    try {
+
+        const user = await prisma.user.findUnique({
+            where: {
+                id,
+                isDeleted: false,
+            },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "User not found",
+            });
+        }
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "User not found",
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No file uploaded",
+            });
+        }
+
+
+        const filename = generateFilename(req.file.originalname, "profile");
+        const imageUrl = await uploadFile(
+            req.file.buffer,
+            filename,
+            req.file.mimetype
+        );
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: { image: imageUrl },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                emailVerified: true,
+                image: true,
+                active: true,
+                tenantId: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+
+        if (user.image) {
+            try {
+                const oldKey = extractFilenameFromUrl(user.image);
+                if (oldKey) await deleteFile(oldKey);
+            } catch (deleteErr) {
+                logger.warn(`Could not delete old profile image: ${deleteErr.message}`);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Profile image updated successfully",
+            data: updatedUser,
+        });
+
+
+    } catch (error) {
+
+        logger.error(`Error updating profile picture: ${error.message}`, {
+            error: error.stack,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update profile picture",
+        });
+    }
+
+}
