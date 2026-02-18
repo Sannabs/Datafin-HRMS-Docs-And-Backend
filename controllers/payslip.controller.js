@@ -104,6 +104,7 @@ export const getAllPayslips = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        image: true,
                         department: {
                             select: {
                                 id: true,
@@ -221,6 +222,7 @@ export const getPayslipsByPayrollRun = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        image: true,
                         department: {
                             select: {
                                 id: true,
@@ -1224,6 +1226,7 @@ export const getDistributionReport = async (req, res) => {
                         name: true,
                         email: true,
                         employeeId: true,
+                        image: true,
                     },
                 },
             },
@@ -1276,6 +1279,7 @@ export const getDistributionReport = async (req, res) => {
             employeeId: payslip.user.employeeId,
             name: payslip.user.name,
             email: payslip.user.email,
+            image: payslip.user.image ?? null,
             payslipId: payslip.id,
             hasEmail: !!payslip.user.email,
             hasPdf: !!payslip.filePath,
