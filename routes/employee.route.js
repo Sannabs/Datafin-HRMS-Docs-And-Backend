@@ -3,6 +3,7 @@ import {
     getAllEmployees,
     getEmployeeById,
     updateEmployee,
+    updateEmployeeIdDigits,
     terminateEmployee,
     reactivateEmployee,
     archiveEmployee,
@@ -17,6 +18,7 @@ router.use(requireAuth);
 
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
 router.get("/:id", getEmployeeById);
+router.patch("/:id/employee-id", requireRole(["HR_ADMIN", "HR_STAFF"]), updateEmployeeIdDigits);
 router.put("/:id", updateEmployee);
 router.post("/:id/terminate", requireRole(["HR_ADMIN", "HR_STAFF"]), terminateEmployee);
 router.post("/:id/reactivate", requireRole(["HR_ADMIN", "HR_STAFF"]), reactivateEmployee);

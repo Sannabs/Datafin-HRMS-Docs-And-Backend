@@ -1,6 +1,11 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
+import {
+    parseEmployeeId,
+    validateEmployeeIdDigits,
+    isEmployeeIdUnique,
+} from "../utils/generateEmployeeId.js";
 
 // get all employees
 export const getAllEmployees = async (req, res) => {
@@ -316,6 +321,118 @@ export const updateEmployee = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to update employee",
+        });
+    }
+};
+
+// update employee ID digits (HR only) - only the 4-digit suffix is editable
+export const updateEmployeeIdDigits = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+        const employeeIdParam = req.params.id;
+        const { digits } = req.body;
+
+        if (!tenantId || !employeeIdParam) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+                message: "User not authenticated",
+            });
+        }
+
+        if (!digits || typeof digits !== "string") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "digits (4 numeric characters) is required",
+            });
+        }
+
+        const trimmedDigits = digits.trim();
+        if (!validateEmployeeIdDigits(trimmedDigits)) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "digits must be exactly 4 numeric characters (0000-9999)",
+            });
+        }
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: employeeIdParam,
+                tenantId,
+                isDeleted: false,
+            },
+            include: {
+                tenant: { select: { id: true, name: true, code: true } },
+                department: { select: { id: true, name: true } },
+            },
+        });
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        const parsed = parseEmployeeId(employee.employeeId);
+        if (!parsed) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message:
+                    "Employee ID format does not support digit edits. Only IDs in format [company]-[department]-[digits] can be updated.",
+            });
+        }
+
+        const newFullId = `${parsed.companyPrefix}-${parsed.deptPrefix}-${trimmedDigits}`;
+        const unique = await isEmployeeIdUnique(tenantId, newFullId, employee.id);
+        if (!unique) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: `Employee ID ${newFullId} already exists in this company. Choose different digits.`,
+            });
+        }
+
+        const updated = await prisma.user.update({
+            where: { id: employee.id },
+            data: { employeeId: newFullId },
+            include: {
+                department: { select: { id: true, name: true } },
+                position: { select: { id: true, title: true } },
+                tenant: { select: { id: true, name: true, code: true } },
+            },
+        });
+
+        const { password, ...sanitized } = updated;
+        logger.info(`Updated employee ID digits for ${employee.id} to ${newFullId}`);
+        await addLog(req.user.id, tenantId, "UPDATE", "Employee", employee.id, {
+            employeeId: { from: employee.employeeId, to: newFullId },
+        }, req);
+
+        return res.status(200).json({
+            success: true,
+            data: sanitized,
+            message: "Employee ID updated successfully",
+        });
+    } catch (error) {
+        if (error.code === "P2002") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee ID already exists in this company",
+            });
+        }
+        logger.error(`Error updating employee ID digits: ${error.message}`, {
+            error: error.stack,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update employee ID",
         });
     }
 };

@@ -319,7 +319,8 @@ export const acceptInvitation = async (req, res, next) => {
     // Generate employee ID
     const employeeId = await generateEmployeeId(
       invitation.tenantId,
-      invitation.tenant.code
+      invitation.tenant,
+      invitation.department
     );
 
     // Find default shift for tenant (or first active shift as fallback)

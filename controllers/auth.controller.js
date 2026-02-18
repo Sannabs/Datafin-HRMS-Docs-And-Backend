@@ -114,7 +114,7 @@ export const tenantSignUp = async (req, res, next) => {
       `Default HR Department created: ${hrDepartment.name} for tenant ${tenant.id}`
     );
 
-    const employeeId = await generateEmployeeId(tenant.id, tenant.code);
+    const employeeId = await generateEmployeeId(tenant.id, tenant, hrDepartment);
 
     let signUpResult;
     try {
