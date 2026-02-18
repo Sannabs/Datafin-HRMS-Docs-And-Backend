@@ -19,6 +19,7 @@ import {
     getStateMeta,
 } from "../utils/payroll-run.utils.js";
 import { generatePayrollRunCode } from "../utils/generatePayrollRunCode.js";
+import { escapeCsv, formatDateForCsv } from "../utils/csv.utils.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
@@ -128,6 +129,7 @@ export const createPayrollRun = async (req, res) => {
                         name: true,
                         email: true,
                         role: true,
+                        image: true,
                     },
                 },
             },
@@ -464,6 +466,7 @@ export const updatePayrollRun = async (req, res) => {
                         name: true,
                         email: true,
                         role: true,
+                        image: true,
                     },
                 },
             },
@@ -612,6 +615,7 @@ export const getPayrollRuns = async (req, res) => {
                             name: true,
                             email: true,
                             role: true,
+                            image: true,
                         },
                     },
                     _count: {
@@ -722,19 +726,6 @@ export const exportPayrollRuns = async (req, res) => {
             },
         });
 
-        const escapeCsv = (val) => {
-            if (val == null) return "";
-            const s = String(val);
-            if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-            return s;
-        };
-
-        const formatDate = (d) => {
-            if (!d) return "";
-            const date = d instanceof Date ? d : new Date(d);
-            return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
-        };
-
         const headers = [
             "Run Code",
             "Run Date",
@@ -749,10 +740,10 @@ export const exportPayrollRuns = async (req, res) => {
         ];
         const rows = payrollRuns.map((run) => [
             escapeCsv(run.runCode),
-            escapeCsv(formatDate(run.runDate)),
+            escapeCsv(formatDateForCsv(run.runDate)),
             escapeCsv(run.payPeriod?.periodName),
-            escapeCsv(formatDate(run.payPeriod?.startDate)),
-            escapeCsv(formatDate(run.payPeriod?.endDate)),
+            escapeCsv(formatDateForCsv(run.payPeriod?.startDate)),
+            escapeCsv(formatDateForCsv(run.payPeriod?.endDate)),
             escapeCsv(run.status),
             escapeCsv(run.processor?.name ?? "System"),
             escapeCsv(run.totalEmployees),
@@ -804,6 +795,7 @@ export const getPayrollRunById = async (req, res) => {
                         name: true,
                         email: true,
                         role: true,
+                        image: true,
                     },
                 },
                 payslips: {
@@ -813,6 +805,7 @@ export const getPayrollRunById = async (req, res) => {
                                 id: true,
                                 name: true,
                                 employeeId: true,
+                                image: true,
                             },
                         },
                     },

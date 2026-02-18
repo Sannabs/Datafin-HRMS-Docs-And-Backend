@@ -3,6 +3,7 @@ import {
     getAllEmployees,
     getEmployeeById,
     updateEmployee,
+    updateEmployeeIdDigits,
     terminateEmployee,
     reactivateEmployee,
     archiveEmployee,
@@ -22,6 +23,7 @@ router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAl
 router.patch("/my-profile", updateMyProfle);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.get("/:id", getEmployeeById);
+router.patch("/:id/employee-id", requireRole(["HR_ADMIN", "HR_STAFF"]), updateEmployeeIdDigits);
 router.put("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]),   updateEmployee);
 router.post("/:id/terminate", requireRole(["HR_ADMIN", "HR_STAFF"]), terminateEmployee);
 router.post("/:id/reactivate", requireRole(["HR_ADMIN", "HR_STAFF"]), reactivateEmployee);

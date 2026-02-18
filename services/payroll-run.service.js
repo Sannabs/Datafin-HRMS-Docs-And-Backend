@@ -11,6 +11,7 @@ import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 import { addPayrollRunJob } from "../queues/payroll.queue.js";
 import { updatePayPeriodStatusAutomatically } from "./pay-period-automation.service.js";
 import { validateStatusTransition } from "../utils/payroll-run.utils.js";
+import { calculateGambiaPAYE, GAMBIA_SSN_EMPLOYEE_RATE } from "../constants/gambia-payroll.defaults.js";
 
 /**
  * Get active employees for payroll processing
@@ -277,6 +278,11 @@ export const createOrUpdatePayslip = async (payrollRunId, employeeId, payslipDat
  */
 export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) => {
     try {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+
         // Get employee with active salary structure
         const employee = await prisma.user.findFirst({
             where: {
@@ -400,13 +406,22 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             totalDeductions += amount;
         }
 
+        let netSalaryFinal = netSalary;
+        if (tenant?.gambiaStatutoryEnabled) {
+            const payeAmount = calculateGambiaPAYE(grossSalary);
+            const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+            totalDeductions += payeAmount + ssnAmount;
+            netSalaryFinal = Math.max(0, grossSalary - totalDeductions);
+        }
+
         // Snapshot itemized breakdown so later config changes don't change this payslip's detail/PDF
         const itemized = await getSalaryBreakdownItemized(
             salaryStructure.baseSalary,
             salaryStructure.allowances,
             salaryStructure.deductions,
             employeeContext,
-            tenantId
+            tenantId,
+            tenant?.gambiaStatutoryEnabled ?? false
         );
         const breakdownSnapshot = {
             baseSalary: salaryStructure.baseSalary,
@@ -430,7 +445,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             grossSalary,
             totalAllowances,
             totalDeductions,
-            netSalary,
+            netSalary: netSalaryFinal,
             warnings: warnings?.hasNegativeNetSalary ? warnings : null,
             breakdownSnapshot,
         };

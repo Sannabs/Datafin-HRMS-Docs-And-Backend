@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import { validateFormula } from "../services/formula-evaluator.service.js";
+import { calculateGambiaPAYE, GAMBIA_SSN_EMPLOYEE_RATE } from "../constants/gambia-payroll.defaults.js";
 
 /**
  * Add computed netSalary and totalDeductions to a salary structure for API response.
@@ -17,6 +18,58 @@ async function enrichWithNetAndTotalDeductions(structure, tenantId) {
         tenantId
     );
     return { ...structure, netSalary, totalDeductions };
+}
+
+/**
+ * Build virtual deduction lines for Gambia PAYE and SSN with computed amounts from gross (for structure display).
+ */
+function buildGambiaStatutoryDeductionLines(grossSalary) {
+    const payeAmount = calculateGambiaPAYE(grossSalary);
+    const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+    return [
+        {
+            id: "statutory-paye",
+            deductionTypeId: null,
+            amount: payeAmount,
+            calculationMethod: "FORMULA",
+            formulaExpression: null,
+            calculationRuleId: null,
+            deductionType: { id: "", name: "PAYE (GRA)", code: "PAYE", isStatutory: true },
+            isStatutoryDefault: true,
+        },
+        {
+            id: "statutory-ssn",
+            deductionTypeId: null,
+            amount: 5,
+            calculationMethod: "PERCENTAGE",
+            formulaExpression: null,
+            calculationRuleId: null,
+            deductionType: { id: "", name: "SSN - Employee", code: "SSN", isStatutory: true },
+            isStatutoryDefault: true,
+        },
+    ];
+}
+
+/**
+ * If tenant has Gambia statutory enabled, append PAYE and SSN to structure.deductions with computed amounts,
+ * and update totalDeductions and netSalary so the structure view shows correct totals.
+ */
+function appendGambiaStatutoryDeductionsIfEnabled(structure, gambiaStatutoryEnabled) {
+    if (!gambiaStatutoryEnabled || structure.grossSalary == null) return structure;
+    const grossSalary = Number(structure.grossSalary) || 0;
+    const payeAmount = calculateGambiaPAYE(grossSalary);
+    const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+    const statutoryTotal = payeAmount + ssnAmount;
+    const lines = buildGambiaStatutoryDeductionLines(grossSalary);
+    const existingTotal = Number(structure.totalDeductions) || 0;
+    const totalDeductions = existingTotal + statutoryTotal;
+    const netSalary = Math.max(0, grossSalary - totalDeductions);
+    return {
+        ...structure,
+        deductions: [...(structure.deductions || []), ...lines],
+        totalDeductions,
+        netSalary,
+    };
 }
 
 /**
@@ -96,9 +149,14 @@ export const getMySalaryStructure = async (req, res) => {
         logger.info(`Employee ${userId} retrieved their salary structure`);
 
         const data = await enrichWithNetAndTotalDeductions(salaryStructure, tenantId);
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const dataWithGambia = appendGambiaStatutoryDeductionsIfEnabled(data, tenant?.gambiaStatutoryEnabled ?? false);
         return res.status(200).json({
             success: true,
-            data,
+            data: dataWithGambia,
         });
     } catch (error) {
         logger.error(`Error fetching my salary structure: ${error.message}`, {
@@ -208,6 +266,7 @@ export const getEmployeeSalaryStructure = async (req, res) => {
                         id: true,
                         name: true,
                         employeeId: true,
+                        image: true,
                     },
                 },
                 allowances: {
@@ -252,9 +311,14 @@ export const getEmployeeSalaryStructure = async (req, res) => {
         logger.info(`HR retrieved salary structure for employee: ${employeeId}`);
 
         const data = await enrichWithNetAndTotalDeductions(salaryStructure, tenantId);
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const dataWithGambia = appendGambiaStatutoryDeductionsIfEnabled(data, tenant?.gambiaStatutoryEnabled ?? false);
         return res.status(200).json({
             success: true,
-            data,
+            data: dataWithGambia,
         });
     } catch (error) {
         logger.error(`Error fetching salary structure: ${error.message}`, {
@@ -293,6 +357,7 @@ export const getAllSalaryStructures = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        image: true,
                         department: {
                             select: { id: true, name: true },
                         },
@@ -331,9 +396,15 @@ export const getAllSalaryStructures = async (req, res) => {
 
         logger.info(`Retrieved ${salaryStructures.length} salary structures for tenant ${tenantId}${employeeId ? ` (employee: ${employeeId})` : ""}`);
 
-        const data = await Promise.all(
+        const enriched = await Promise.all(
             salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
         );
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+        const data = enriched.map((s) => appendGambiaStatutoryDeductionsIfEnabled(s, gambiaEnabled));
         return res.status(200).json({
             success: true,
             data,
@@ -373,6 +444,7 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                         id: true,
                         name: true,
                         employeeId: true,
+                        image: true,
                     },
                 },
                 allowances: {
@@ -407,9 +479,15 @@ export const getEmployeeSalaryStructures = async (req, res) => {
 
         logger.info(`HR retrieved ${salaryStructures.length} salary structures for employee: ${employeeId}`);
 
-        const data = await Promise.all(
+        const enriched = await Promise.all(
             salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
         );
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+        const data = enriched.map((s) => appendGambiaStatutoryDeductionsIfEnabled(s, gambiaEnabled));
         return res.status(200).json({
             success: true,
             data,

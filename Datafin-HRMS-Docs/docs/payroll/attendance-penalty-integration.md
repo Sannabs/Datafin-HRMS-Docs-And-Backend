@@ -14,6 +14,15 @@ Penalty amounts are stored in the **Tenant** model:
 
 These values are automatically retrieved from the tenant record and used in calculations.
 
+### Tenant settings UI
+Before penalties affect payroll, admins must be able to set these values:
+
+- **Where**: Attendance settings (or Company/Tenant settings), e.g. under the same area as grace period, clock-in methods, etc.
+- **Fields to expose**: Absence penalty amount (currency), Consecutive late penalty amount (currency). Optional: help text (e.g. "Per absence" / "Per sequence of 3+ consecutive late days").
+- **Backend**: Use the existing tenant PATCH (e.g. `PATCH /api/attendance/config/settings` or tenant update) to persist `absencePenalty` and `consecutiveLatePenalty`.
+
+Until the UI exists, values can be set via database or API; calculations will use whatever is stored on the tenant.
+
 ## Integration Steps
 
 ### Step 1: Import the utility
@@ -110,4 +119,16 @@ return {
   },
 }
 ```
+
+## Optional: Surface breakdown in UI
+
+To make penalties auditable and visible to HR and employees:
+
+### Payroll run details
+- When showing a payroll run (e.g. run summary or per-employee results), include an **attendance penalty** line if `attendancePenaltyData.totalPenalty > 0`.
+- Optionally show **breakdown**: e.g. "Absences: 2 days (200)" and "Consecutive lates: 1 sequence (200)" using `attendancePenaltyData.breakdown`. Persist or pass the breakdown from the payroll processing step so the run-details API can return it.
+
+### Payslip views
+- Add an **Attendance penalty** deduction line on the payslip when the amount is non-zero.
+- Optionally list details: absence dates and/or consecutive-late sequences (from `breakdown`), so employees can see why the deduction was applied.
 

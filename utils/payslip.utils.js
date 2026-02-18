@@ -83,12 +83,18 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
           }
         : null;
 
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { gambiaStatutoryEnabled: true },
+    });
+
     const itemized = await getSalaryBreakdownItemized(
         salaryStructure.baseSalary,
         salaryStructure.allowances,
         salaryStructure.deductions,
         employeeContext,
-        tenantId
+        tenantId,
+        tenant?.gambiaStatutoryEnabled ?? false
     );
 
     return {
@@ -120,5 +126,18 @@ export const formatCurrency = (amount, currency = "USD") => {
         style: "currency",
         currency,
     }).format(amount || 0);
+};
+
+/**
+ * Sanitize a period name (or any string) for safe use in filenames (ASCII, no quotes/newlines).
+ * @param {string | null | undefined} periodName - Raw period name
+ * @param {string} fallback - Value to use when result would be empty (default: "file")
+ * @returns {string}
+ */
+export const sanitizePeriodNameForFilename = (periodName, fallback = "file") => {
+    const raw = (periodName ?? "")
+        .replace(/[\s"\\\r\n]+/g, "-")
+        .replace(/[^\w\-.]/g, "");
+    return raw || fallback;
 };
 

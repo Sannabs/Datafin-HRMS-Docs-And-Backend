@@ -1,8 +1,8 @@
 import http from "http";
-import { networkInterfaces } from "os";
 import app from "../app.js";
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
+import { getLocalIP } from "../utils/network.utils.js";
 import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job.js";
 import { testRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers } from "../workers/payroll.worker.js";

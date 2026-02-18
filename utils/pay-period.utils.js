@@ -106,3 +106,34 @@ export { getStateMeta };
  */
 export { getNextStatus };
 
+/**
+ * Format a pay period for API response with payroll run summary (counts and totals).
+ * @param {Object} payPeriod - Pay period with payrollRuns array
+ * @returns {Object} Pay period with payrollRunSummary, payrollRuns omitted
+ */
+export const formatPayPeriodResponse = (payPeriod) => {
+    const runSummary = payPeriod.payrollRuns.reduce(
+        (acc, run) => {
+            acc.totalRuns += 1;
+            acc.statusCounts[run.status] = (acc.statusCounts[run.status] || 0) + 1;
+            acc.totalEmployees += run.totalEmployees ?? 0;
+            acc.totalGrossPay += run.totalGrossPay ?? 0;
+            acc.totalNetPay += run.totalNetPay ?? 0;
+            return acc;
+        },
+        {
+            totalRuns: 0,
+            statusCounts: {},
+            totalEmployees: 0,
+            totalGrossPay: 0,
+            totalNetPay: 0,
+        }
+    );
+
+    const { payrollRuns, ...rest } = payPeriod;
+    return {
+        ...rest,
+        payrollRunSummary: runSummary,
+    };
+};
+

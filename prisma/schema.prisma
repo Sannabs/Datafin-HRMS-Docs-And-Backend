@@ -194,6 +194,10 @@ model Tenant {
   absencePenalty         Float?        @default(0)
   consecutiveLatePenalty Float?        @default(0)
 
+  // Gambia statutory payroll (PAYE + SSN): when true, applied automatically for all employees
+  gambiaStatutoryEnabled   Boolean   @default(false)
+  employerSocialSecurityRate Float?  // e.g. 10 for 10% (reporting only, not deducted from pay)
+
   users              User[]
   departments        Department[]
   positions          Position[]
