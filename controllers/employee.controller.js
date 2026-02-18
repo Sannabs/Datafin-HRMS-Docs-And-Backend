@@ -155,7 +155,6 @@ export const getEmployeeById = async (req, res) => {
 export const updateMyProfle = async (req, res) => {
     try {
         const { id, tenantId } = req.user;
-        const actorId = id;
         const updateData = req.body;
 
         if (!id) {
@@ -284,9 +283,6 @@ export const updateMyProfle = async (req, res) => {
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = updatedEmployee;
 
-        logger.info(`Updated employee with ID: ${id}`);
-        const changes = getChangesDiff(existingEmployee, updatedEmployee);
-        await addLog(actorId, tenantId, "UPDATE", "Employee", id, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -330,11 +326,12 @@ export const updateMyProfle = async (req, res) => {
 // update employee by admin
 export const updateEmployee = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
-        const actorId = id;
+        const {tenantId } = req.user;
+        const actorId = req.user.id;
+        const { id } = req.params;
         const updateData = req.body;
-
-        if (!id) {
+        
+        if (!actorId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
@@ -978,9 +975,6 @@ export const restoreEmployee = async (req, res) => {
 
 export const updateProfilePicture = async (req, res) => {
     const id = req.user.id;
-
-
-
     try {
 
         const user = await prisma.user.findUnique({
@@ -1022,7 +1016,7 @@ export const updateProfilePicture = async (req, res) => {
         );
 
         const updatedUser = await prisma.user.update({
-            where: { id: userId },
+            where: { id },
             data: { image: imageUrl },
             select: {
                 id: true,
@@ -1030,7 +1024,6 @@ export const updateProfilePicture = async (req, res) => {
                 name: true,
                 emailVerified: true,
                 image: true,
-                active: true,
                 tenantId: true,
                 createdAt: true,
                 updatedAt: true,

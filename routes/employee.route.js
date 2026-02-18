@@ -7,17 +7,22 @@ import {
     reactivateEmployee,
     archiveEmployee,
     restoreEmployee,
+    updateMyProfle,
+    updateProfilePicture,
 } from "../controllers/employee.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
+import { uploadSingleImage } from "../middlewares/upload.middleware.js";
 
 const router = express.Router();
 
 router.use(requireAuth);
 
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
+router.patch("/my-profile", updateMyProfle);
+router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.get("/:id", getEmployeeById);
-router.put("/:id", updateEmployee);
+router.put("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]),   updateEmployee);
 router.post("/:id/terminate", requireRole(["HR_ADMIN", "HR_STAFF"]), terminateEmployee);
 router.post("/:id/reactivate", requireRole(["HR_ADMIN", "HR_STAFF"]), reactivateEmployee);
 router.post("/:id/archive", requireRole(["HR_ADMIN", "HR_STAFF"]), archiveEmployee);
