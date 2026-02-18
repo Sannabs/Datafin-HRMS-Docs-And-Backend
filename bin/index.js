@@ -14,31 +14,6 @@ const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 const server = http.createServer(app);
 
-
-
-
-const VIRTUAL_ADAPTER_PATTERNS = /vEthernet|WSL|Hyper-V|Virtual|Docker|VMware|vboxnet|Loopback/i;
-
-const getLocalIP = () => {
-  const nets = networkInterfaces();
-  let fallback = null;
-  for (const name of Object.keys(nets)) {
-    if (VIRTUAL_ADAPTER_PATTERNS.test(name)) continue;
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
-      }
-    }
-  }
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        fallback = fallback ?? net.address;
-      }
-    }
-  }
-  return fallback ?? 'localhost';
-};
 server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
 
 
