@@ -1,8 +1,8 @@
 import http from "http";
-import { networkInterfaces } from "os";
 import app from "../app.js";
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
+import { getLocalIP } from "../utils/network.utils.js";
 import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job.js";
 import { testRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers } from "../workers/payroll.worker.js";
@@ -17,17 +17,6 @@ const server = http.createServer(app);
 
 
 
-const getLocalIP = () => {
-  const nets = networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
-      }
-    }
-  }
-  return 'localhost';
-};
 server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
 
 

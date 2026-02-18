@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import logger from "../utils/logger.js";
 import { uploadPayslip } from "./file-storage.service.js";
 import prisma from "../config/prisma.config.js";
-import { getPayslipBreakdown } from "../utils/payslip.utils.js";
+import { getPayslipBreakdown, formatCurrency } from "../utils/payslip.utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,13 +24,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
         // Load HTML template
         let template = await readFile(templatePath, "utf-8");
 
-        // Format currency values
-        const formatCurrency = (amount) => {
-            return new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: payslipData.currency || "USD",
-            }).format(amount || 0);
-        };
+        const currency = payslipData.currency || "USD";
 
         // Prepare template data (use passed company name so PDF shows actual company)
         const companyName =
@@ -48,10 +42,10 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
             startDate: payslipData.startDate || "",
             endDate: payslipData.endDate || "",
             paymentDate: payslipData.paymentDate || new Date().toLocaleDateString(),
-            baseSalary: formatCurrency(payslipData.baseSalary || 0),
-            grossSalary: formatCurrency(payslipData.grossSalary || 0),
-            totalDeductions: formatCurrency(payslipData.totalDeductions || 0),
-            netSalary: formatCurrency(payslipData.netSalary || 0),
+            baseSalary: formatCurrency(payslipData.baseSalary || 0, currency),
+            grossSalary: formatCurrency(payslipData.grossSalary || 0, currency),
+            totalDeductions: formatCurrency(payslipData.totalDeductions || 0, currency),
+            netSalary: formatCurrency(payslipData.netSalary || 0, currency),
             generatedAt: new Date().toLocaleString(),
         };
 
@@ -67,7 +61,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
                     (allowance) => `
                 <tr>
                     ${cellWithDesc(allowance.name || allowance.type || "Allowance", allowance.description)}
-                    <td class="amount">${formatCurrency(allowance.amount || 0)}</td>
+                    <td class="amount">${formatCurrency(allowance.amount || 0, currency)}</td>
                 </tr>
             `
                 )
@@ -84,7 +78,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
                     (deduction) => `
                 <tr>
                     ${cellWithDesc(deduction.name || deduction.type || "Deduction", deduction.description)}
-                    <td class="amount">${formatCurrency(deduction.amount || 0)}</td>
+                    <td class="amount">${formatCurrency(deduction.amount || 0, currency)}</td>
                 </tr>
             `
                 )

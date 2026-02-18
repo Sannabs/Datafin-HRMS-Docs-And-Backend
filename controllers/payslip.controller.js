@@ -3,7 +3,7 @@ import logger from "../utils/logger.js";
 import { getPayslipUrl, getPayslipBuffer } from "../services/file-storage.service.js";
 import { generatePayslipFromRecord } from "../services/payslip-generator.service.js";
 import { addLog } from "../utils/audit.utils.js";
-import { getPayslipBreakdown, formatCurrency } from "../utils/payslip.utils.js";
+import { getPayslipBreakdown, formatCurrency, sanitizePeriodNameForFilename } from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
 import { calculatePayrollRunTotals } from "../services/payroll-run.service.js";
@@ -368,10 +368,8 @@ export const bulkDownloadPayslips = async (req, res) => {
         }
 
         // Set response headers for ZIP download (filename must be ASCII, no quotes/newlines)
-        const safePeriodName = (payrollRun.payPeriod.periodName || "run")
-            .replace(/[\s"\\\r\n]+/g, "-")
-            .replace(/[^\w\-.]/g, "");
-        const zipFilename = `payslips-${safePeriodName || "run"}.zip`;
+        const safePeriodName = sanitizePeriodNameForFilename(payrollRun.payPeriod?.periodName, "run");
+        const zipFilename = `payslips-${safePeriodName}.zip`;
         res.setHeader("Content-Type", "application/zip");
         res.setHeader("Content-Disposition", `attachment; filename=${zipFilename}`);
 
@@ -1061,9 +1059,7 @@ export const distributePayslips = async (req, res) => {
                 let attachments = [];
                 try {
                     const pdfBuffer = await getPayslipBuffer(payslip.filePath);
-                    const safePeriodName = (payrollRun.payPeriod.periodName || "payslip")
-                        .replace(/[\s"\\\r\n]+/g, "-")
-                        .replace(/[^\w\-.]/g, "") || "payslip";
+                    const safePeriodName = sanitizePeriodNameForFilename(payrollRun.payPeriod?.periodName, "payslip");
                     attachments = [
                         { filename: `Payslip-${safePeriodName}.pdf`, content: pdfBuffer },
                     ];

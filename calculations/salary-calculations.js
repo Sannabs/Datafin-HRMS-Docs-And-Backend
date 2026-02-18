@@ -1,5 +1,6 @@
 import { evaluateFormula } from "../services/formula-evaluator.service.js";
 import logger from "../utils/logger.js";
+import { calculateGambiaPAYE, GAMBIA_SSN_EMPLOYEE_RATE } from "../constants/gambia-payroll.defaults.js";
 
 /**
  * Calculate the amount for a single allowance based on calculation method
@@ -254,6 +255,7 @@ export const recalculateSalary = async (
  * @param {Array} deductions - Deduction rows with deductionType: { name }, amount, calculationMethod, formulaExpression
  * @param {Object} [employeeContext] - Employee context for formula evaluation
  * @param {string} [tenantId] - Tenant ID
+ * @param {boolean} [gambiaStatutoryEnabled] - When true, append PAYE (GRA) and SSN (5% employee) to deduction lines
  * @returns {Promise<Object>} { grossSalary, netSalary, totalDeductions, allowanceLines: [{ name, amount, calculationMethod, description }], deductionLines: [{ name, amount, calculationMethod, description }] }
  */
 export const getSalaryBreakdownItemized = async (
@@ -261,7 +263,8 @@ export const getSalaryBreakdownItemized = async (
     allowances = [],
     deductions = [],
     employeeContext = null,
-    tenantId = null
+    tenantId = null,
+    gambiaStatutoryEnabled = false
 ) => {
     const allowanceLines = [];
     let totalAllowances = 0;
@@ -310,6 +313,16 @@ export const getSalaryBreakdownItemized = async (
             description = "Formula";
         }
         deductionLines.push({ name, amount, calculationMethod: method, description });
+    }
+
+    if (gambiaStatutoryEnabled) {
+        const payeAmount = calculateGambiaPAYE(grossSalary);
+        const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+        deductionLines.push(
+            { name: "PAYE (GRA)", amount: payeAmount, calculationMethod: "FORMULA", description: "GRA tax bands" },
+            { name: "SSN - Employee", amount: ssnAmount, calculationMethod: "PERCENTAGE", description: "5% of gross" }
+        );
+        totalDeductions += payeAmount + ssnAmount;
     }
 
     const netSalary = Math.max(0, grossSalary - totalDeductions);
