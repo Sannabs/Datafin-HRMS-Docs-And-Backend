@@ -72,8 +72,8 @@ app.use("/api/auth", (req, res, next) => {
 });
 
 // Routes
-app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/auth", authRoutes);
+app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/employees", employeeRoutes);
 app.use("/api/allowance-types", allowanceTypeRoutes);
 app.use("/api/deduction-types", deductionTypeRoutes);
