@@ -44,21 +44,10 @@ export const auth = betterAuth({
     },
   },
   advanced: {
-    // ✅ Disable CSRF for cross-origin deployments
-    disableCSRFCheck: true,
+    // CSRF check only disabled in local dev; in production the Vercel proxy means
+    // the browser origin matches the trusted origins list, so CSRF checks pass normally.
+    disableCSRFCheck: process.env.NODE_ENV === "development",
     useSecureCookies: isProd,
-    defaultCookieAttributes: isProd
-      ? {
-          sameSite: "none",
-          secure: true,
-          httpOnly: true,
-          partitioned: true, 
-        }
-      : {
-          sameSite: "lax",
-          secure: false,
-          httpOnly: true,
-        },
   },
   emailAndPassword: {
     enabled: true,
