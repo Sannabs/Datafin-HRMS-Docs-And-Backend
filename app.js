@@ -72,6 +72,7 @@ app.use("/api/auth", (req, res, next) => {
 });
 
 // Routes
+app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/auth", authRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/allowance-types", allowanceTypeRoutes);
@@ -90,7 +91,6 @@ app.use("/api/recent-activities", recentActivitiesRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/positions", positionRoutes);
 app.use("/api/tenant", tenantRoutes);
-app.all("/api/auth/*", toNodeHandler(auth));
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
 
