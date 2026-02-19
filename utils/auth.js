@@ -5,7 +5,12 @@ import { emailOTP } from "better-auth/plugins";
 import { sendVerificationOTP as sendOTPEmail } from "../views/sendVerificationEmail.js";
 import { sendPasswordResetEmail } from "../views/sendPasswordResetEmail.js";
 
+const baseURL = process.env.BETTER_AUTH_URL || "http://localhost:5000";
+const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+
 export const auth = betterAuth({
+  baseURL,
+  trustedOrigins: [clientUrl, baseURL],
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
