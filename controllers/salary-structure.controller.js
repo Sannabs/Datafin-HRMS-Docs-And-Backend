@@ -268,6 +268,12 @@ export const getEmployeeSalaryStructure = async (req, res) => {
                         employeeId: true,
                         image: true,
                         address: true,
+                        department: {
+                            select: { id: true, name: true },
+                        },
+                        position: {
+                            select: { id: true, title: true },
+                        },
                     },
                 },
                 allowances: {
@@ -448,6 +454,12 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                         employeeId: true,
                         image: true,
                         address: true,
+                        department: {
+                            select: { id: true, name: true },
+                        },
+                        position: {
+                            select: { id: true, title: true },
+                        },
                     },
                 },
                 allowances: {
