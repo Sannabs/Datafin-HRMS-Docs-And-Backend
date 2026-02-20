@@ -608,6 +608,7 @@ export const getPayslipById = async (req, res) => {
                         employeeId: true,
                         tenantId: true,
                         email: true,
+                        image: true,
                         department: {
                             select: {
                                 id: true,

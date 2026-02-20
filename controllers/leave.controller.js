@@ -1197,6 +1197,7 @@ export const getLeaveRequestById = async (req, res, next) => {
             email: true,
             employeeId: true,
             phone: true,
+            image: true,
             department: {
               select: {
                 id: true,
@@ -1220,12 +1221,14 @@ export const getLeaveRequestById = async (req, res, next) => {
             email: true,
             employeeId: true,
             phone: true,
+            image: true,
           },
         },
         hr: {
           select: {
             id: true,
             name: true,
+            image: true,
             email: true,
             employeeId: true,
             phone: true,
@@ -1238,6 +1241,7 @@ export const getLeaveRequestById = async (req, res, next) => {
             email: true,
             employeeId: true,
             phone: true,
+            image: true,
           },
         },
       },
