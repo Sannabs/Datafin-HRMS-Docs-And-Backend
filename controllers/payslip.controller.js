@@ -345,11 +345,10 @@ export const bulkDownloadPayslips = async (req, res) => {
             });
         }
 
-        // Get all payslips with file paths
+        // Get all payslips (include those without filePath; we generate on-the-fly if needed)
         const payslips = await prisma.payslip.findMany({
             where: {
                 payrollRunId: runId,
-                filePath: { not: null },
             },
             include: {
                 user: {
@@ -365,7 +364,30 @@ export const bulkDownloadPayslips = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
-                message: "No payslip PDFs found for this payroll run",
+                message: "No payslips found for this payroll run",
+            });
+        }
+
+        // Generate missing PDFs on-the-fly (same as single download)
+        for (const payslip of payslips) {
+            if (!payslip.filePath) {
+                try {
+                    const uploadResult = await generatePayslipFromRecord(payslip.id, tenantId);
+                    payslip.filePath = uploadResult.public_id;
+                } catch (genErr) {
+                    logger.warn(`Failed to generate PDF for payslip ${payslip.id} in bulk: ${genErr.message}`);
+                    // Skip this payslip; we may still add others
+                }
+            }
+        }
+
+        // Filter to payslips that have a filePath (generated or pre-existing)
+        const payslipsWithPdf = payslips.filter((p) => p.filePath);
+        if (payslipsWithPdf.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "No payslip PDFs could be generated for this payroll run",
             });
         }
 
@@ -384,10 +406,12 @@ export const bulkDownloadPayslips = async (req, res) => {
         archive.pipe(res);
 
         // Add each payslip PDF to archive
-        for (const payslip of payslips) {
+        for (const payslip of payslipsWithPdf) {
             try {
                 const pdfBuffer = await getPayslipBuffer(payslip.filePath);
-                const filename = `${payslip.user.employeeId}-${payslip.user.name.replace(/\s+/g, "_")}.pdf`;
+                const safeName = (payslip.user?.name || "unknown").replace(/\s+/g, "_");
+                const safeEmployeeId = payslip.user?.employeeId || payslip.id.slice(0, 8);
+                const filename = `${safeEmployeeId}-${safeName}.pdf`;
                 archive.append(pdfBuffer, { name: filename });
             } catch (err) {
                 logger.warn(`Failed to add payslip ${payslip.id} to ZIP: ${err.message}`);
@@ -401,10 +425,10 @@ export const bulkDownloadPayslips = async (req, res) => {
         await addLog(userId, tenantId, "DOWNLOAD", "Payslip", runId, {
             action: "bulk_download",
             payrollRunId: runId,
-            count: payslips.length,
+            count: payslipsWithPdf.length,
         }, req);
 
-        logger.info(`Bulk download initiated for payroll run ${runId} (${payslips.length} payslips)`);
+        logger.info(`Bulk download initiated for payroll run ${runId} (${payslipsWithPdf.length} payslips)`);
     } catch (error) {
         logger.error(`Error bulk downloading payslips: ${error.message}`, {
             error: error.stack,
