@@ -806,6 +806,12 @@ export const getPayrollRunById = async (req, res) => {
                                 name: true,
                                 employeeId: true,
                                 image: true,
+                                department: {
+                                    select: { id: true, name: true },
+                                },
+                                position: {
+                                    select: { id: true, title: true },
+                                },
                             },
                         },
                     },
