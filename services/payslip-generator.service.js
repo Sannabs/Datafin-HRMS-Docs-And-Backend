@@ -94,10 +94,14 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
         template = template.replace("{{allowances}}", allowancesHTML);
         template = template.replace("{{deductions}}", deductionsHTML);
 
-        // Launch Puppeteer browser
+        // Launch Puppeteer browser (use installed Chrome on Render when set)
+        const executablePath =
+            process.env.PUPPETEER_EXECUTABLE_PATH ||
+            (process.env.RENDER ? "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome" : undefined);
         browser = await puppeteer.launch({
             headless: true,
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
+            ...(executablePath && { executablePath }),
+            args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
         });
 
         const page = await browser.newPage();
