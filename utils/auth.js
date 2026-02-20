@@ -44,13 +44,8 @@ export const auth = betterAuth({
     },
   },
   advanced: {
-    // CSRF check only disabled in local dev; in production the Vercel proxy means
-    // the browser origin matches the trusted origins list, so CSRF checks pass normally.
     disableCSRFCheck: process.env.NODE_ENV === "development",
     useSecureCookies: isProd,
-    // When the frontend proxies requests (Vercel → Render), forwarded headers can be used
-    // for redirect/callback URLs. Cookie stays host-only by default (no Domain set),
-    // so the browser attaches it to the origin that received the response (Vercel).
     trustedProxyHeaders: true,
   },
   emailAndPassword: {
