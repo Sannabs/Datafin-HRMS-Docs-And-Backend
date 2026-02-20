@@ -198,6 +198,10 @@ model Tenant {
   gambiaStatutoryEnabled   Boolean   @default(false)
   employerSocialSecurityRate Float?  // e.g. 10 for 10% (reporting only, not deducted from pay)
 
+  // Pay period governance: control creation of past pay periods
+  allowPastPayPeriodCreation  Boolean @default(true)
+  maxPayPeriodLookbackDays    Int?    // null = unlimited; e.g. 365 = max 12 months back
+
   users              User[]
   departments        Department[]
   positions          Position[]

@@ -64,6 +64,36 @@ export const createPayPeriod = async (req, res) => {
             });
         }
 
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { allowPastPayPeriodCreation: true, maxPayPeriodLookbackDays: true },
+        });
+        const allowPast = tenant?.allowPastPayPeriodCreation ?? true;
+        const maxLookback = tenant?.maxPayPeriodLookbackDays ?? null;
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const endDateOnly = new Date(end);
+        endDateOnly.setHours(0, 0, 0, 0);
+
+        if (!allowPast && endDateOnly < todayStart) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Past pay periods are not allowed for this organization",
+            });
+        }
+        if (maxLookback != null && maxLookback >= 0) {
+            const cutoff = new Date(todayStart);
+            cutoff.setDate(cutoff.getDate() - maxLookback);
+            if (endDateOnly < cutoff) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: `Pay period cannot end more than ${maxLookback} days ago`,
+                });
+            }
+        }
+
         const { calendarMonth, calendarYear } = getCalendarMetadata(start);
 
         const payPeriod = await prisma.payPeriod.create({
@@ -284,6 +314,35 @@ export const updatePayPeriod = async (req, res) => {
                     error: "Bad Request",
                     message: `Pay period overlaps with existing period ${overlap.periodName}`,
                 });
+            }
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { allowPastPayPeriodCreation: true, maxPayPeriodLookbackDays: true },
+            });
+            const allowPast = tenant?.allowPastPayPeriodCreation ?? true;
+            const maxLookback = tenant?.maxPayPeriodLookbackDays ?? null;
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const endDateOnly = new Date(end);
+            endDateOnly.setHours(0, 0, 0, 0);
+
+            if (!allowPast && endDateOnly < todayStart) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Past pay periods are not allowed for this organization",
+                });
+            }
+            if (maxLookback != null && maxLookback >= 0) {
+                const cutoff = new Date(todayStart);
+                cutoff.setDate(cutoff.getDate() - maxLookback);
+                if (endDateOnly < cutoff) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Bad Request",
+                        message: `Pay period cannot end more than ${maxLookback} days ago`,
+                    });
+                }
             }
             updates.startDate = start;
             updates.endDate = end;

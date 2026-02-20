@@ -14,6 +14,8 @@ export const getPayrollSettings = async (req, res) => {
             select: {
                 gambiaStatutoryEnabled: true,
                 employerSocialSecurityRate: true,
+                allowPastPayPeriodCreation: true,
+                maxPayPeriodLookbackDays: true,
             },
         });
 
@@ -30,6 +32,8 @@ export const getPayrollSettings = async (req, res) => {
             data: {
                 gambiaStatutoryEnabled: tenant.gambiaStatutoryEnabled ?? false,
                 employerSocialSecurityRate: tenant.employerSocialSecurityRate ?? null,
+                allowPastPayPeriodCreation: tenant.allowPastPayPeriodCreation ?? true,
+                maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
             },
         });
     } catch (error) {
@@ -48,12 +52,12 @@ export const getPayrollSettings = async (req, res) => {
 /**
  * PATCH /api/tenant/payroll-settings
  * Updates Gambia statutory and optional employer SSN rate.
- * Body: { gambiaStatutoryEnabled?: boolean, employerSocialSecurityRate?: number | null }
+ * Body: { gambiaStatutoryEnabled?: boolean, employerSocialSecurityRate?: number | null, allowPastPayPeriodCreation?: boolean, maxPayPeriodLookbackDays?: number | null }
  */
 export const updatePayrollSettings = async (req, res) => {
     try {
         const { tenantId, id: userId } = req.user;
-        const { gambiaStatutoryEnabled, employerSocialSecurityRate } = req.body;
+        const { gambiaStatutoryEnabled, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays } = req.body;
 
         const updateData = {};
         if (typeof gambiaStatutoryEnabled === "boolean") {
@@ -65,12 +69,30 @@ export const updatePayrollSettings = async (req, res) => {
                     ? null
                     : Number(employerSocialSecurityRate);
         }
+        if (typeof allowPastPayPeriodCreation === "boolean") {
+            updateData.allowPastPayPeriodCreation = allowPastPayPeriodCreation;
+        }
+        if (maxPayPeriodLookbackDays !== undefined) {
+            if (maxPayPeriodLookbackDays == null || maxPayPeriodLookbackDays === "") {
+                updateData.maxPayPeriodLookbackDays = null;
+            } else {
+                const val = Number(maxPayPeriodLookbackDays);
+                if (!Number.isInteger(val) || val < 0 || val > 1095) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Bad Request",
+                        message: "maxPayPeriodLookbackDays must be between 0 and 1095, or null for unlimited",
+                    });
+                }
+                updateData.maxPayPeriodLookbackDays = val;
+            }
+        }
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No valid fields to update (gambiaStatutoryEnabled, employerSocialSecurityRate)",
+                message: "No valid fields to update (gambiaStatutoryEnabled, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays)",
             });
         }
 
@@ -80,6 +102,8 @@ export const updatePayrollSettings = async (req, res) => {
             select: {
                 gambiaStatutoryEnabled: true,
                 employerSocialSecurityRate: true,
+                allowPastPayPeriodCreation: true,
+                maxPayPeriodLookbackDays: true,
             },
         });
 
@@ -94,6 +118,8 @@ export const updatePayrollSettings = async (req, res) => {
             data: {
                 gambiaStatutoryEnabled: tenant.gambiaStatutoryEnabled ?? false,
                 employerSocialSecurityRate: tenant.employerSocialSecurityRate ?? null,
+                allowPastPayPeriodCreation: tenant.allowPastPayPeriodCreation ?? true,
+                maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
             },
             message: "Payroll settings updated",
         });
