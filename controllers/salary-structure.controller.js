@@ -267,6 +267,13 @@ export const getEmployeeSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         image: true,
+                        address: true,
+                        department: {
+                            select: { id: true, name: true },
+                        },
+                        position: {
+                            select: { id: true, title: true },
+                        },
                     },
                 },
                 allowances: {
@@ -358,6 +365,7 @@ export const getAllSalaryStructures = async (req, res) => {
                         employeeId: true,
                         email: true,
                         image: true,
+                        address: true,
                         department: {
                             select: { id: true, name: true },
                         },
@@ -445,6 +453,13 @@ export const getEmployeeSalaryStructures = async (req, res) => {
                         name: true,
                         employeeId: true,
                         image: true,
+                        address: true,
+                        department: {
+                            select: { id: true, name: true },
+                        },
+                        position: {
+                            select: { id: true, title: true },
+                        },
                     },
                 },
                 allowances: {
@@ -763,6 +778,7 @@ export const createSalaryStructure = async (req, res) => {
                         id: true,
                         name: true,
                         employeeId: true,
+                        address: true,
                     },
                 },
                 allowances: {
@@ -1004,6 +1020,7 @@ export const updateSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        address: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
@@ -1075,6 +1092,7 @@ export const deactivateSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        address: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
@@ -1127,6 +1145,7 @@ export const deactivateSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        address: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
@@ -1185,6 +1204,7 @@ export const activateSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        address: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
@@ -1264,6 +1284,7 @@ export const activateSalaryStructure = async (req, res) => {
                         name: true,
                         employeeId: true,
                         email: true,
+                        address: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
@@ -1318,7 +1339,7 @@ export const deleteSalaryStructure = async (req, res) => {
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: { id, tenantId },
             include: {
-                user: { select: { name: true, employeeId: true, email: true } },
+                user: { select: { name: true, employeeId: true, email: true, address: true } },
                 allowances: { select: { id: true } },
                 deductions: { select: { id: true } },
             },
