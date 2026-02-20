@@ -1021,6 +1021,7 @@ export const updateSalaryStructure = async (req, res) => {
                         employeeId: true,
                         email: true,
                         address: true,
+                        image: true,
                         department: { select: { id: true, name: true } },
                         position: { select: { id: true, title: true } },
                     },
