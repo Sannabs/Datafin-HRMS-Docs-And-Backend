@@ -12,14 +12,32 @@ const __dirname = dirname(__filename);
 const templatePath = process.env.PAYSLIP_TEMPLATE_PATH || join(__dirname, "../templates/payslip.html");
 
 /**
+ * Launch a shared Puppeteer browser instance (for batch use)
+ */
+const launchBrowser = () => {
+    const executablePath =
+        process.env.PUPPETEER_EXECUTABLE_PATH ||
+        (process.env.RENDER ? "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome" : undefined);
+    return puppeteer.launch({
+        headless: true,
+        ...(executablePath && { executablePath }),
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    });
+};
+
+/**
  * Generate payslip PDF and upload to Cloudflare R2
  * @param {string} payslipId - Payslip ID
  * @param {string} tenantId - Tenant ID
  * @param {Object} payslipData - Payslip data for template
+ * @param {{ browser?: import("puppeteer").Browser }} [options] - Optional shared browser (caller must close)
  * @returns {Promise<Object>} Upload result with filename (as public_id) and secure_url
  */
-export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
-    let browser = null;
+export const generatePayslipPDF = async (payslipId, tenantId, payslipData, options = {}) => {
+    const { browser: sharedBrowser } = options;
+    let browser = sharedBrowser ?? null;
+    const ownedBrowser = !sharedBrowser;
+
     try {
         // Load HTML template
         let template = await readFile(templatePath, "utf-8");
@@ -94,18 +112,13 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
         template = template.replace("{{allowances}}", allowancesHTML);
         template = template.replace("{{deductions}}", deductionsHTML);
 
-        // Launch Puppeteer browser (use installed Chrome on Render when set)
-        const executablePath =
-            process.env.PUPPETEER_EXECUTABLE_PATH ||
-            (process.env.RENDER ? "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome" : undefined);
-        browser = await puppeteer.launch({
-            headless: true,
-            ...(executablePath && { executablePath }),
-            args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-        });
+        if (!browser) {
+            browser = await launchBrowser();
+        }
 
         const page = await browser.newPage();
-        await page.setContent(template, { waitUntil: "networkidle0" });
+        // domcontentloaded is sufficient for static inline HTML; networkidle0 can timeout in containerized environments (e.g. Render)
+        await page.setContent(template, { waitUntil: "domcontentloaded" });
 
         // Generate PDF
         const pdfBuffer = await page.pdf({
@@ -118,9 +131,12 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
                 left: "15mm",
             },
         });
+        await page.close();
 
-        await browser.close();
-        browser = null;
+        if (ownedBrowser && browser) {
+            await browser.close();
+            browser = null;
+        }
 
         // Get year and month from pay period
         const payPeriod = await prisma.payPeriod.findFirst({
@@ -144,7 +160,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
 
         return uploadResult;
     } catch (error) {
-        if (browser) {
+        if (ownedBrowser && browser) {
             await browser.close();
         }
         logger.error(`Error generating payslip PDF: ${error.message}`, {
@@ -160,9 +176,10 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData) => {
  * Generate payslip PDF from payslip record
  * @param {string} payslipId - Payslip ID
  * @param {string} tenantId - Tenant ID
+ * @param {{ browser?: import("puppeteer").Browser }} [options] - Optional shared browser (for batch use)
  * @returns {Promise<Object>} Upload result
  */
-export const generatePayslipFromRecord = async (payslipId, tenantId) => {
+export const generatePayslipFromRecord = async (payslipId, tenantId, options = {}) => {
     try {
         const payslip = await prisma.payslip.findFirst({
             where: {
@@ -275,8 +292,8 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
             currency: breakdown.currency,
         };
 
-        // Generate PDF
-        const uploadResult = await generatePayslipPDF(payslipId, tenantId, payslipData);
+        // Generate PDF (pass shared browser for batch)
+        const uploadResult = await generatePayslipPDF(payslipId, tenantId, payslipData, options);
 
         // Update payslip record with file path
         await prisma.payslip.update({
@@ -295,5 +312,33 @@ export const generatePayslipFromRecord = async (payslipId, tenantId) => {
         });
         throw error;
     }
+};
+
+/**
+ * Generate PDFs for multiple payslips using a single browser instance (much faster than N separate launches)
+ * @param {string[]} payslipIds - Payslip IDs to generate
+ * @param {string} tenantId - Tenant ID
+ * @returns {Promise<Map<string, string>>} Map of payslipId -> filePath for successfully generated PDFs
+ */
+export const generatePayslipsBatch = async (payslipIds, tenantId) => {
+    if (payslipIds.length === 0) return new Map();
+    let browser = null;
+    const results = new Map();
+    try {
+        browser = await launchBrowser();
+        for (const payslipId of payslipIds) {
+            try {
+                const uploadResult = await generatePayslipFromRecord(payslipId, tenantId, { browser });
+                results.set(payslipId, uploadResult.public_id);
+            } catch (err) {
+                logger.warn(`Failed to generate PDF for payslip ${payslipId} in batch: ${err.message}`);
+            }
+        }
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
+    }
+    return results;
 };
 

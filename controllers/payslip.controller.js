@@ -1,7 +1,7 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { getPayslipUrl, getPayslipBuffer } from "../services/file-storage.service.js";
-import { generatePayslipFromRecord } from "../services/payslip-generator.service.js";
+import { generatePayslipFromRecord, generatePayslipsBatch } from "../services/payslip-generator.service.js";
 import { addLog } from "../utils/audit.utils.js";
 import { getPayslipBreakdown, formatCurrency, sanitizePeriodNameForFilename } from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
@@ -368,15 +368,16 @@ export const bulkDownloadPayslips = async (req, res) => {
             });
         }
 
-        // Generate missing PDFs on-the-fly (same as single download)
-        for (const payslip of payslips) {
-            if (!payslip.filePath) {
-                try {
-                    const uploadResult = await generatePayslipFromRecord(payslip.id, tenantId);
-                    payslip.filePath = uploadResult.public_id;
-                } catch (genErr) {
-                    logger.warn(`Failed to generate PDF for payslip ${payslip.id} in bulk: ${genErr.message}`);
-                    // Skip this payslip; we may still add others
+        // Generate missing PDFs in batch (single browser instance = much faster)
+        const needsGeneration = payslips.filter((p) => !p.filePath);
+        if (needsGeneration.length > 0) {
+            const generated = await generatePayslipsBatch(
+                needsGeneration.map((p) => p.id),
+                tenantId
+            );
+            for (const payslip of payslips) {
+                if (!payslip.filePath && generated.has(payslip.id)) {
+                    payslip.filePath = generated.get(payslip.id);
                 }
             }
         }
@@ -405,16 +406,24 @@ export const bulkDownloadPayslips = async (req, res) => {
         // Pipe archive to response
         archive.pipe(res);
 
-        // Add each payslip PDF to archive
-        for (const payslip of payslipsWithPdf) {
-            try {
-                const pdfBuffer = await getPayslipBuffer(payslip.filePath);
+        // Fetch all PDF buffers in parallel, then append to archive
+        const bufferResults = await Promise.all(
+            payslipsWithPdf.map(async (payslip) => {
+                try {
+                    const pdfBuffer = await getPayslipBuffer(payslip.filePath);
+                    return { payslip, pdfBuffer };
+                } catch (err) {
+                    logger.warn(`Failed to fetch payslip ${payslip.id} for ZIP: ${err.message}`);
+                    return { payslip, pdfBuffer: null };
+                }
+            })
+        );
+        for (const { payslip, pdfBuffer } of bufferResults) {
+            if (pdfBuffer) {
                 const safeName = (payslip.user?.name || "unknown").replace(/\s+/g, "_");
                 const safeEmployeeId = payslip.user?.employeeId || payslip.id.slice(0, 8);
                 const filename = `${safeEmployeeId}-${safeName}.pdf`;
                 archive.append(pdfBuffer, { name: filename });
-            } catch (err) {
-                logger.warn(`Failed to add payslip ${payslip.id} to ZIP: ${err.message}`);
             }
         }
 
