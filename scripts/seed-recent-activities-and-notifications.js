@@ -11,8 +11,8 @@
 import "dotenv/config";
 import prisma from "../config/prisma.config.js";
 
-const USER_ID = "MRM6fAl3pE0BXS1cpMr9Sif5h1ZLI3J5";
-const TENANT_ID = "3734772a-3a2c-4d9e-95ab-795a430c0e92";
+const USER_ID = "3kOBHsM5gfyp8EDI2lqFxfRgPVboxDyM";
+const TENANT_ID = "375e02fd-68f0-441d-be53-e6bbd49a746f";
 
 const RECENT_ACTIVITIES = [
   { type: "clock_in", description: "Clocked in at 8:02 AM", icon: "log-in", color: "#22C55E" },
