@@ -1,16 +1,31 @@
 import crypto from "crypto";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
-import { auth } from "../utils/auth.js";
+import { hashPassword } from "better-auth/crypto";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import { sendInvitationEmail } from "../views/sendInvitationEmail.js";
 
 /**
  * Send an invitation to a user
  * Only HR_ADMIN can send invitations
  */
+const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
+const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
+
 export const sendInvitation = async (req, res, next) => {
   try {
-    const { email, role, departmentId, positionId } = req.body;
+    const {
+      email,
+      role,
+      departmentId,
+      positionId,
+      hireDate,
+      employmentStatus,
+      employmentType,
+      baseSalary,
+      salaryEffectiveDate,
+      salaryCurrency,
+    } = req.body;
     const tenantId = req.user.tenantId;
     const senderId = req.user.id;
     const senderRole = req.user.role;
@@ -121,6 +136,37 @@ export const sendInvitation = async (req, res, next) => {
       }
     }
 
+    // Validate employment status if provided
+    if (employmentStatus != null && employmentStatus !== "") {
+      if (!VALID_EMPLOYMENT_STATUSES.includes(employmentStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid employment status. Must be one of: ${VALID_EMPLOYMENT_STATUSES.join(", ")}`,
+        });
+      }
+    }
+
+    // Validate employment type if provided
+    if (employmentType != null && employmentType !== "") {
+      if (!VALID_EMPLOYMENT_TYPES.includes(employmentType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid employment type. Must be one of: ${VALID_EMPLOYMENT_TYPES.join(", ")}`,
+        });
+      }
+    }
+
+    // Validate compensation if provided (Step 2: base salary required when sending from multi-step flow)
+    if (baseSalary != null && baseSalary !== "") {
+      const salary = Number(baseSalary);
+      if (Number.isNaN(salary) || salary < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Base salary must be a non-negative number",
+        });
+      }
+    }
+
     // Check if user already exists in this tenant
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -159,6 +205,16 @@ export const sendInvitation = async (req, res, next) => {
       });
     }
 
+    // Parse optional dates and numbers
+    const hireDateParsed = hireDate ? new Date(hireDate) : null;
+    const salaryEffectiveDateParsed = salaryEffectiveDate ? new Date(salaryEffectiveDate) : null;
+    const baseSalaryNum =
+      baseSalary != null && baseSalary !== "" ? Number(baseSalary) : null;
+    const salaryCurrencyVal =
+      salaryCurrency != null && String(salaryCurrency).trim() !== ""
+        ? String(salaryCurrency).trim()
+        : "USD";
+
     // Create invitation
     const newInvitation = await prisma.invitation.create({
       data: {
@@ -170,8 +226,25 @@ export const sendInvitation = async (req, res, next) => {
         positionId: positionId || null,
         token,
         expiresAt: expiryDate,
+        hireDate: hireDateParsed,
+        employmentStatus:
+          employmentStatus != null && employmentStatus !== ""
+            ? employmentStatus
+            : null,
+        employmentType:
+          employmentType != null && employmentType !== ""
+            ? employmentType
+            : null,
+        baseSalary: baseSalaryNum,
+        salaryEffectiveDate: salaryEffectiveDateParsed,
+        salaryCurrency: salaryCurrencyVal,
       },
       include: {
+        tenant: {
+          select: {
+            name: true,
+          },
+        },
         department: {
           select: {
             id: true,
@@ -186,6 +259,28 @@ export const sendInvitation = async (req, res, next) => {
         },
       },
     });
+
+    // Send invitation email (primary); manual link sharing remains available in UI
+    const clientUrl =
+      process.env.CLIENT_URL ||
+      process.env.NEXT_PUBLIC_CLIENT_URL ||
+      "http://localhost:3000";
+    const acceptLink = `${clientUrl}/accept-invite/${newInvitation.token}`;
+    const tenantName = newInvitation.tenant?.name || "your organization";
+    try {
+      await sendInvitationEmail({
+        to: newInvitation.email,
+        acceptLink,
+        tenantName,
+        expiresAt: newInvitation.expiresAt,
+      });
+    } catch (emailError) {
+      logger.error(
+        `Invitation created but failed to send invitation email to ${newInvitation.email}: ${emailError.message}`,
+        { stack: emailError.stack }
+      );
+      // Do not fail the request; invitation was created and link is in the response
+    }
 
     logger.info(
       `Invitation sent to ${email} by ${senderId} for tenant ${tenantId}`
@@ -359,43 +454,41 @@ export const acceptInvitation = async (req, res, next) => {
       }
     }
 
-    // Create user account using Better Auth
-    let signUpResult;
+    // Create user account with Prisma (no OTP; invited users are pre-verified)
+    let newUser;
     try {
-      signUpResult = await auth.api.signUpEmail({
-        body: {
-          email: invitation.email,
-          password,
-          name: name || null,
+      const hashedPassword = await hashPassword(password);
+      newUser = await prisma.user.create({
+        data: {
           tenantId: invitation.tenantId,
+          email: invitation.email,
+          password: hashedPassword,
+          name: name?.trim() || null,
+          emailVerified: true,
           role: invitation.role,
-          employeeId: employeeId,
+          employeeId,
           departmentId: invitation.departmentId || null,
           positionId: invitation.positionId || null,
-          status: "ACTIVE",
-          employmentType: "FULL_TIME",
+          status: invitation.employmentStatus ?? "ACTIVE",
+          employmentType: invitation.employmentType ?? "FULL_TIME",
+          hireDate: invitation.hireDate ?? null,
           shiftId: assignedShiftId || null,
         },
-        headers: req.headers,
       });
-    } catch (authError) {
+    } catch (createError) {
+      if (createError.code === "P2002") {
+        return res.status(409).json({
+          success: false,
+          message: "User with this email already exists",
+        });
+      }
       logger.error(
-        `Failed to create user account for invitation: ${authError.message}`
+        `Failed to create user account for invitation: ${createError.message}`,
+        { stack: createError.stack }
       );
-      return res.status(400).json({
-        success: false,
-        message: "Failed to create account. Please try again.",
-        error:
-          process.env.NODE_ENV === "development"
-            ? authError.message
-            : undefined,
-      });
-    }
-
-    if (!signUpResult?.user) {
       return res.status(500).json({
         success: false,
-        message: "Failed to create user account",
+        message: "Failed to create account. Please try again.",
       });
     }
 
@@ -437,11 +530,11 @@ export const acceptInvitation = async (req, res, next) => {
             ) {
               await tx.department.update({
                 where: { id: invitation.departmentId },
-                data: { managerId: signUpResult.user.id },
+                data: { managerId: newUser.id },
               });
 
               logger.info(
-                `Assigned ${signUpResult.user.id} as manager to department ${invitation.departmentId}`
+                `Assigned ${newUser.id} as manager to department ${invitation.departmentId}`
               );
             } else {
               logger.warn(
@@ -460,6 +553,40 @@ export const acceptInvitation = async (req, res, next) => {
         success: false,
         message: "Failed to complete invitation acceptance",
       });
+    }
+
+    // Create salary structure from invitation compensation (if base salary was set)
+    if (
+      invitation.baseSalary != null &&
+      Number(invitation.baseSalary) > 0
+    ) {
+      try {
+        const effectiveDate =
+          invitation.salaryEffectiveDate || invitation.createdAt || new Date();
+        const currency =
+          invitation.salaryCurrency && String(invitation.salaryCurrency).trim()
+            ? String(invitation.salaryCurrency).trim()
+            : "USD";
+        await prisma.salaryStructure.create({
+          data: {
+            tenantId: invitation.tenantId,
+            userId: newUser.id,
+            baseSalary: Number(invitation.baseSalary),
+            grossSalary: Number(invitation.baseSalary),
+            effectiveDate: new Date(effectiveDate),
+            currency,
+          },
+        });
+        logger.info(
+          `Created salary structure for user ${newUser.id} from invitation (base: ${invitation.baseSalary} ${currency})`
+        );
+      } catch (salaryError) {
+        logger.error(
+          `Failed to create salary structure for user ${newUser.id}: ${salaryError.message}`,
+          { stack: salaryError.stack }
+        );
+        // Do not fail invitation acceptance; HR can add salary structure later
+      }
     }
 
     // Create yearly entitlement for new employee
@@ -521,7 +648,7 @@ export const acceptInvitation = async (req, res, next) => {
         await prisma.yearlyEntitlement.create({
           data: {
             tenantId: invitation.tenantId,
-            userId: signUpResult.user.id,
+            userId: newUser.id,
             policyId: companyLeavePolicy.id, // Required field
             year: currentYear,
             allocatedDays,
@@ -540,7 +667,7 @@ export const acceptInvitation = async (req, res, next) => {
         });
 
         logger.info(
-          `Created yearly entitlement for user ${signUpResult.user.id}, year ${currentYear}, allocatedDays: ${allocatedDays}`
+          `Created yearly entitlement for user ${newUser.id}, year ${currentYear}, allocatedDays: ${allocatedDays}`
         );
       } else {
         logger.warn(
@@ -552,7 +679,7 @@ export const acceptInvitation = async (req, res, next) => {
       // Log error but don't fail invitation acceptance
       // Entitlement can be created later via admin endpoint
       logger.error(
-        `Failed to create yearly entitlement for user ${signUpResult.user.id}: ${entitlementError.message}`,
+        `Failed to create yearly entitlement for user ${newUser.id}: ${entitlementError.message}`,
         { stack: entitlementError.stack }
       );
       // Continue - user account is already created, entitlement is non-critical
@@ -563,13 +690,12 @@ export const acceptInvitation = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message:
-        "Account created successfully. Please check your email for verification.",
+      message: "Account created successfully. You can sign in with your email and password.",
       data: {
         user: {
-          id: signUpResult.user.id,
-          email: signUpResult.user.email,
-          role: signUpResult.user.role,
+          id: newUser.id,
+          email: newUser.email,
+          role: newUser.role,
         },
         tenant: {
           id: invitation.tenant.id,
