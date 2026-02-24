@@ -1229,7 +1229,9 @@ export const getMyAttendanceHistory = async (req, res) => {
           clockInTime: true,
           clockOutTime: true,
           totalHours: true,
+          overtimeHours: true,
           status: true,
+          notes: true,
           location: {
             select: {
               name: true,

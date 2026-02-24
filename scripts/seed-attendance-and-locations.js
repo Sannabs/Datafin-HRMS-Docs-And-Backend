@@ -76,7 +76,7 @@ async function seed() {
   });
   console.log("Deleted existing attendance records:", deleted.count);
 
-  // 3) Build records with hardcoded values for all schema fields
+  // 3) Build records with hardcoded values (method/device/IP stored for admin view only; employee view shows times, location, notes)
   const statuses = ["ON_TIME", "ON_TIME", "ON_TIME", "LATE", "EARLY"];
   const methods = ["GPS", "WIFI", "QR_CODE"];
   const locationIds = [headOfficeId, headOfficeId, branchId, null];
@@ -95,7 +95,7 @@ async function seed() {
     { daysAgo: 9,  status: "ON_TIME", in: [9, 0],    totalHours: 8.5,  overtimeHours: 0.5,  method: "GPS",     locationId: headOfficeId },
   ];
 
-  // Days 10–59: generated with hardcoded totalHours / overtimeHours for pagination testing
+  // Days 10–59: generated for pagination testing
   const generated = [];
   for (let daysAgo = 10; daysAgo < 60; daysAgo++) {
     const status = statuses[daysAgo % statuses.length];
@@ -126,7 +126,7 @@ async function seed() {
         status: r.status,
         clockInMethod: r.method,
         clockOutMethod: r.method,
-        notes: r.notes || null,
+        notes: r.notes ?? null,
       },
     });
   }
