@@ -55,6 +55,14 @@ model Invitation {
   positionId   String?
   expiresAt    DateTime
   role         UserRole         @default(STAFF)
+  // User fields (applied on accept)
+  hireDate          DateTime?
+  employmentStatus  EmployeeStatus?
+  employmentType    EmploymentType?
+  // Compensation (creates SalaryStructure on accept when baseSalary is set)
+  baseSalary          Float?
+  salaryEffectiveDate DateTime?
+  salaryCurrency      String?         @default("USD")
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   sender       User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
