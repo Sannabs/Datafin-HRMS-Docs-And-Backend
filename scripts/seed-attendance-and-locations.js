@@ -5,7 +5,7 @@
  *
  * Uses TENANT_ID and USER_ID from env or defaults (same as seed-recent-activities).
  * Creates 2 locations for the tenant, then attendance records for the user
- * for the last 7 days so stat cards and history display real data.
+ * for the last ~60 days so stat cards, history, and pagination/load-more can be tested.
  */
 
 import "dotenv/config";
@@ -22,9 +22,7 @@ function dayAt(daysAgo, hour, min) {
 }
 
 function addHours(date, hours) {
-  const out = new Date(date);
-  out.setTime(out.getTime() + hours * 60 * 60 * 1000);
-  return out;
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
 }
 
 async function seed() {
@@ -78,37 +76,57 @@ async function seed() {
   });
   console.log("Deleted existing attendance records:", deleted.count);
 
-  // 3) Create attendance for last 7 days (and 3 extra for history list)
-  // Each day: clockIn, clockOut, totalHours, status, clockInMethod, locationId
-  const records = [
-    { daysAgo: 0, status: "ON_TIME", in: [8, 58], outHours: 8.57, method: "GPS", location: headOfficeId, overtime: 0.5 },
-    { daysAgo: 1, status: "LATE", in: [9, 12], outHours: 8.55, method: "WIFI", location: headOfficeId, overtime: null },
-    { daysAgo: 2, status: "EARLY", in: [8, 45], outHours: 8.25, method: "QR_CODE", location: null, overtime: null },
-    { daysAgo: 3, status: "ON_TIME", in: [9, 0], outHours: 9.25, method: "GPS", location: branchId, overtime: 1.25 },
-    { daysAgo: 4, status: "ON_TIME", in: [9, 0], outHours: 8.5, method: "GPS", location: headOfficeId, overtime: null },
-    { daysAgo: 5, status: "LATE", in: [9, 15], outHours: 8.25, method: "WIFI", location: headOfficeId, overtime: null },
-    { daysAgo: 6, status: "ON_TIME", in: [8, 55], outHours: 8.5, method: "GPS", location: headOfficeId, overtime: null },
-    { daysAgo: 7, status: "ON_TIME", in: [9, 5], outHours: 8.0, method: "QR_CODE", location: branchId, overtime: null },
-    { daysAgo: 8, status: "EARLY", in: [8, 30], outHours: 8.5, method: "GPS", location: headOfficeId, overtime: null },
-    { daysAgo: 9, status: "ON_TIME", in: [9, 0], outHours: 8.5, method: "GPS", location: headOfficeId, overtime: null },
+  // 3) Build records with hardcoded values for all schema fields
+  const statuses = ["ON_TIME", "ON_TIME", "ON_TIME", "LATE", "EARLY"];
+  const methods = ["GPS", "WIFI", "QR_CODE"];
+  const locationIds = [headOfficeId, headOfficeId, branchId, null];
+
+  // First 10 days: fully hardcoded
+  const fixed = [
+    { daysAgo: 0,  status: "ON_TIME", in: [8, 58],  totalHours: 8.57, overtimeHours: 0.53, method: "GPS",     locationId: headOfficeId },
+    { daysAgo: 1,  status: "LATE",    in: [9, 12],   totalHours: 8.47, overtimeHours: 0.67, method: "WIFI",    locationId: headOfficeId, notes: "Traffic on main road." },
+    { daysAgo: 2,  status: "EARLY",   in: [8, 45],   totalHours: 8.25, overtimeHours: 0,    method: "QR_CODE", locationId: null },
+    { daysAgo: 3,  status: "ON_TIME", in: [9, 0],    totalHours: 9.25, overtimeHours: 1.25, method: "GPS",     locationId: branchId },
+    { daysAgo: 4,  status: "ON_TIME", in: [9, 0],    totalHours: 8.5,  overtimeHours: 0.5,  method: "GPS",     locationId: headOfficeId },
+    { daysAgo: 5,  status: "LATE",    in: [9, 15],   totalHours: 8.17, overtimeHours: 0.42, method: "WIFI",    locationId: headOfficeId },
+    { daysAgo: 6,  status: "ON_TIME", in: [8, 55],   totalHours: 8.5,  overtimeHours: 0.42, method: "GPS",     locationId: headOfficeId },
+    { daysAgo: 7,  status: "ON_TIME", in: [9, 5],    totalHours: 8.0,  overtimeHours: 0.08, method: "QR_CODE", locationId: branchId },
+    { daysAgo: 8,  status: "EARLY",   in: [8, 30],   totalHours: 8.5,  overtimeHours: 0,    method: "GPS",     locationId: headOfficeId },
+    { daysAgo: 9,  status: "ON_TIME", in: [9, 0],    totalHours: 8.5,  overtimeHours: 0.5,  method: "GPS",     locationId: headOfficeId },
   ];
 
+  // Days 10–59: generated with hardcoded totalHours / overtimeHours for pagination testing
+  const generated = [];
+  for (let daysAgo = 10; daysAgo < 60; daysAgo++) {
+    const status = statuses[daysAgo % statuses.length];
+    const method = methods[daysAgo % methods.length];
+    const locationId = locationIds[daysAgo % locationIds.length];
+    const inHour = status === "LATE" ? 9 : status === "EARLY" ? 8 : 9;
+    const inMin = status === "LATE" ? 15 : status === "EARLY" ? 30 : 0;
+    const totalHours = [8.0, 8.25, 8.5, 8.75, 9.0][daysAgo % 5];
+    const overtimeHours = [0, 0, 0.5, 0.75, 1.0][daysAgo % 5];
+    generated.push({ daysAgo, status, in: [inHour, inMin], totalHours, overtimeHours, method, locationId });
+  }
+
+  const records = [...fixed, ...generated];
+
   for (const r of records) {
-    const clockIn = dayAt(r.daysAgo, r.in[0], r.in[1]);
-    const clockOut = addHours(clockIn, r.outHours);
+    const clockInTime = dayAt(r.daysAgo, r.in[0], r.in[1]);
+    const clockOutTime = addHours(clockInTime, r.totalHours);
+
     await prisma.attendance.create({
       data: {
         tenantId: TENANT_ID,
         userId: USER_ID,
-        locationId: r.location,
-        clockInTime: clockIn,
-        clockOutTime: clockOut,
-        totalHours: r.outHours,
-        overtimeHours: r.overtime ?? 0,
+        locationId: r.locationId,
+        clockInTime,
+        clockOutTime,
+        totalHours: r.totalHours,
+        overtimeHours: r.overtimeHours,
         status: r.status,
         clockInMethod: r.method,
         clockOutMethod: r.method,
-        notes: r.status === "LATE" && r.daysAgo === 1 ? "Traffic on main road." : null,
+        notes: r.notes || null,
       },
     });
   }
