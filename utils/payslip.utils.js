@@ -91,7 +91,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
 
     const tenant = await prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { gambiaStatutoryEnabled: true },
+        select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true },
     });
 
     const itemized = await getSalaryBreakdownItemized(
@@ -102,6 +102,14 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         tenantId,
         tenant?.gambiaStatutoryEnabled ?? false
     );
+
+    const grossSalaryForEmployer =
+        baseSalaryMonthly + itemized.allowanceLines.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const employerRate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
+    const employerSSHFCAmount =
+        employerRate != null && !Number.isNaN(employerRate)
+            ? Math.round(grossSalaryForEmployer * (employerRate / 100) * 100) / 100
+            : null;
 
     return {
         baseSalary: baseSalaryMonthly,
@@ -118,6 +126,11 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             calculationMethod: line.calculationMethod,
             description: line.description,
         })),
+        ...(employerRate != null &&
+            employerSSHFCAmount != null && {
+                employerSSHFCRate: employerRate,
+                employerSSHFCAmount,
+            }),
     };
 };
 

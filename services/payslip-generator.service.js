@@ -67,6 +67,29 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             generatedAt: new Date().toLocaleString(),
         };
 
+        // Employer SSHFC section (for transparency; does not affect net pay)
+        let employerSSHFCSectionHTML = "";
+        if (
+            payslipData.employerSSHFCRate != null &&
+            !Number.isNaN(Number(payslipData.employerSSHFCRate)) &&
+            payslipData.employerSSHFCAmount != null
+        ) {
+            const rate = Number(payslipData.employerSSHFCRate);
+            const amount = formatCurrency(payslipData.employerSSHFCAmount, currency);
+            employerSSHFCSectionHTML = `
+            <div class="breakdown-section employer-section">
+                <div class="section-title">Employer contribution (for information)</div>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td>Employer SSHFC (${rate}%)</td>
+                            <td class="amount">${amount}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>`;
+        }
+
         // Generate allowances HTML (name and amount only)
         let allowancesHTML = "";
         if (payslipData.allowances && payslipData.allowances.length > 0) {
@@ -107,6 +130,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
         });
         template = template.replace("{{allowances}}", allowancesHTML);
         template = template.replace("{{deductions}}", deductionsHTML);
+        template = template.replace("{{employerSSHFCSection}}", employerSSHFCSectionHTML);
 
         if (!browser) {
             browser = await launchBrowser();
@@ -204,7 +228,7 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
                             },
                         },
                         tenant: {
-                            select: { name: true, address: true },
+                            select: { name: true, address: true, employerSocialSecurityRate: true },
                         },
                     },
                 },
@@ -267,6 +291,11 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             typeof rawCompanyName === "string" && rawCompanyName.trim() !== ""
                 ? rawCompanyName.trim()
                 : "Company Name";
+        const employerRate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
+        const employerSSHFCAmount =
+            employerRate != null && !Number.isNaN(employerRate)
+                ? Math.round(payslip.grossSalary * (employerRate / 100) * 100) / 100
+                : null;
         const payslipData = {
             companyName,
             companyAddress: (tenant?.address && String(tenant.address).trim()) || "",
@@ -286,6 +315,8 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             deductions,
             payPeriodId: payslip.payrollRun.payPeriod.id,
             currency: breakdown.currency,
+            employerSSHFCRate: employerRate,
+            employerSSHFCAmount,
         };
 
         // Generate PDF (pass shared browser for batch)

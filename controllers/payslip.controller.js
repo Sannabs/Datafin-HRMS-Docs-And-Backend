@@ -715,6 +715,18 @@ export const getPayslipById = async (req, res) => {
                     payslip.payrollRun.payPeriod.endDate
                 );
             }
+            // Enrich with employer SSHFC when missing (e.g. from snapshot or old data)
+            if (breakdown && breakdown.employerSSHFCRate == null) {
+                const tenant = await prisma.tenant.findUnique({
+                    where: { id: tenantId },
+                    select: { employerSocialSecurityRate: true },
+                });
+                const rate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
+                if (rate != null && !Number.isNaN(rate)) {
+                    const amount = Math.round(Number(payslip.grossSalary) * (rate / 100) * 100) / 100;
+                    breakdown = { ...breakdown, employerSSHFCRate: rate, employerSSHFCAmount: amount };
+                }
+            }
         }
 
         // Log audit
