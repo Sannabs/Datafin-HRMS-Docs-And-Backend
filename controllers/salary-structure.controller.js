@@ -1071,9 +1071,14 @@ export const updateSalaryStructure = async (req, res) => {
         await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
         const data = await enrichWithNetAndTotalDeductions(updated, tenantId);
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const dataWithGambia = appendGambiaStatutoryDeductionsIfEnabled(data, tenant?.gambiaStatutoryEnabled ?? false);
         return res.status(200).json({
             success: true,
-            data,
+            data: dataWithGambia,
             message: "Salary structure updated successfully",
         });
     } catch (error) {
