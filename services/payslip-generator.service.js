@@ -67,18 +67,14 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             generatedAt: new Date().toLocaleString(),
         };
 
-        // Generate allowances HTML (with optional description e.g. "10% of base")
-        const cellWithDesc = (name, desc) =>
-            desc
-                ? `<td>${name}<br><span style="font-size:0.8em;color:#666">${desc}</span></td>`
-                : `<td>${name}</td>`;
+        // Generate allowances HTML (name and amount only)
         let allowancesHTML = "";
         if (payslipData.allowances && payslipData.allowances.length > 0) {
             allowancesHTML = payslipData.allowances
                 .map(
                     (allowance) => `
                 <tr>
-                    ${cellWithDesc(allowance.name || allowance.type || "Allowance", allowance.description)}
+                    <td>${allowance.name || allowance.type || "Allowance"}</td>
                     <td class="amount">${formatCurrency(allowance.amount || 0, currency)}</td>
                 </tr>
             `
@@ -88,14 +84,14 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             allowancesHTML = '<tr><td colspan="2" style="text-align: center; color: #999;">No allowances</td></tr>';
         }
 
-        // Generate deductions HTML (with optional description)
+        // Generate deductions HTML (name and amount only)
         let deductionsHTML = "";
         if (payslipData.deductions && payslipData.deductions.length > 0) {
             deductionsHTML = payslipData.deductions
                 .map(
                     (deduction) => `
                 <tr>
-                    ${cellWithDesc(deduction.name || deduction.type || "Deduction", deduction.description)}
+                    <td>${deduction.name || deduction.type || "Deduction"}</td>
                     <td class="amount">${formatCurrency(deduction.amount || 0, currency)}</td>
                 </tr>
             `
