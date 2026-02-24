@@ -103,7 +103,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             const amount = formatCurrency(payslipData.employerSSHFCAmount, currency);
             employerSSHFCSectionHTML = `
             <div class="breakdown-section employer-section">
-                <div class="section-title">Employer contribution (for information)</div>
+                <div class="section-title">Employer contribution</div>
                 <table>
                     <tbody>
                         <tr>
