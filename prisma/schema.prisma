@@ -498,6 +498,7 @@ model Allowance {
   allowanceType   AllowanceType @relation(fields: [allowanceTypeId], references: [id], onDelete: Restrict)
 
   amount               Float             @default(0)
+  amountPeriodType      SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
   calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
@@ -550,6 +551,7 @@ model Deduction {
   deductionType   DeductionType @relation(fields: [deductionTypeId], references: [id], onDelete: Restrict)
 
   amount               Float             @default(0)
+  amountPeriodType      SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
   calculationMethod    CalculationMethod @default(FIXED)
   formulaExpression    String?            // Used when calculationMethod is FORMULA
   calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)

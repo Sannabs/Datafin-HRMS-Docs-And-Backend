@@ -696,11 +696,15 @@ export const createSalaryStructure = async (req, res) => {
                         });
                     }
                 }
+                const amountPeriodType = method === "FIXED" && (allowance.amountPeriodType === "ANNUAL" || allowance.amountPeriodType === "MONTHLY")
+                    ? allowance.amountPeriodType
+                    : "MONTHLY";
                 await prisma.allowance.create({
                     data: {
                         salaryStructureId: salaryStructure.id,
                         allowanceTypeId: allowance.allowanceTypeId,
                         amount: method === "FORMULA" ? 0 : (allowance.amount ?? 0),
+                        amountPeriodType,
                         calculationMethod: method,
                         formulaExpression: method === "FORMULA" ? formulaExpression : null,
                         calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
@@ -734,11 +738,15 @@ export const createSalaryStructure = async (req, res) => {
                         });
                     }
                 }
+                const amountPeriodType = method === "FIXED" && (deduction.amountPeriodType === "ANNUAL" || deduction.amountPeriodType === "MONTHLY")
+                    ? deduction.amountPeriodType
+                    : "MONTHLY";
                 await prisma.deduction.create({
                     data: {
                         salaryStructureId: salaryStructure.id,
                         deductionTypeId: deduction.deductionTypeId,
                         amount: method === "FORMULA" ? 0 : (deduction.amount ?? 0),
+                        amountPeriodType,
                         calculationMethod: method,
                         formulaExpression: method === "FORMULA" ? formulaExpression : null,
                         calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
@@ -935,11 +943,15 @@ export const updateSalaryStructure = async (req, res) => {
                         });
                     }
                 }
+                const amountPeriodType = method === "FIXED" && (allowance.amountPeriodType === "ANNUAL" || allowance.amountPeriodType === "MONTHLY")
+                    ? allowance.amountPeriodType
+                    : "MONTHLY";
                 await prisma.allowance.create({
                     data: {
                         salaryStructureId: id,
                         allowanceTypeId: allowance.allowanceTypeId,
                         amount: method === "FORMULA" ? 0 : (allowance.amount ?? 0),
+                        amountPeriodType,
                         calculationMethod: method,
                         formulaExpression: method === "FORMULA" ? formulaExpression : null,
                         calculationRuleId: method === "FORMULA" ? calculationRuleId : null,
@@ -975,11 +987,15 @@ export const updateSalaryStructure = async (req, res) => {
                         });
                     }
                 }
+                const amountPeriodType = method === "FIXED" && (deduction.amountPeriodType === "ANNUAL" || deduction.amountPeriodType === "MONTHLY")
+                    ? deduction.amountPeriodType
+                    : "MONTHLY";
                 await prisma.deduction.create({
                     data: {
                         salaryStructureId: id,
                         deductionTypeId: deduction.deductionTypeId,
                         amount: method === "FORMULA" ? 0 : (deduction.amount ?? 0),
+                        amountPeriodType,
                         calculationMethod: method,
                         formulaExpression: method === "FORMULA" ? formulaExpression : null,
                         calculationRuleId: method === "FORMULA" ? calculationRuleId : null,

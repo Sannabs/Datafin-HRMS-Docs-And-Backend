@@ -18,11 +18,13 @@ export const calculateAllowanceAmount = async (
     grossSalary = 0,
     tenantId = null
 ) => {
-    const { amount, calculationMethod, allowanceTypeId, formulaExpression } = allowance;
+    const { amount, amountPeriodType, calculationMethod, allowanceTypeId, formulaExpression } = allowance;
 
     switch (calculationMethod) {
-        case "FIXED":
-            return amount;
+        case "FIXED": {
+            const monthlyAmount = amountPeriodType === "ANNUAL" ? (Number(amount) || 0) / 12 : (Number(amount) || 0);
+            return monthlyAmount;
+        }
 
         case "PERCENTAGE":
             // Amount represents percentage (e.g., 20 means 20% of base salary)
@@ -79,11 +81,13 @@ export const calculateDeductionAmount = async (
     employeeContext = null,
     tenantId = null
 ) => {
-    const { amount, calculationMethod, deductionTypeId, formulaExpression } = deduction;
+    const { amount, amountPeriodType, calculationMethod, deductionTypeId, formulaExpression } = deduction;
 
     switch (calculationMethod) {
-        case "FIXED":
-            return amount;
+        case "FIXED": {
+            const monthlyAmount = amountPeriodType === "ANNUAL" ? (Number(amount) || 0) / 12 : (Number(amount) || 0);
+            return monthlyAmount;
+        }
 
         case "PERCENTAGE":
             // Amount represents percentage (e.g., 15 means 15% of gross salary)
