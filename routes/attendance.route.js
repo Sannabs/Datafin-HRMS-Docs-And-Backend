@@ -12,6 +12,7 @@ import {
   getAttendanceHistory,
   getMyAttendanceHistory,
   getMyTodayStatus,
+  getMyAttendanceStats,
   lateReason,
   manualClockOut,
   createOrUpdateEmployeeWorkConfig,
@@ -36,10 +37,11 @@ router.post("/clock-out/gps", clockOutGPS);
 router.post("/clock-out/wifi", clockOutWiFi);
 router.post("/clock-out/qrcode", clockOutQRCode);
 
-// Attendance History
+// Attendance History & Stats
 router.get("/history", getAttendanceHistory);
 router.get("/my-history", getMyAttendanceHistory);
 router.get("/today-status", getMyTodayStatus);
+router.get("/my-stats", getMyAttendanceStats);
 
 // Late Reason (Employee)
 router.patch("/:attendanceId/late-reason", lateReason);

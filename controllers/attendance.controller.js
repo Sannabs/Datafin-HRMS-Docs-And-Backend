@@ -1127,6 +1127,54 @@ export const getMyTodayStatus = async (req, res) => {
   }
 };
 
+/**
+ * Total attendance stats for stat cards: present (ON_TIME/EARLY), late (LATE), absent (ABSENT).
+ * Counts total records per status (efficient: three count queries in parallel).
+ */
+export const getMyAttendanceStats = async (req, res) => {
+  const userId = req.user.id;
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID or User ID is required",
+        message: "Tenant ID or User ID is required",
+      });
+    }
+
+    const baseWhere = { tenantId, userId };
+
+    const [present, late, absent] = await Promise.all([
+      prisma.attendance.count({
+        where: { ...baseWhere, status: { in: ["ON_TIME", "EARLY"] } },
+      }),
+      prisma.attendance.count({
+        where: { ...baseWhere, status: "LATE" },
+      }),
+      prisma.attendance.count({
+        where: { ...baseWhere, status: "ABSENT" },
+      }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Attendance stats retrieved successfully",
+      data: { present, late, absent },
+    });
+  } catch (error) {
+    logger.error(`Error getting attendance stats: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get attendance stats",
+    });
+  }
+};
+
 export const getMyAttendanceHistory = async (req, res) => {
   const userId = req.user.id;
   const tenantId = req.user.tenantId;
