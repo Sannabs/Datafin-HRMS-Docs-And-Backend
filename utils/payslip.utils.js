@@ -160,3 +160,39 @@ export const sanitizePeriodNameForFilename = (periodName, fallback = "file") => 
     return raw || fallback;
 };
 
+/**
+ * Get year-to-date totals for an employee (same tenant, same calendar year, periods ending on or before the given date).
+ * @param {string} userId - Employee user ID
+ * @param {string} tenantId - Tenant ID
+ * @param {Date} periodEndDate - Pay period end date (inclusive; YTD includes all periods in that year up to this date)
+ * @returns {Promise<{ grossSalaryYTD: number, totalDeductionsYTD: number, netSalaryYTD: number }>}
+ */
+export const getPayslipYTD = async (userId, tenantId, periodEndDate) => {
+    const end = periodEndDate instanceof Date ? periodEndDate : new Date(periodEndDate);
+    const year = end.getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+
+    const agg = await prisma.payslip.aggregate({
+        where: {
+            userId,
+            payrollRun: {
+                tenantId,
+                payPeriod: {
+                    endDate: { gte: startOfYear, lte: end },
+                },
+            },
+        },
+        _sum: {
+            grossSalary: true,
+            totalDeductions: true,
+            netSalary: true,
+        },
+    });
+
+    return {
+        grossSalaryYTD: Math.round((agg._sum.grossSalary ?? 0) * 100) / 100,
+        totalDeductionsYTD: Math.round((agg._sum.totalDeductions ?? 0) * 100) / 100,
+        netSalaryYTD: Math.round((agg._sum.netSalary ?? 0) * 100) / 100,
+    };
+};
+

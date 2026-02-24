@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import logger from "../utils/logger.js";
 import { uploadPayslip } from "./file-storage.service.js";
 import prisma from "../config/prisma.config.js";
-import { getPayslipBreakdown, formatCurrency } from "../utils/payslip.utils.js";
+import { getPayslipBreakdown, getPayslipYTD, formatCurrency } from "../utils/payslip.utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -66,6 +66,31 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             netSalary: formatCurrency(payslipData.netSalary || 0, currency),
             generatedAt: new Date().toLocaleString(),
         };
+
+        // YTD section (year-to-date totals for current calendar year)
+        const grossYTD = formatCurrency(payslipData.grossSalaryYTD ?? 0, currency);
+        const deductionsYTD = formatCurrency(payslipData.totalDeductionsYTD ?? 0, currency);
+        const netYTD = formatCurrency(payslipData.netSalaryYTD ?? 0, currency);
+        const ytdSectionHTML = `
+            <div class="breakdown-section ytd-section">
+                <div class="section-title">Year to date</div>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td>Gross salary YTD</td>
+                            <td class="amount">${grossYTD}</td>
+                        </tr>
+                        <tr>
+                            <td>Total deductions YTD</td>
+                            <td class="amount">${deductionsYTD}</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td><strong>Net salary YTD</strong></td>
+                            <td class="amount"><strong>${netYTD}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>`;
 
         // Employer SSHFC section (for transparency; does not affect net pay)
         let employerSSHFCSectionHTML = "";
@@ -131,6 +156,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
         template = template.replace("{{allowances}}", allowancesHTML);
         template = template.replace("{{deductions}}", deductionsHTML);
         template = template.replace("{{employerSSHFCSection}}", employerSSHFCSectionHTML);
+        template = template.replace("{{ytdSection}}", ytdSectionHTML);
 
         if (!browser) {
             browser = await launchBrowser();
@@ -296,6 +322,11 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             employerRate != null && !Number.isNaN(employerRate)
                 ? Math.round(payslip.grossSalary * (employerRate / 100) * 100) / 100
                 : null;
+        const ytd = await getPayslipYTD(
+            payslip.userId,
+            tenantId,
+            payslip.payrollRun.payPeriod.endDate
+        );
         const payslipData = {
             companyName,
             companyAddress: (tenant?.address && String(tenant.address).trim()) || "",
@@ -317,6 +348,9 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             currency: breakdown.currency,
             employerSSHFCRate: employerRate,
             employerSSHFCAmount,
+            grossSalaryYTD: ytd.grossSalaryYTD,
+            totalDeductionsYTD: ytd.totalDeductionsYTD,
+            netSalaryYTD: ytd.netSalaryYTD,
         };
 
         // Generate PDF (pass shared browser for batch)

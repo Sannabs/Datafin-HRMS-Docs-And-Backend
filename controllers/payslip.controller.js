@@ -3,7 +3,7 @@ import logger from "../utils/logger.js";
 import { getPayslipUrl, getPayslipBuffer } from "../services/file-storage.service.js";
 import { generatePayslipFromRecord, generatePayslipsBatch } from "../services/payslip-generator.service.js";
 import { addLog } from "../utils/audit.utils.js";
-import { getPayslipBreakdown, formatCurrency, sanitizePeriodNameForFilename } from "../utils/payslip.utils.js";
+import { getPayslipBreakdown, getPayslipYTD, formatCurrency, sanitizePeriodNameForFilename } from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
 import { calculatePayrollRunTotals } from "../services/payroll-run.service.js";
@@ -729,6 +729,16 @@ export const getPayslipById = async (req, res) => {
             }
         }
 
+        // YTD for detail view (same year, periods up to and including this payslip's period)
+        let ytd = null;
+        if (includeBreakdown !== "false" && payslip.payrollRun?.payPeriod?.endDate) {
+            ytd = await getPayslipYTD(
+                payslip.userId,
+                tenantId,
+                payslip.payrollRun.payPeriod.endDate
+            );
+        }
+
         // Log audit
         await addLog(userId, tenantId, "VIEW", "Payslip", id, {
             action: "view_payslip",
@@ -743,6 +753,7 @@ export const getPayslipById = async (req, res) => {
                 ...payslip,
                 downloadUrl,
                 breakdown,
+                ytd,
             },
         });
     } catch (error) {
