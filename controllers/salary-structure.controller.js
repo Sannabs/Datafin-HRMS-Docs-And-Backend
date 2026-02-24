@@ -1209,9 +1209,14 @@ export const deactivateSalaryStructure = async (req, res) => {
         const changes = getChangesDiff(salaryStructure, updated);
         await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const dataWithGambia = appendGambiaStatutoryDeductionsIfEnabled(enriched, tenant?.gambiaStatutoryEnabled ?? false);
         return res.status(200).json({
             success: true,
-            data: enriched,
+            data: dataWithGambia,
             message: "Salary structure ended successfully",
         });
     } catch (error) {
@@ -1350,9 +1355,14 @@ export const activateSalaryStructure = async (req, res) => {
         const changes = getChangesDiff(salaryStructure, updated);
         await addLog(userId, tenantId, "UPDATE", "SalaryStructure", id, changes, req);
 
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true },
+        });
+        const dataWithGambia = appendGambiaStatutoryDeductionsIfEnabled(enriched, tenant?.gambiaStatutoryEnabled ?? false);
         return res.status(200).json({
             success: true,
-            data: enriched,
+            data: dataWithGambia,
             message: "Salary structure reactivated successfully",
         });
     } catch (error) {
