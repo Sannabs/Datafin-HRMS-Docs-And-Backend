@@ -23,6 +23,7 @@ export const sendInvitation = async (req, res, next) => {
       employmentStatus,
       employmentType,
       baseSalary,
+      salaryPeriodType,
       salaryEffectiveDate,
       salaryCurrency,
     } = req.body;
@@ -166,6 +167,11 @@ export const sendInvitation = async (req, res, next) => {
         });
       }
     }
+    const validPeriodTypes = ["MONTHLY", "ANNUAL"];
+    const salaryPeriodTypeVal =
+      salaryPeriodType != null && validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
+        ? String(salaryPeriodType).toUpperCase()
+        : "MONTHLY";
 
     // Check if user already exists in this tenant
     const existingUser = await prisma.user.findFirst({
@@ -236,6 +242,7 @@ export const sendInvitation = async (req, res, next) => {
             ? employmentType
             : null,
         baseSalary: baseSalaryNum,
+        salaryPeriodType: salaryPeriodTypeVal,
         salaryEffectiveDate: salaryEffectiveDateParsed,
         salaryCurrency: salaryCurrencyVal,
       },
@@ -567,12 +574,14 @@ export const acceptInvitation = async (req, res, next) => {
           invitation.salaryCurrency && String(invitation.salaryCurrency).trim()
             ? String(invitation.salaryCurrency).trim()
             : "USD";
+        const periodType = invitation.salaryPeriodType ?? "MONTHLY";
         await prisma.salaryStructure.create({
           data: {
             tenantId: invitation.tenantId,
             userId: newUser.id,
             baseSalary: Number(invitation.baseSalary),
             grossSalary: Number(invitation.baseSalary),
+            salaryPeriodType: periodType,
             effectiveDate: new Date(effectiveDate),
             currency,
           },

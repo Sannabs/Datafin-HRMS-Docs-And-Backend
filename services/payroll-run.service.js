@@ -350,19 +350,25 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             throw new Error(`No active salary structure found for employee ${employeeId}`);
         }
 
+        // Use monthly base for all calculations (convert annual to monthly once)
+        const baseSalaryMonthly =
+            salaryStructure.salaryPeriodType === "ANNUAL"
+                ? salaryStructure.baseSalary / 12
+                : salaryStructure.baseSalary;
+
         // Build employee context for conditional calculations
         const employeeContext = {
             departmentId: employee.departmentId,
             positionId: employee.positionId,
             employmentType: employee.employmentType,
-            baseSalary: salaryStructure.baseSalary,
+            baseSalary: baseSalaryMonthly,
             status: employee.status,
             hireDate: employee.hireDate,
         };
 
         // Calculate gross and net salary (with warning detection)
         const salaryResult = await recalculateSalary(
-            salaryStructure.baseSalary,
+            baseSalaryMonthly,
             salaryStructure.allowances,
             salaryStructure.deductions,
             employeeContext,
@@ -386,7 +392,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
         for (const allowance of salaryStructure.allowances) {
             const amount = await calculateAllowanceAmount(
                 allowance,
-                salaryStructure.baseSalary,
+                baseSalaryMonthly,
                 employeeContext,
                 grossSalary,
                 tenantId
@@ -399,7 +405,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             const amount = await calculateDeductionAmount(
                 deduction,
                 grossSalary,
-                salaryStructure.baseSalary,
+                baseSalaryMonthly,
                 employeeContext,
                 tenantId
             );
@@ -416,7 +422,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
 
         // Snapshot itemized breakdown so later config changes don't change this payslip's detail/PDF
         const itemized = await getSalaryBreakdownItemized(
-            salaryStructure.baseSalary,
+            baseSalaryMonthly,
             salaryStructure.allowances,
             salaryStructure.deductions,
             employeeContext,
@@ -424,7 +430,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             tenant?.gambiaStatutoryEnabled ?? false
         );
         const breakdownSnapshot = {
-            baseSalary: salaryStructure.baseSalary,
+            baseSalary: baseSalaryMonthly,
             currency: salaryStructure.currency || "USD",
             allowances: itemized.allowanceLines.map((line) => ({
                 name: line.name,

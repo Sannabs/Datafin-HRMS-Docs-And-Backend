@@ -61,6 +61,12 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         };
     }
 
+    // Use monthly base for all calculations (convert annual to monthly once)
+    const baseSalaryMonthly =
+        salaryStructure.salaryPeriodType === "ANNUAL"
+            ? salaryStructure.baseSalary / 12
+            : salaryStructure.baseSalary;
+
     const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -79,7 +85,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             employmentType: user.employmentType,
             status: user.status,
             hireDate: user.hireDate,
-            baseSalary: salaryStructure.baseSalary,
+            baseSalary: baseSalaryMonthly,
           }
         : null;
 
@@ -89,7 +95,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
     });
 
     const itemized = await getSalaryBreakdownItemized(
-        salaryStructure.baseSalary,
+        baseSalaryMonthly,
         salaryStructure.allowances,
         salaryStructure.deductions,
         employeeContext,
@@ -98,7 +104,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
     );
 
     return {
-        baseSalary: salaryStructure.baseSalary,
+        baseSalary: baseSalaryMonthly,
         currency: salaryStructure.currency || "USD",
         allowances: itemized.allowanceLines.map((line) => ({
             name: line.name,

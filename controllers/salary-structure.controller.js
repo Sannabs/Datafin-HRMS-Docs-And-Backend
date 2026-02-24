@@ -525,7 +525,7 @@ export const createSalaryStructure = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { baseSalary, effectiveDate, endDate, currency, allowances, deductions } = req.body;
+        const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         if (!baseSalary || !effectiveDate) {
             return res.status(400).json({
@@ -568,6 +568,12 @@ export const createSalaryStructure = async (req, res) => {
             status: employee.status,
             hireDate: employee.hireDate,
         };
+
+        const validPeriodTypes = ["MONTHLY", "ANNUAL"];
+        const periodType =
+          salaryPeriodType != null && validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
+            ? String(salaryPeriodType).toUpperCase()
+            : "MONTHLY";
 
         const today = new Date();
         const effective = new Date(effectiveDate);
@@ -658,6 +664,7 @@ export const createSalaryStructure = async (req, res) => {
                 userId: employeeId,
                 baseSalary,
                 grossSalary,
+                salaryPeriodType: periodType,
                 effectiveDate: effective,
                 endDate: end,
                 currency: currency || "USD",
@@ -841,7 +848,7 @@ export const updateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
         const { id: userId, tenantId } = req.user;
-        const { baseSalary, effectiveDate, endDate, currency, allowances, deductions } = req.body;
+        const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -870,8 +877,14 @@ export const updateSalaryStructure = async (req, res) => {
             });
         }
 
+        const validPeriodTypes = ["MONTHLY", "ANNUAL"];
         const updateData = {};
         if (baseSalary !== undefined) updateData.baseSalary = baseSalary;
+        if (salaryPeriodType !== undefined) {
+            updateData.salaryPeriodType = validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
+                ? String(salaryPeriodType).toUpperCase()
+                : salaryStructure.salaryPeriodType ?? "MONTHLY";
+        }
         if (effectiveDate !== undefined) updateData.effectiveDate = new Date(effectiveDate);
         if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
         if (currency !== undefined) updateData.currency = currency;

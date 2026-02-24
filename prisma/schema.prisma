@@ -44,6 +44,11 @@ enum InvitationStatus {
   EXPIRED
 }
 
+enum SalaryPeriodType {
+  MONTHLY
+  ANNUAL
+}
+
 model Invitation {
   id           String           @id @default(uuid())
   senderId     String
@@ -61,6 +66,7 @@ model Invitation {
   employmentType    EmploymentType?
   // Compensation (creates SalaryStructure on accept when baseSalary is set)
   baseSalary          Float?
+  salaryPeriodType    SalaryPeriodType? @default(MONTHLY)
   salaryEffectiveDate DateTime?
   salaryCurrency      String?         @default("USD")
   createdAt    DateTime         @default(now())
@@ -431,14 +437,15 @@ model SalaryStructure {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Salary fields
-  baseSalary    Float     @default(0)
-  grossSalary   Float     @default(0)
-  effectiveDate DateTime
-  endDate       DateTime?
-  currency      String    @default("USD")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  // Salary fields (baseSalary/grossSalary are in the period indicated by salaryPeriodType)
+  baseSalary       Float              @default(0)
+  grossSalary      Float              @default(0)
+  salaryPeriodType SalaryPeriodType   @default(MONTHLY)
+  effectiveDate    DateTime
+  endDate          DateTime?
+  currency         String             @default("USD")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   // Reverse relations
   allowances Allowance[]
