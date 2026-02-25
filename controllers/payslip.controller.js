@@ -1120,6 +1120,101 @@ export const getMyPayslips = async (req, res) => {
 };
 
 /**
+ * Get current user's most recent payslip with breakdown + YTD (for hero card).
+ */
+export const getMyLatestPayslip = async (req, res) => {
+    try {
+        const { tenantId, id: userId } = req.user;
+
+        const payslip = await prisma.payslip.findFirst({
+            where: {
+                userId,
+                payrollRun: { tenantId },
+            },
+            orderBy: { generatedAt: "desc" },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        employeeId: true,
+                        email: true,
+                        image: true,
+                        department: { select: { id: true, name: true } },
+                        position: { select: { id: true, title: true } },
+                    },
+                },
+                payrollRun: {
+                    include: {
+                        payPeriod: {
+                            select: { id: true, periodName: true, startDate: true, endDate: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!payslip) {
+            return res.status(200).json({ success: true, data: null });
+        }
+
+        const downloadUrl = payslip.filePath ? getPayslipUrl(payslip.filePath) : null;
+
+        let breakdown = null;
+        if (payslip.breakdownSnapshot != null) {
+            breakdown = payslip.breakdownSnapshot;
+        } else {
+            breakdown = await getPayslipBreakdown(
+                payslip.userId,
+                tenantId,
+                payslip.payrollRun.payPeriod.startDate,
+                payslip.payrollRun.payPeriod.endDate
+            );
+        }
+
+        if (breakdown && breakdown.employerSSHFCRate == null) {
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { employerSocialSecurityRate: true },
+            });
+            const rate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
+            if (rate != null && !Number.isNaN(rate)) {
+                const amount = Math.round(Number(payslip.grossSalary) * (rate / 100) * 100) / 100;
+                breakdown = { ...breakdown, employerSSHFCRate: rate, employerSSHFCAmount: amount };
+            }
+        }
+
+        let ytd = null;
+        if (payslip.payrollRun?.payPeriod?.endDate) {
+            ytd = await getPayslipYTD(
+                payslip.userId,
+                tenantId,
+                payslip.payrollRun.payPeriod.endDate
+            );
+        }
+
+        logger.info(`Retrieved latest payslip for user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            data: { ...payslip, downloadUrl, breakdown, ytd },
+        });
+    } catch (error) {
+        logger.error(`Error fetching my latest payslip: ${error.message}`, {
+            error: error.stack,
+            userId: req.user?.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch latest payslip",
+        });
+    }
+};
+
+/**
  * Distribute payslips via email for a payroll run
  */
 export const distributePayslips = async (req, res) => {
