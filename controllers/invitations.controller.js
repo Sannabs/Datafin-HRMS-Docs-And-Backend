@@ -268,10 +268,10 @@ export const sendInvitation = async (req, res, next) => {
     });
 
     // Send invitation email (primary); manual link sharing remains available in UI
-    const clientUrl =
-      process.env.CLIENT_URL ||
-      process.env.NEXT_PUBLIC_CLIENT_URL ||
-      "http://localhost:3000";
+    const clientUrl = process.env.NODE_ENV === "development" ?
+      "http://localhost:3000"
+      : process.env.CLIENT_URL
+
     const acceptLink = `${clientUrl}/accept-invite/${newInvitation.token}`;
     const tenantName = newInvitation.tenant?.name || "your organization";
     try {
