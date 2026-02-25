@@ -996,6 +996,130 @@ export const getEmployeePayslips = async (req, res) => {
 };
 
 /**
+ * Get current user's payslips (my payslips) with pagination.
+ */
+export const getMyPayslips = async (req, res) => {
+    try {
+        const { tenantId, id: userId } = req.user;
+
+        if (!tenantId || !userId) {
+            logger.error("Tenant ID or User ID is required");
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Tenant ID or User ID is required",
+            });
+        }
+
+        const page = parseInt(req.query.page || 1, 10);
+        const limit = Math.min(parseInt(req.query.limit || 20, 10), 50);
+        const skip = (page - 1) * limit;
+        const { startDate, endDate } = req.query;
+
+        const where = {
+            userId,
+            payrollRun: {
+                tenantId,
+                ...(startDate || endDate
+                    ? {
+                          payPeriod: {
+                              ...(startDate && { startDate: { gte: new Date(startDate) } }),
+                              ...(endDate && { endDate: { lte: new Date(endDate) } }),
+                          },
+                      }
+                    : {}),
+            },
+        };
+
+        const [payslips, total] = await Promise.all([
+            prisma.payslip.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { generatedAt: "desc" },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            employeeId: true,
+                            email: true,
+                            image: true,
+                            department: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                },
+                            },
+                            position: {
+                                select: {
+                                    id: true,
+                                    title: true,
+                                },
+                            },
+                        },
+                    },
+                    payrollRun: {
+                        include: {
+                            payPeriod: {
+                                select: {
+                                    id: true,
+                                    periodName: true,
+                                    startDate: true,
+                                    endDate: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
+            prisma.payslip.count({ where }),
+        ]);
+
+        const payslipsWithUrls = payslips.map((p) => ({
+            ...p,
+            downloadUrl: p.filePath ? getPayslipUrl(p.filePath) : null,
+        }));
+
+        const totalPages = Math.ceil(total / limit);
+
+        await addLog(userId, tenantId, "VIEW", "Payslip", userId, {
+            action: "view_my_payslips",
+            count: payslips.length,
+            page,
+        }, req);
+
+        logger.info(`Retrieved ${payslips.length} my payslips for user ${userId}`);
+
+        return res.status(200).json({
+            success: true,
+            message: "My payslips retrieved successfully",
+            data: payslipsWithUrls,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching my payslips: ${error.message}`, {
+            error: error.stack,
+            userId: req.user?.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch my payslips",
+        });
+    }
+};
+
+/**
  * Distribute payslips via email for a payroll run
  */
 export const distributePayslips = async (req, res) => {

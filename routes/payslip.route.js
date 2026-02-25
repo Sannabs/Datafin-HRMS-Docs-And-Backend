@@ -4,6 +4,7 @@ import {
     getPayslipById,
     downloadPayslip,
     getEmployeePayslips,
+    getMyPayslips,
     getPayslipsByPayrollRun,
     bulkDownloadPayslips,
     exportPayslips,
@@ -29,6 +30,9 @@ router.get("/payroll-run/:runId/distribution-report", requireRole(["HR_ADMIN", "
 
 // Employee-specific route (staff can view their own)
 router.get("/employee/:employeeId", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getEmployeePayslips);
+
+// My payslips (current user, with pagination)
+router.get("/my", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getMyPayslips);
 
 // Individual payslip routes
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"]), getPayslipById);
