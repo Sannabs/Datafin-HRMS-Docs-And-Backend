@@ -1091,6 +1091,58 @@ export const restoreEmployee = async (req, res) => {
             message: "Failed to restore employee",
         });
     }
+
+};
+
+
+export const removeProfilePicture = async (req, res) => {
+    const id = req.user.id;
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id, isDeleted: false },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "User not found",
+            });
+        }
+        if (user.image) {
+            try {
+                const oldKey = extractFilenameFromUrl(user.image);
+                if (oldKey) await deleteFile(oldKey);
+            } catch (deleteErr) {
+                logger.warn(`Could not delete profile image file: ${deleteErr.message}`);
+            }
+        }
+        const updatedUser = await prisma.user.update({
+            where: { id },
+            data: { image: null },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                emailVerified: true,
+                image: true,
+                tenantId: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+        return res.status(200).json({
+            success: true,
+            message: "Profile picture removed",
+            data: updatedUser,
+        });
+    } catch (error) {
+        logger.error(`Error removing profile picture: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to remove profile picture",
+        });
+    }
 };
 
 
