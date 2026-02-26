@@ -5,7 +5,10 @@ import { sendAutoCloseWarningEmail } from "../services/pay-period-notification.s
 
 /**
  * Automation job to check and auto-close pay periods after grace period
- * Runs every hour to check for pay periods that should be auto-closed
+ * Runs every hour to check for pay periods that should be auto-closed.
+ *
+ * Auto-close warning emails: sent at most 3 times per period — at ~24h, ~12h, and ~2h
+ * before auto-close — to avoid sending every hour.
  */
 export const startPayPeriodAutoCloseJob = async () => {
     let cron;
@@ -59,12 +62,20 @@ export const startPayPeriodAutoCloseJob = async () => {
                             logger.info(`Auto-closed pay period ${payPeriod.id} (${payPeriod.periodName})`);
                         }
                     } else {
-                        // Check if we should send warning email (24 hours before auto-close)
+                        // Send warning only at specific milestones (24h, 12h before auto-close)
+                        // to avoid spamming every hour. Milestones in hours before close.
+                        const WARNING_MILESTONES_HOURS = [24, 12];
                         const hoursSinceCompletion = (new Date() - new Date(payPeriod.updatedAt)) / (1000 * 60 * 60);
                         const hoursUntilAutoClose = gracePeriodHours - hoursSinceCompletion;
 
-                        // Send warning if within 24 hours of auto-close
-                        if (hoursUntilAutoClose > 0 && hoursUntilAutoClose <= 24) {
+                        const shouldSendWarning =
+                            hoursUntilAutoClose > 0 &&
+                            hoursUntilAutoClose <= 24 &&
+                            WARNING_MILESTONES_HOURS.some(
+                                (m) => hoursUntilAutoClose <= m && hoursUntilAutoClose > m - 1
+                            );
+
+                        if (shouldSendWarning) {
                             try {
                                 await sendAutoCloseWarningEmail(
                                     payPeriod,
