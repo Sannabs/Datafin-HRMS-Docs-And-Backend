@@ -198,7 +198,7 @@ export const updateMyProfle = async (req, res) => {
             "SSN",
             "tinNumber",
             "image",
-            "hireDate",
+            "emergencyContact",
         ];
 
         // Filter out disallowed fields and build update object
