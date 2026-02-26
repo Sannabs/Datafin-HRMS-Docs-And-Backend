@@ -202,7 +202,6 @@ export const updateMyProfle = async (req, res) => {
             "emergencyContactName",
             "emergencyContactRelationship",
             "emergencyContactPhone",
-            "emergencyContactPhoneSecondary",
         ];
 
         // Filter out disallowed fields and build update object
