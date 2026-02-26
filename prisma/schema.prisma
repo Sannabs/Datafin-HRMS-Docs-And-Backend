@@ -190,6 +190,8 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   address   String?
+  addressLine1 String?
+  addressLine2 String?
   phone     String?
   email     String?
   website   String?

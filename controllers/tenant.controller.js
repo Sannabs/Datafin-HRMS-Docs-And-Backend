@@ -1,6 +1,186 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 
+const COMPANY_INFO_SELECT = {
+    name: true,
+    code: true,
+    address: true,
+    addressLine1: true,
+    addressLine2: true,
+    phone: true,
+    email: true,
+    website: true,
+};
+
+/**
+ * GET /api/tenant
+ * Returns company info (profile) for the current tenant.
+ */
+export const getTenantProfile = async (req, res) => {
+    try {
+        const { tenantId } = req.user;
+
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: COMPANY_INFO_SELECT,
+        });
+
+        if (!tenant) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Tenant not found",
+            });
+        }
+
+        const line1 = (tenant.addressLine1 ?? (tenant.address && String(tenant.address).trim())) || null;
+        const line2 = tenant.addressLine2 ?? null;
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                name: tenant.name ?? "",
+                code: tenant.code ?? "",
+                addressLine1: line1,
+                addressLine2: line2,
+                phone: tenant.phone ?? null,
+                email: tenant.email ?? null,
+                website: tenant.website ?? null,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching tenant profile: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch company info",
+        });
+    }
+};
+
+/**
+ * PATCH /api/tenant
+ * Updates company info (including code).
+ * Body: { name?: string, code?: string, addressLine1?: string | null, addressLine2?: string | null, phone?: string | null, email?: string | null, website?: string | null }
+ */
+export const updateTenantProfile = async (req, res) => {
+    try {
+        const { tenantId, id: userId } = req.user;
+        const { name, code, addressLine1, addressLine2, phone, email, website } = req.body;
+
+        const updateData = {};
+        if (name !== undefined) {
+            const trimmed = typeof name === "string" ? name.trim() : "";
+            if (!trimmed) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Company name is required",
+                });
+            }
+            updateData.name = trimmed;
+        }
+        if (code !== undefined) {
+            const trimmed = typeof code === "string" ? code.trim() : "";
+            if (!trimmed) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Company code is required",
+                });
+            }
+            const existing = await prisma.tenant.findFirst({
+                where: {
+                    code: trimmed,
+                    id: { not: tenantId },
+                },
+                select: { id: true },
+            });
+            if (existing) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "Another company already uses this code",
+                });
+            }
+            updateData.code = trimmed;
+        }
+        if (addressLine1 !== undefined) {
+            updateData.addressLine1 = addressLine1 == null || addressLine1 === "" ? null : String(addressLine1).trim();
+        }
+        if (addressLine2 !== undefined) {
+            updateData.addressLine2 = addressLine2 == null || addressLine2 === "" ? null : String(addressLine2).trim();
+        }
+        if (phone !== undefined) {
+            updateData.phone = phone == null || phone === "" ? null : String(phone).trim();
+        }
+        if (email !== undefined) {
+            updateData.email = email == null || email === "" ? null : String(email).trim();
+        }
+        if (website !== undefined) {
+            updateData.website = website == null || website === "" ? null : String(website).trim();
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No valid fields to update (name, code, addressLine1, addressLine2, phone, email, website)",
+            });
+        }
+
+        // Keep legacy address in sync for payslip and other consumers
+        if (updateData.addressLine1 !== undefined || updateData.addressLine2 !== undefined) {
+            const current = await prisma.tenant.findUnique({
+                where: { id: tenantId },
+                select: { addressLine1: true, addressLine2: true },
+            });
+            const line1 = updateData.addressLine1 !== undefined ? updateData.addressLine1 : (current?.addressLine1 ?? null);
+            const line2 = updateData.addressLine2 !== undefined ? updateData.addressLine2 : (current?.addressLine2 ?? null);
+            updateData.address = [line1, line2].filter(Boolean).join("\n") || null;
+        }
+
+        const tenant = await prisma.tenant.update({
+            where: { id: tenantId },
+            data: updateData,
+            select: COMPANY_INFO_SELECT,
+        });
+
+        logger.info("Tenant profile (company info) updated", {
+            tenantId,
+            userId,
+            updates: Object.keys(updateData),
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                name: tenant.name ?? "",
+                code: tenant.code ?? "",
+                addressLine1: tenant.addressLine1 ?? null,
+                addressLine2: tenant.addressLine2 ?? null,
+                phone: tenant.phone ?? null,
+                email: tenant.email ?? null,
+                website: tenant.website ?? null,
+            },
+            message: "Company info updated",
+        });
+    } catch (error) {
+        logger.error(`Error updating tenant profile: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to update company info",
+        });
+    }
+};
+
 /**
  * GET /api/tenant/payroll-settings
  * Returns Gambia statutory and employer SSN settings for the current tenant.
