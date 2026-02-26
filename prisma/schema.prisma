@@ -336,7 +336,13 @@ model User {
   phone            String?
   hireDate         DateTime?
   address          String?
+  addressLine1     String?
+  addressLine2     String?
   emergencyContact String?
+  emergencyContactName           String?
+  emergencyContactRelationship   String?
+  emergencyContactPhone          String?
+  emergencyContactPhoneSecondary String?
   status           EmployeeStatus? @default(ACTIVE)
   employmentType   EmploymentType? @default(FULL_TIME)
   workLocation     WorkLocation?

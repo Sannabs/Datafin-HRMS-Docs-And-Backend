@@ -192,13 +192,17 @@ export const updateMyProfle = async (req, res) => {
         const allowedFields = [
             "name",
             "phone",
-            "address",
+            "addressLine1",
+            "addressLine2",
             "gender",
             "dateOfBirth",
             "SSN",
             "tinNumber",
             "image",
-            "emergencyContact",
+            "emergencyContactName",
+            "emergencyContactRelationship",
+            "emergencyContactPhone",
+            "emergencyContactPhoneSecondary",
         ];
 
         // Filter out disallowed fields and build update object
