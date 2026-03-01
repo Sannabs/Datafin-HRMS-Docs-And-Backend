@@ -1,6 +1,7 @@
 import express from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
+import { uploadLeaveAttachments } from "../middlewares/upload.middleware.js";
 import {
   // Policy
   getLeavePolicy,
@@ -26,6 +27,7 @@ import {
   getAllLeaveBalances,
   adjustLeaveBalance,
   initializeLeaveEntitlement,
+  getLeaveStats,
 } from "../controllers/leave.controller.js";
 
 const router = express.Router();
@@ -52,6 +54,7 @@ router.delete("/types/:id", requireRole(["HR_ADMIN"]), deleteLeaveType);
 // ============================================
 // Note: Specific routes must come before parameterized routes
 router.get("/requests/my", getMyLeaveRequests);
+router.get("/stats", getLeaveStats);
 router.get(
   "/requests/pending/manager",
   getPendingLeaveRequestsForManagerApproval
@@ -62,7 +65,7 @@ router.get(
   getAllLeaveRequests
 );
 router.get("/requests/:id", getLeaveRequestById);
-router.post("/requests", createLeaveRequest);
+router.post("/requests", uploadLeaveAttachments, createLeaveRequest);
 router.post(
   "/requests/:id/manager-approve",
   requireRole(["DEPARTMENT_ADMIN"]),

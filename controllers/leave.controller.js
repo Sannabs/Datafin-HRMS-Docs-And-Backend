@@ -1479,15 +1479,16 @@ export const createLeaveRequest = async (req, res) => {
       }
     }
 
-    // Handle file attachments
+    // Handle file attachments (single or multiple via multer array)
     const attachments = []
-    if (req.file) {
+    const files = req.files && Array.isArray(req.files) ? req.files : req.file ? [req.file] : []
+    for (const file of files) {
       try {
         const filename = generateFilename(
-          req.file.originalname,
+          file.originalname,
           `leave-requests/${tenantId}/${id}`
         )
-        const fileUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype)
+        const fileUrl = await uploadFile(file.buffer, filename, file.mimetype)
         attachments.push(fileUrl)
       } catch (error) {
         logger.error(`Error uploading leave attachment: ${error.message}`)
@@ -3110,3 +3111,121 @@ export const initializeLeaveEntitlement = async (req, res) => {
     return res.status(500).json({ success: false, error: "Something went wrong", message: "Failed to initialize leave entitlement" })
   }
 }
+
+export const getLeaveStats = async (req, res) => {
+  try {
+    const { tenantId, id: userId } = req.user;
+
+
+    const currentYear = new Date().getFullYear();
+
+    // Get or create yearly entitlement (same pattern as getLeaveBalance)
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: currentYear,
+      },
+      include: { policy: true },
+    });
+
+    if (!entitlement) {
+      const policy = await prisma.annualLeavePolicy.findFirst({
+        where: { tenantId },
+      });
+      if (!policy) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave policy not configured for this tenant",
+        });
+      }
+      const yearStartDate = new Date(currentYear, 0, 1);
+      const yearEndDate = new Date(currentYear, 11, 31);
+      let carryoverExpiryDate = null;
+      if (policy.carryoverExpiryMonths != null) {
+        carryoverExpiryDate = new Date(currentYear, policy.carryoverExpiryMonths, 0);
+      }
+      const allocatedDays =
+        policy.accrualMethod === "FRONT_LOADED" ? policy.defaultDaysPerYear : 0;
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId,
+          policyId: policy.id,
+          year: currentYear,
+          allocatedDays,
+          accruedDays: 0,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: { policy: true },
+      });
+      logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
+    }
+
+    const totalDays =
+      entitlement.allocatedDays +
+      entitlement.accruedDays +
+      entitlement.carriedOverDays +
+      entitlement.adjustmentDays;
+    const daysTaken = entitlement.usedDays;
+
+    const [pendingCount, approvedCount] = await Promise.all([
+      prisma.leaveRequest.count({
+        where: {
+          tenantId,
+          userId,
+          cancelledAt: null,
+          status: { in: ["PENDING", "MANAGER_APPROVED"] },
+        },
+      }),
+      prisma.leaveRequest.count({
+        where: {
+          tenantId,
+          userId,
+          cancelledAt: null,
+          status: "APPROVED",
+        },
+      }),
+    ]);
+
+    const policy = entitlement.policy;
+    const defaultDaysPerYear = policy?.defaultDaysPerYear ?? 21;
+    const accrualMethod = policy?.accrualMethod ?? "FRONT_LOADED";
+    const carryoverType = policy?.carryoverType ?? "LIMITED";
+
+    return res.status(200).json({
+      success: true,
+      message: "Leave stats fetched successfully",
+      data: {
+        totalDays,
+        daysTaken,
+        pendingCount,
+        approvedCount,
+        defaultDaysPerYear,
+        accrualMethod,
+        carryoverType,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error getting leave stats: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+      userId: req.user?.id,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Something went wrong",
+      message: "Failed to get leave stats",
+    });
+  }
+};
