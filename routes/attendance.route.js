@@ -20,6 +20,7 @@ import {
   getEmployeeWorkConfigs,
   createOrUpdateCompanyWorkDay,
   getCompanyWorkDay,
+  getTenantAttendanceSettings,
   updateTenantAttendanceSettings,
 } from "../controllers/attendance.controller.js";
 
@@ -59,6 +60,7 @@ router.post("/config/company-work-day", requireRole(["HR_ADMIN"]), createOrUpdat
 router.get("/config/company-work-day", requireRole(["HR_ADMIN", "HR_STAFF"]), getCompanyWorkDay);
 
 // Tenant Attendance Settings (Admin Only)
+router.get("/config/settings", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenantAttendanceSettings);
 router.patch("/config/settings", requireRole(["HR_ADMIN"]), updateTenantAttendanceSettings);
 
 export default router;

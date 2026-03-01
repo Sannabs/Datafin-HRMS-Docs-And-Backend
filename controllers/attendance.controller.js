@@ -1857,7 +1857,55 @@ export const getCompanyWorkDay = async (req, res) => {
   }
 };
 
-// Tenant Attendance Settings Controller
+// Tenant Attendance Settings Controllers
+export const getTenantAttendanceSettings = async (req, res) => {
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        gracePeriodMinutes: true,
+        earlyClockInMinutes: true,
+        geofenceRadius: true,
+        requirePhoto: true,
+        allowedClockInMethods: true,
+      },
+    });
+
+    if (!tenant) {
+      return res.status(404).json({
+        success: false,
+        error: "Tenant not found",
+        message: "Tenant not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: tenant,
+    });
+  } catch (error) {
+    logger.error(
+      `Error getting tenant attendance settings: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get attendance settings",
+    });
+  }
+};
+
 export const updateTenantAttendanceSettings = async (req, res) => {
   const tenantId = req.user.tenantId;
   const {
