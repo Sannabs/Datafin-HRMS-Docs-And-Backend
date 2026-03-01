@@ -1479,15 +1479,16 @@ export const createLeaveRequest = async (req, res) => {
       }
     }
 
-    // Handle file attachments
+    // Handle file attachments (single or multiple via multer array)
     const attachments = []
-    if (req.file) {
+    const files = req.files && Array.isArray(req.files) ? req.files : req.file ? [req.file] : []
+    for (const file of files) {
       try {
         const filename = generateFilename(
-          req.file.originalname,
+          file.originalname,
           `leave-requests/${tenantId}/${id}`
         )
-        const fileUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype)
+        const fileUrl = await uploadFile(file.buffer, filename, file.mimetype)
         attachments.push(fileUrl)
       } catch (error) {
         logger.error(`Error uploading leave attachment: ${error.message}`)

@@ -1,6 +1,7 @@
 import express from "express";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
+import { uploadLeaveAttachments } from "../middlewares/upload.middleware.js";
 import {
   // Policy
   getLeavePolicy,
@@ -64,7 +65,7 @@ router.get(
   getAllLeaveRequests
 );
 router.get("/requests/:id", getLeaveRequestById);
-router.post("/requests", createLeaveRequest);
+router.post("/requests", uploadLeaveAttachments, createLeaveRequest);
 router.post(
   "/requests/:id/manager-approve",
   requireRole(["DEPARTMENT_ADMIN"]),
