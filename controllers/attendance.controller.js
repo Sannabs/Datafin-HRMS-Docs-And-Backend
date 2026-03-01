@@ -1990,6 +1990,14 @@ export const updateTenantAttendanceSettings = async (req, res) => {
         });
       }
 
+      if (allowedClockInMethods.length > 2) {
+        return res.status(400).json({
+          success: false,
+          error: "Too many clock-in methods",
+          message: "At most 2 clock-in methods can be selected",
+        });
+      }
+
       updateData.allowedClockInMethods = allowedClockInMethods.map((method) =>
         method.toUpperCase()
       );
