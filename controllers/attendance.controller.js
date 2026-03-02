@@ -2071,6 +2071,7 @@ export const getTenantLocations = async (req, res) => {
         latitude: true,
         longitude: true,
         wifiSSID: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -2094,7 +2095,7 @@ export const getTenantLocations = async (req, res) => {
 
 export const createTenantLocation = async (req, res) => {
   const tenantId = req.user.tenantId;
-  const { name, latitude, longitude, wifiSSID } = req.body;
+  const { name, latitude, longitude, wifiSSID, isActive } = req.body;
 
   try {
     if (!tenantId) {
@@ -2137,6 +2138,7 @@ export const createTenantLocation = async (req, res) => {
         : String(wifiSSID).trim();
     const normalizedWifi = trimmedWifi ? trimmedWifi : null;
 
+    const isActiveVal = isActive === undefined ? true : Boolean(isActive);
     const created = await prisma.location.create({
       data: {
         tenantId,
@@ -2144,6 +2146,7 @@ export const createTenantLocation = async (req, res) => {
         latitude: lat,
         longitude: lng,
         wifiSSID: normalizedWifi,
+        isActive: isActiveVal,
       },
       select: {
         id: true,
@@ -2151,6 +2154,7 @@ export const createTenantLocation = async (req, res) => {
         latitude: true,
         longitude: true,
         wifiSSID: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -2176,7 +2180,7 @@ export const createTenantLocation = async (req, res) => {
 export const updateTenantLocation = async (req, res) => {
   const tenantId = req.user.tenantId;
   const locationId = req.params.id;
-  const { name, latitude, longitude, wifiSSID } = req.body;
+  const { name, latitude, longitude, wifiSSID, isActive } = req.body;
 
   try {
     if (!tenantId) {
@@ -2250,6 +2254,10 @@ export const updateTenantLocation = async (req, res) => {
       updateData.wifiSSID = trimmedWifi ? trimmedWifi : null;
     }
 
+    if (isActive !== undefined) {
+      updateData.isActive = Boolean(isActive);
+    }
+
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
         success: false,
@@ -2267,6 +2275,7 @@ export const updateTenantLocation = async (req, res) => {
         latitude: true,
         longitude: true,
         wifiSSID: true,
+        isActive: true,
         createdAt: true,
         updatedAt: true,
       },
