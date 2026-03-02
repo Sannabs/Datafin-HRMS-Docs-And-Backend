@@ -2045,3 +2045,294 @@ export const updateTenantAttendanceSettings = async (req, res) => {
     });
   }
 };
+
+// ------------------------------------------------------------
+// Tenant Locations (Attendance)
+// ------------------------------------------------------------
+
+export const getTenantLocations = async (req, res) => {
+  const tenantId = req.user.tenantId;
+
+  try {
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    const locations = await prisma.location.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        wifiSSID: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: locations,
+    });
+  } catch (error) {
+    logger.error(`Error getting tenant locations: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get locations",
+    });
+  }
+};
+
+export const createTenantLocation = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const { name, latitude, longitude, wifiSSID } = req.body;
+
+  try {
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    const trimmedName = typeof name === "string" ? name.trim() : "";
+    if (!trimmedName) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid name",
+        message: "Location name is required",
+      });
+    }
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (Number.isNaN(lat) || lat < -90 || lat > 90) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid latitude",
+        message: "Latitude must be a number between -90 and 90",
+      });
+    }
+    if (Number.isNaN(lng) || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid longitude",
+        message: "Longitude must be a number between -180 and 180",
+      });
+    }
+
+    const trimmedWifi =
+      wifiSSID === null || wifiSSID === undefined
+        ? null
+        : String(wifiSSID).trim();
+    const normalizedWifi = trimmedWifi ? trimmedWifi : null;
+
+    const created = await prisma.location.create({
+      data: {
+        tenantId,
+        name: trimmedName,
+        latitude: lat,
+        longitude: lng,
+        wifiSSID: normalizedWifi,
+      },
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        wifiSSID: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Location created successfully",
+      data: created,
+    });
+  } catch (error) {
+    logger.error(`Error creating tenant location: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to create location",
+    });
+  }
+};
+
+export const updateTenantLocation = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const locationId = req.params.id;
+  const { name, latitude, longitude, wifiSSID } = req.body;
+
+  try {
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+    if (!locationId) {
+      return res.status(400).json({
+        success: false,
+        error: "Location ID is required",
+        message: "Location ID is required",
+      });
+    }
+
+    const existing = await prisma.location.findUnique({
+      where: { id: locationId },
+      select: { id: true, tenantId: true },
+    });
+    if (!existing || existing.tenantId !== tenantId) {
+      return res.status(404).json({
+        success: false,
+        error: "Location not found",
+        message: "Location not found",
+      });
+    }
+
+    const updateData = {};
+
+    if (name !== undefined) {
+      const trimmedName = typeof name === "string" ? name.trim() : "";
+      if (!trimmedName) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid name",
+          message: "Location name cannot be empty",
+        });
+      }
+      updateData.name = trimmedName;
+    }
+
+    if (latitude !== undefined) {
+      const lat = Number(latitude);
+      if (Number.isNaN(lat) || lat < -90 || lat > 90) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid latitude",
+          message: "Latitude must be a number between -90 and 90",
+        });
+      }
+      updateData.latitude = lat;
+    }
+
+    if (longitude !== undefined) {
+      const lng = Number(longitude);
+      if (Number.isNaN(lng) || lng < -180 || lng > 180) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid longitude",
+          message: "Longitude must be a number between -180 and 180",
+        });
+      }
+      updateData.longitude = lng;
+    }
+
+    if (wifiSSID !== undefined) {
+      const trimmedWifi =
+        wifiSSID === null ? null : String(wifiSSID).trim();
+      updateData.wifiSSID = trimmedWifi ? trimmedWifi : null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No fields to update",
+        message: "Please provide at least one field to update",
+      });
+    }
+
+    const updated = await prisma.location.update({
+      where: { id: locationId },
+      data: updateData,
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        wifiSSID: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Location updated successfully",
+      data: updated,
+    });
+  } catch (error) {
+    logger.error(`Error updating tenant location: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update location",
+    });
+  }
+};
+
+export const deleteTenantLocation = async (req, res) => {
+  const tenantId = req.user.tenantId;
+  const locationId = req.params.id;
+
+  try {
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+    if (!locationId) {
+      return res.status(400).json({
+        success: false,
+        error: "Location ID is required",
+        message: "Location ID is required",
+      });
+    }
+
+    const deleted = await prisma.location.deleteMany({
+      where: { id: locationId, tenantId },
+    });
+
+    if (deleted.count === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Location not found",
+        message: "Location not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Location deleted successfully",
+    });
+  } catch (error) {
+    logger.error(`Error deleting tenant location: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to delete location",
+    });
+  }
+};

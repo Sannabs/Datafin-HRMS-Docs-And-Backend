@@ -21,6 +21,10 @@ import {
   createOrUpdateCompanyWorkDay,
   getCompanyWorkDay,
   getTenantAttendanceSettings,
+  getTenantLocations,
+  createTenantLocation,
+  updateTenantLocation,
+  deleteTenantLocation,
   updateTenantAttendanceSettings,
 } from "../controllers/attendance.controller.js";
 
@@ -62,5 +66,11 @@ router.get("/config/company-work-day", requireRole(["HR_ADMIN", "HR_STAFF"]), ge
 // Tenant Attendance Settings (Admin Only)
 router.get("/config/settings", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenantAttendanceSettings);
 router.patch("/config/settings", requireRole(["HR_ADMIN"]), updateTenantAttendanceSettings);
+
+// Tenant Locations (Attendance)
+router.get("/config/locations", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenantLocations);
+router.post("/config/locations", requireRole(["HR_ADMIN"]), createTenantLocation);
+router.patch("/config/locations/:id", requireRole(["HR_ADMIN"]), updateTenantLocation);
+router.delete("/config/locations/:id", requireRole(["HR_ADMIN"]), deleteTenantLocation);
 
 export default router;
