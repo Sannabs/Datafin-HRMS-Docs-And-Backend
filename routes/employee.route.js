@@ -2,6 +2,7 @@ import express from "express";
 import {
     getAllEmployees,
     getEmployeeById,
+    createEmployee,
     updateEmployee,
     updateEmployeeIdDigits,
     terminateEmployee,
@@ -21,6 +22,11 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
+router.post(
+    "/",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    createEmployee
+);
 router.get("/me", getEmployeeById);
 router.patch("/my-profile", updateMyProfle);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
