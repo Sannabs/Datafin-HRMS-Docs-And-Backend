@@ -335,11 +335,11 @@ export const updateMyProfle = async (req, res) => {
 // update employee by admin
 export const updateEmployee = async (req, res) => {
     try {
-        const {tenantId } = req.user;
+        const { tenantId } = req.user;
         const actorId = req.user.id;
         const { id } = req.params;
         const updateData = req.body;
-        
+
         if (!actorId) {
             return res.status(401).json({
                 success: false,
@@ -1234,3 +1234,133 @@ export const updateProfilePicture = async (req, res) => {
     }
 
 }
+
+
+export const getHomeStats = async (req, res) => {
+    try {
+        const { tenantId, id: userId } = req.user;
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+
+        let entitlement = await prisma.yearlyEntitlement.findFirst({
+            where: { tenantId, userId, year: currentYear },
+            select: {
+                allocatedDays: true,
+                accruedDays: true,
+                carriedOverDays: true,
+                adjustmentDays: true,
+                usedDays: true,
+                pendingDays: true,
+            },
+        });
+
+        if (!entitlement) {
+            const policy = await prisma.annualLeavePolicy.findFirst({
+                where: { tenantId },
+            });
+
+            if (!policy) {
+                return res.status(404).json({
+                    success: false,
+                    error: "Not Found",
+                    message: "leave policy not configured for this tenant",
+                });
+            }
+
+            const yearStartDate = new Date(currentYear, 0, 1);
+            const yearEndDate = new Date(currentYear, 11, 31);
+
+            let allocatedDays = 0;
+            let accruedDays = 0;
+
+            if (policy.accrualMethod === "FRONT_LOADED") {
+                allocatedDays = policy.defaultDaysPerYear;
+            }
+
+            let carryoverExpiryDate = null;
+            if (policy.carryoverExpiryMonths != null) {
+                // Months after year-end: e.g. 3 => last day of March next year
+                carryoverExpiryDate = new Date(currentYear + 1, policy.carryoverExpiryMonths - 1, 0);
+            }
+
+            entitlement = await prisma.yearlyEntitlement.create({
+                data: {
+                    tenantId,
+                    userId,
+                    policyId: policy.id,
+                    year: currentYear,
+                    allocatedDays,
+                    accruedDays,
+                    carriedOverDays: 0,
+                    adjustmentDays: 0,
+                    usedDays: 0,
+                    pendingDays: 0,
+                    encashedDays: 0,
+                    encashmentAmount: 0,
+                    yearStartDate,
+                    yearEndDate,
+                    lastAccrualDate: null,
+                    carryoverExpiryDate,
+                },
+                select: {
+                    allocatedDays: true,
+                    accruedDays: true,
+                    carriedOverDays: true,
+                    adjustmentDays: true,
+                    usedDays: true,
+                    pendingDays: true,
+                },
+            });
+
+            logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
+        }
+
+        const availableBalance =
+            entitlement.allocatedDays +
+            entitlement.accruedDays +
+            entitlement.carriedOverDays +
+            entitlement.adjustmentDays -
+            entitlement.usedDays -
+            entitlement.pendingDays;
+
+        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+
+        const [payslip, holiday] = await Promise.all([
+            prisma.payslip.findFirst({
+                where: {
+                    tenantId,
+                    userId,
+                    generatedAt: { gte: monthStart },
+                },
+                orderBy: { generatedAt: "desc" },
+                select: { netSalary: true },
+            }),
+            prisma.holiday.findFirst({
+                where: {
+                    tenantId,
+                    isActive: true,
+                    date: { gte: currentDate },
+                },
+                orderBy: { date: "asc" },
+                select: { date: true },
+            }),
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                leaveBalance: availableBalance,
+                latestPayslip: payslip?.netSalary ?? null,
+                nextHoliday: holiday?.date ?? null,
+                pendingReviews: null,
+            },
+        });
+    } catch (error) {
+        logger.error(`getHomeStats error: ${error.message}`, { userId: req.user?.id, error });
+        res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to load home stats",
+        });
+    }
+};

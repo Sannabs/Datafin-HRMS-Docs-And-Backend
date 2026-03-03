@@ -11,6 +11,7 @@ import {
     updateMyProfle,
     updateProfilePicture,
     removeProfilePicture,
+    getHomeStats,
 } from "../controllers/employee.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -23,6 +24,7 @@ router.use(requireAuth);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
 router.get("/me", getEmployeeById);
 router.patch("/my-profile", updateMyProfle);
+router.get("/home-stats", getHomeStats);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.delete("/my-profile-picture", removeProfilePicture);
 router.get("/:id", getEmployeeById);
