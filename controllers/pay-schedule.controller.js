@@ -274,7 +274,8 @@ export const activatePaySchedule = async (req, res) => {
 export const deactivatePaySchedule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const existing = await prisma.paySchedule.findFirst({
             where: { id, tenantId, deletedAt: null },
         });
@@ -324,7 +325,8 @@ export const deactivatePaySchedule = async (req, res) => {
 export const generatePeriods = async (req, res) => {
     try {
         const { id: scheduleId } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { fromDate, toDate, count } = req.body;
 
         const schedule = await prisma.paySchedule.findFirst({

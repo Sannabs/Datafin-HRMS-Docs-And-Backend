@@ -293,7 +293,8 @@ export const createCalculationRule = async (req, res) => {
 export const updateCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, description, conditions, action, priority, isActive, effectiveDate, endDate } = req.body;
 
         const existingRule = await prisma.calculationRule.findFirst({
@@ -406,7 +407,8 @@ export const updateCalculationRule = async (req, res) => {
 export const activateCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.calculationRule.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -458,7 +460,8 @@ export const activateCalculationRule = async (req, res) => {
 export const deactivateCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.calculationRule.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -513,7 +516,8 @@ export const deactivateCalculationRule = async (req, res) => {
 export const deleteCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const rule = await prisma.calculationRule.findFirst({
             where: {
@@ -594,7 +598,8 @@ export const deleteCalculationRule = async (req, res) => {
 export const testCalculationRule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { employeeContext, baseSalary, grossSalary } = req.body;
 
         if (!employeeContext) {

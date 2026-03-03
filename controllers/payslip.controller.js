@@ -322,7 +322,8 @@ export const getPayslipsByPayrollRun = async (req, res) => {
 export const bulkDownloadPayslips = async (req, res) => {
     try {
         const { runId } = req.params;
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         // Verify payroll run exists and belongs to tenant
         const payrollRun = await prisma.payrollRun.findFirst({
@@ -462,7 +463,8 @@ export const bulkDownloadPayslips = async (req, res) => {
  */
 export const exportPayslips = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const {
             format = "csv",
             payrollRunId,
@@ -628,7 +630,8 @@ export const exportPayslips = async (req, res) => {
 export const getPayslipById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId, id: userId, role } = req.user;
+        const { id: userId, role } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { includeBreakdown } = req.query;
 
         const payslip = await prisma.payslip.findFirst({
@@ -776,7 +779,8 @@ export const getPayslipById = async (req, res) => {
 export const downloadPayslip = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId, id: userId, role } = req.user;
+        const { id: userId, role } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payslip = await prisma.payslip.findFirst({
             where: {
@@ -866,7 +870,8 @@ export const downloadPayslip = async (req, res) => {
 export const getEmployeePayslips = async (req, res) => {
     try {
         const { employeeId } = req.params;
-        const { tenantId, id: userId, role } = req.user;
+        const { id: userId, role } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { payPeriodId, startDate, endDate, includeBreakdown } = req.query;
 
         // Check if employee can only see their own payslips
@@ -1002,7 +1007,8 @@ export const getEmployeePayslips = async (req, res) => {
  */
 export const getMyPayslips = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         if (!tenantId || !userId) {
             logger.error("Tenant ID or User ID is required");
@@ -1126,7 +1132,8 @@ export const getMyPayslips = async (req, res) => {
  */
 export const getMyLatestPayslip = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payslip = await prisma.payslip.findFirst({
             where: {
@@ -1232,7 +1239,8 @@ export const getMyLatestPayslip = async (req, res) => {
 export const distributePayslips = async (req, res) => {
     try {
         const { runId } = req.params;
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { employeeIds } = req.body;
 
         // Verify payroll run exists and belongs to tenant
@@ -1477,7 +1485,7 @@ export const distributePayslips = async (req, res) => {
 export const getDistributionReport = async (req, res) => {
     try {
         const { runId } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         // Verify payroll run exists and belongs to tenant
         const payrollRun = await prisma.payrollRun.findFirst({

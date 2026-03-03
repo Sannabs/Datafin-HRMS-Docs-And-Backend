@@ -246,7 +246,7 @@ export const getMySalaryStructures = async (req, res) => {
 export const getEmployeeSalaryStructure = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const today = new Date();
         // Find active salary structure: effective date <= today AND (no end date OR end date >= today)
@@ -349,7 +349,7 @@ export const getEmployeeSalaryStructure = async (req, res) => {
  */
 export const getAllSalaryStructures = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { employeeId } = req.query;
 
         const where = {
@@ -441,7 +441,7 @@ export const getAllSalaryStructures = async (req, res) => {
 export const getEmployeeSalaryStructures = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructures = await prisma.salaryStructure.findMany({
             where: {
@@ -526,7 +526,8 @@ export const getEmployeeSalaryStructures = async (req, res) => {
 export const createSalaryStructure = async (req, res) => {
     try {
         const { id: employeeId } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         if (!baseSalary || !effectiveDate) {
@@ -857,7 +858,8 @@ export const createSalaryStructure = async (req, res) => {
 export const updateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -1118,7 +1120,8 @@ export const updateSalaryStructure = async (req, res) => {
 export const deactivateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: { id, tenantId },
@@ -1237,7 +1240,8 @@ export const deactivateSalaryStructure = async (req, res) => {
 export const activateSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: { id, tenantId },
@@ -1385,7 +1389,8 @@ export const activateSalaryStructure = async (req, res) => {
 export const deleteSalaryStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: { id, tenantId },
@@ -1454,7 +1459,8 @@ export const deleteSalaryStructure = async (req, res) => {
 export const addAllowanceToStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { allowanceTypeId, amount, calculationMethod, formulaExpression, calculationRuleId } = req.body;
 
         const method = calculationMethod || "FIXED";
@@ -1628,7 +1634,8 @@ export const addAllowanceToStructure = async (req, res) => {
 export const removeAllowanceFromStructure = async (req, res) => {
     try {
         const { id, allowanceId } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -1744,7 +1751,8 @@ export const removeAllowanceFromStructure = async (req, res) => {
 export const addDeductionToStructure = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { deductionTypeId, amount, calculationMethod, formulaExpression, calculationRuleId } = req.body;
 
         const method = calculationMethod || "FIXED";
@@ -1919,7 +1927,8 @@ export const addDeductionToStructure = async (req, res) => {
 export const removeDeductionFromStructure = async (req, res) => {
     try {
         const { id, deductionId } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {

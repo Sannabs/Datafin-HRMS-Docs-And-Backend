@@ -435,7 +435,8 @@ export const getAllLeaveTypes = async (req, res, next) => {
 
 export const createLeaveType = async (req, res, next) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const {
       name,
       description,
@@ -528,7 +529,8 @@ export const createLeaveType = async (req, res, next) => {
 export const updateLeaveType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const {
       name,
       description,
@@ -680,7 +682,8 @@ export const updateLeaveType = async (req, res, next) => {
 export const deleteLeaveType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -769,7 +772,8 @@ export const deleteLeaveType = async (req, res, next) => {
 
 export const getMyLeaveRequests = async (req, res, next) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -880,7 +884,8 @@ export const getPendingLeaveRequestsForManagerApproval = async (
   next
 ) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -979,7 +984,8 @@ export const getPendingLeaveRequestsForManagerApproval = async (
 };
 export const getAllLeaveRequests = async (req, res, next) => {
   try {
-    const { tenantId, id: userId, role } = req.user;
+    const { id: userId, role } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId) {
@@ -1140,7 +1146,8 @@ export const getAllLeaveRequests = async (req, res, next) => {
 export const getLeaveRequestById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId, role } = req.user;
+    const { id: userId, role } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId) {
@@ -1277,7 +1284,8 @@ export const getLeaveRequestById = async (req, res, next) => {
 };
 
 export const createLeaveRequest = async (req, res) => {
-  const { tenantId, id } = req.user
+  const { id } = req.user;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { startDate, endDate, reason, leaveTypeId } = req.body
 
   try {
@@ -1673,7 +1681,8 @@ export const createLeaveRequest = async (req, res) => {
 export const managerApproveLeaveRequest = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -1783,7 +1792,8 @@ export const managerApproveLeaveRequest = async (req, res, next) => {
 export const hrApproveLeaveRequest = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -1931,7 +1941,8 @@ export const rejectLeaveRequest = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rejectionReason } = req.body;
-    const { tenantId, id: userId, role } = req.user;
+    const { id: userId, role } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -2092,7 +2103,8 @@ export const rejectLeaveRequest = async (req, res, next) => {
 export const cancelLeaveRequest = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
     if (!tenantId || !userId) {
@@ -2233,7 +2245,8 @@ export const cancelLeaveRequest = async (req, res, next) => {
 
 export const getMyLeaveBalance = async (req, res) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     if (!tenantId || !userId) {
       return res.status(400).json({
@@ -2369,7 +2382,8 @@ export const getMyLeaveBalance = async (req, res) => {
 
 export const getEmployeeLeaveBalance = async (req, res) => {
   try {
-    const { tenantId, id: hrUserId } = req.user;
+    const { id: hrUserId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { userId } = req.params;
 
     if (!tenantId || !hrUserId) {
@@ -2547,7 +2561,8 @@ export const getEmployeeLeaveBalance = async (req, res) => {
 
 export const adjustLeaveBalance = async (req, res) => {
   try {
-    const { tenantId, id: hrUserId } = req.user;
+    const { id: hrUserId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { userId } = req.params;
     const { adjustmentDays, reason } = req.body;
 
@@ -2769,7 +2784,8 @@ export const adjustLeaveBalance = async (req, res) => {
 
 export const getAllLeaveBalances = async (req, res) => {
   try {
-    const { tenantId, id: hrUserId } = req.user;
+    const { id: hrUserId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     if (!tenantId || !hrUserId) {
       return res.status(400).json({
@@ -2929,7 +2945,8 @@ export const getAllLeaveBalances = async (req, res) => {
 
 export const initializeLeaveEntitlement = async (req, res) => {
   try {
-    const { tenantId, id: hrUserId } = req.user;
+    const { id: hrUserId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { userId } = req.params;
     const { year } = req.body;
 
@@ -3116,7 +3133,8 @@ export const initializeLeaveEntitlement = async (req, res) => {
 
 export const getLeaveStats = async (req, res) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
 
     const currentYear = new Date().getFullYear();

@@ -251,7 +251,8 @@ export const updatePayPeriod = async (req, res) => {
     try {
         const { id } = req.params;
         const { periodName, startDate, endDate } = req.body;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payPeriod = await prisma.payPeriod.findFirst({
             where: { id, tenantId },
@@ -392,7 +393,8 @@ export const updatePayPeriodStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status: nextStatus } = req.body;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         if (!nextStatus) {
             return res.status(400).json({
@@ -507,7 +509,8 @@ export const updatePayPeriodStatus = async (req, res) => {
 export const deletePayPeriod = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payPeriod = await prisma.payPeriod.findFirst({
             where: { id, tenantId },
@@ -572,7 +575,8 @@ export const deletePayPeriod = async (req, res) => {
 export const pauseAutoClose = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payPeriod = await prisma.payPeriod.findFirst({
             where: {
@@ -655,7 +659,8 @@ export const pauseAutoClose = async (req, res) => {
 export const resumeAutoClose = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payPeriod = await prisma.payPeriod.findFirst({
             where: {
