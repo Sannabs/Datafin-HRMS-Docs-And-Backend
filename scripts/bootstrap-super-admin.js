@@ -24,31 +24,15 @@ async function main() {
       email,
       role: "SUPER_ADMIN",
     },
-    select: { id: true },
-    include: {
-      accounts: {
-        where: { providerId: "credential" },
-        select: { id: true },
-      },
-    },
   });
 
   if (existing) {
-    if (existing.accounts?.length > 0) {
-      console.log("SUPER_ADMIN already exists for this email with credential account, nothing to do.");
-      return;
-    }
-    await prisma.account.create({
-      data: {
-        id: crypto.randomUUID(),
-        userId: existing.id,
-        accountId: existing.id,
-        providerId: "credential",
-        password: hashedPassword,
-      },
+    console.warn(
+      `Existing SUPER_ADMIN found for ${email} (id=${existing.id}), deleting before re-creating.`
+    );
+    await prisma.user.delete({
+      where: { id: existing.id },
     });
-    console.log("Credential account created for existing SUPER_ADMIN:", existing.id);
-    return;
   }
 
   const platformTenant = await ensurePlatformTenant();
