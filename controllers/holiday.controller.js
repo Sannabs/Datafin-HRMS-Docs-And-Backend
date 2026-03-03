@@ -7,7 +7,7 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
  */
 export const getAllHolidays = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { year, type, isActive } = req.query;
 
         const where = { tenantId };
@@ -60,7 +60,7 @@ export const getAllHolidays = async (req, res) => {
 export const getHolidayById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const holiday = await prisma.holiday.findFirst({
             where: {
@@ -99,7 +99,8 @@ export const getHolidayById = async (req, res) => {
  */
 export const createHoliday = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, date, type, description, isRecurring, year, isActive } = req.body;
 
         if (!name || !date) {
@@ -184,7 +185,8 @@ export const createHoliday = async (req, res) => {
 export const updateHoliday = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, date, type, description, isRecurring, year, isActive } = req.body;
 
         const existingHoliday = await prisma.holiday.findFirst({
@@ -269,7 +271,8 @@ export const updateHoliday = async (req, res) => {
 export const deleteHoliday = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const holiday = await prisma.holiday.findFirst({
             where: {
@@ -320,7 +323,8 @@ export const deleteHoliday = async (req, res) => {
  */
 export const bulkCreateHolidays = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { holidays } = req.body;
 
         if (!Array.isArray(holidays) || holidays.length === 0) {
@@ -408,7 +412,7 @@ export const bulkCreateHolidays = async (req, res) => {
  */
 export const getHolidaysInRange = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { startDate, endDate } = req.query;
 
         if (!startDate || !endDate) {

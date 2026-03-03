@@ -4,7 +4,7 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllAllowanceTypes = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { isActive } = req.query;
 
         const where = {
@@ -52,7 +52,7 @@ export const getAllAllowanceTypes = async (req, res) => {
 export const getAllowanceTypeById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const allowanceType = await prisma.allowanceType.findFirst({
             where: {
@@ -99,7 +99,8 @@ export const getAllowanceTypeById = async (req, res) => {
 
 export const createAllowanceType = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, code, description, isTaxable, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         if (!name || !code) {
@@ -184,7 +185,8 @@ export const createAllowanceType = async (req, res) => {
 export const updateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, code, description, isTaxable, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         const existing = await prisma.allowanceType.findFirst({
@@ -255,7 +257,8 @@ export const updateAllowanceType = async (req, res) => {
 export const activateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.allowanceType.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -306,7 +309,8 @@ export const activateAllowanceType = async (req, res) => {
 export const deactivateAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.allowanceType.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -360,7 +364,8 @@ export const deactivateAllowanceType = async (req, res) => {
 export const deleteAllowanceType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const allowanceType = await prisma.allowanceType.findFirst({
             where: { id, tenantId, deletedAt: null },

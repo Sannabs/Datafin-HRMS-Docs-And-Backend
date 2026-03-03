@@ -6,7 +6,7 @@ import { computePeriodRanges } from "../services/pay-schedule-generation.service
 
 export const getAllPaySchedules = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { isActive } = req.query;
 
         const where = { tenantId, deletedAt: null };
@@ -39,7 +39,7 @@ export const getAllPaySchedules = async (req, res) => {
 export const getPayScheduleById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const schedule = await prisma.paySchedule.findFirst({
             where: { id, tenantId, deletedAt: null },
         });
@@ -69,7 +69,8 @@ export const getPayScheduleById = async (req, res) => {
 
 export const createPaySchedule = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, frequency, config } = req.body;
         if (!name || !frequency) {
             return res.status(400).json({
@@ -117,7 +118,8 @@ export const createPaySchedule = async (req, res) => {
 export const updatePaySchedule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, frequency, config } = req.body;
         const schedule = await prisma.paySchedule.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -174,7 +176,8 @@ export const updatePaySchedule = async (req, res) => {
 export const deletePaySchedule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const schedule = await prisma.paySchedule.findFirst({
             where: { id, tenantId, deletedAt: null },
         });
@@ -222,7 +225,8 @@ export const deletePaySchedule = async (req, res) => {
 export const activatePaySchedule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const existing = await prisma.paySchedule.findFirst({
             where: { id, tenantId, deletedAt: null },
         });

@@ -17,7 +17,7 @@ import {
 // get all employees
 export const getAllEmployees = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         // tenant scope
         const where = {
@@ -83,7 +83,8 @@ export const getAllEmployees = async (req, res) => {
 // create employee (manual add for payroll, no invite)
 export const createEmployee = async (req, res) => {
     try {
-        const { tenantId, role: actorRole, id: actorId } = req.user || {};
+        const { role: actorRole, id: actorId } = req.user || {};
+        const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
         if (!tenantId || !actorId) {
             return res.status(401).json({
                 success: false,
@@ -364,7 +365,8 @@ export const createEmployee = async (req, res) => {
 // get employee by id
 export const getEmployeeById = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         if (!id) {
             return res.status(401).json({
@@ -442,7 +444,8 @@ export const getEmployeeById = async (req, res) => {
 
 export const updateMyProfle = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const updateData = req.body;
 
         if (!id) {
@@ -617,7 +620,7 @@ export const updateMyProfle = async (req, res) => {
 // update employee by admin
 export const updateEmployee = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const actorId = req.user.id;
         const { id } = req.params;
         const updateData = req.body;
@@ -798,7 +801,7 @@ export const updateEmployee = async (req, res) => {
 // update employee ID digits (HR only) - only the 4-digit suffix is editable
 export const updateEmployeeIdDigits = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const employeeIdParam = req.params.id;
         const { digits } = req.body;
 
@@ -910,7 +913,8 @@ export const updateEmployeeIdDigits = async (req, res) => {
 // terminate employee
 export const terminateEmployee = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const actorId = id;
 
         if (!id) {
@@ -1026,7 +1030,8 @@ export const terminateEmployee = async (req, res) => {
 // reactivate employee
 export const reactivateEmployee = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const actorId = id;
 
         if (!id) {
@@ -1142,7 +1147,8 @@ export const reactivateEmployee = async (req, res) => {
 // archive employee
 export const archiveEmployee = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const actorId = id;
 
         if (!id) {
@@ -1259,7 +1265,8 @@ export const archiveEmployee = async (req, res) => {
 // restore employee (unarchive)
 export const restoreEmployee = async (req, res) => {
     try {
-        const { id, tenantId } = req.user;
+        const { id } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const actorId = id;
 
         if (!id) {
@@ -1520,7 +1527,8 @@ export const updateProfilePicture = async (req, res) => {
 
 export const getHomeStats = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const currentDate = new Date();
         const currentYear = currentDate.getFullYear();
 

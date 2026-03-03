@@ -21,7 +21,7 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllCalculationRules = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { ruleType, isActive } = req.query;
 
         const where = {
@@ -84,7 +84,7 @@ export const getAllCalculationRules = async (req, res) => {
 export const getCalculationRuleById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const rule = await prisma.calculationRule.findFirst({
             where: {
@@ -139,7 +139,8 @@ export const getCalculationRuleById = async (req, res) => {
 
 export const createCalculationRule = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, description, ruleType, allowanceTypeId, deductionTypeId, conditions, action, priority, isActive, effectiveDate, endDate } = req.body;
 
         if (!name || !ruleType || !conditions || !action || !effectiveDate) {

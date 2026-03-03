@@ -14,7 +14,7 @@ import { recordRecentActivity } from "../utils/activity.util.js";
 // Clock-In Controllers
 export const clockInGPS = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { latitude, longitude } = req.body;
   const clockInDeviceInfo = req.headers["user-agent"] || null;
   const clockInIpAddress =
@@ -161,7 +161,7 @@ export const clockInGPS = async (req, res) => {
 
 export const clockInWiFi = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { wifiSSID } = req.body;
   const clockInDeviceInfo = req.headers["user-agent"] || null;
   const clockInIpAddress =
@@ -299,7 +299,7 @@ export const clockInWiFi = async (req, res) => {
 
 export const clockInQRCode = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { qrPayload, latitude, longitude } = req.body;
   const clockInDeviceInfo = req.headers["user-agent"] || null;
   const clockInIpAddress =
@@ -466,7 +466,7 @@ export const clockInQRCode = async (req, res) => {
 // Clock-Out Controllers
 export const clockOutGPS = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { latitude, longitude } = req.body;
   const clockOutDeviceInfo = req.headers["user-agent"] || null;
   const clockOutIpAddress =
@@ -604,7 +604,7 @@ export const clockOutGPS = async (req, res) => {
 
 export const clockOutWiFi = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { wifiSSID } = req.body;
   const clockOutDeviceInfo = req.headers["user-agent"] || null;
   const clockOutIpAddress =
@@ -733,7 +733,7 @@ export const clockOutWiFi = async (req, res) => {
 
 export const clockOutQRCode = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { qrPayload, latitude, longitude } = req.body;
   const clockOutDeviceInfo = req.headers["user-agent"] || null;
   const clockOutIpAddress =
@@ -891,7 +891,7 @@ export const clockOutQRCode = async (req, res) => {
 
 // Attendance History
 export const getAttendanceHistory = async (req, res) => {
-  const { tenantId } = req.user;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId) {
@@ -1074,7 +1074,7 @@ export const getAttendanceHistory = async (req, res) => {
  */
 export const getMyTodayStatus = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId || !userId) {
@@ -1133,7 +1133,7 @@ export const getMyTodayStatus = async (req, res) => {
  */
 export const getMyAttendanceStats = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId || !userId) {
@@ -1177,7 +1177,7 @@ export const getMyAttendanceStats = async (req, res) => {
 
 export const getMyAttendanceHistory = async (req, res) => {
   const userId = req.user.id;
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId || !userId) {
@@ -1347,7 +1347,7 @@ export const lateReason = async (req, res) => {
 
 // Manual Clock-Out (Admin Only)
 export const manualClockOut = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { clockOutTime } = req.body;
 
   const attendanceId = req.params.attendanceId;
@@ -1463,7 +1463,7 @@ export const manualClockOut = async (req, res) => {
 
 // Employee Work Config Controllers
 export const createOrUpdateEmployeeWorkConfig = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const {
     userId,
     monday,
@@ -1556,7 +1556,7 @@ export const createOrUpdateEmployeeWorkConfig = async (req, res) => {
 };
 
 export const getEmployeeWorkConfig = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { userId } = req.params;
 
   try {
@@ -1627,7 +1627,7 @@ export const getEmployeeWorkConfig = async (req, res) => {
 };
 
 export const getEmployeeWorkConfigs = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId) {
@@ -1730,7 +1730,7 @@ export const getEmployeeWorkConfigs = async (req, res) => {
 
 // Company Work Day Controllers
 export const createOrUpdateCompanyWorkDay = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { monday, tuesday, wednesday, thursday, friday, saturday, sunday } =
     req.body;
 
@@ -1786,7 +1786,7 @@ export const createOrUpdateCompanyWorkDay = async (req, res) => {
 };
 
 export const getCompanyWorkDay = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId) {
@@ -1859,7 +1859,7 @@ export const getCompanyWorkDay = async (req, res) => {
 
 // Tenant Attendance Settings Controllers
 export const getTenantAttendanceSettings = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId) {
@@ -1907,7 +1907,7 @@ export const getTenantAttendanceSettings = async (req, res) => {
 };
 
 export const updateTenantAttendanceSettings = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const {
     gracePeriodMinutes,
     earlyClockInMinutes,
@@ -2051,7 +2051,7 @@ export const updateTenantAttendanceSettings = async (req, res) => {
 // ------------------------------------------------------------
 
 export const getTenantLocations = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
   try {
     if (!tenantId) {
@@ -2094,7 +2094,7 @@ export const getTenantLocations = async (req, res) => {
 };
 
 export const createTenantLocation = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const { name, latitude, longitude, wifiSSID, isActive } = req.body;
 
   try {
@@ -2178,7 +2178,7 @@ export const createTenantLocation = async (req, res) => {
 };
 
 export const updateTenantLocation = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const locationId = req.params.id;
   const { name, latitude, longitude, wifiSSID, isActive } = req.body;
 
@@ -2299,7 +2299,7 @@ export const updateTenantLocation = async (req, res) => {
 };
 
 export const deleteTenantLocation = async (req, res) => {
-  const tenantId = req.user.tenantId;
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
   const locationId = req.params.id;
 
   try {

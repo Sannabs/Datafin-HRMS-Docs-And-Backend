@@ -15,6 +15,12 @@ enum UserRole {
   HR_STAFF
   STAFF
   DEPARTMENT_ADMIN
+  SUPER_ADMIN
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 enum EmployeeStatus {
@@ -189,6 +195,7 @@ model Tenant {
   name         String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  status       TenantStatus @default(ACTIVE)
   address      String?
   addressLine1 String?
   addressLine2 String?

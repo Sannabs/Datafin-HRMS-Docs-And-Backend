@@ -4,7 +4,7 @@ import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 export const getAllDeductionTypes = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { isActive } = req.query;
 
         const where = {
@@ -52,7 +52,7 @@ export const getAllDeductionTypes = async (req, res) => {
 export const getDeductionTypeById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const deductionType = await prisma.deductionType.findFirst({
             where: {
@@ -99,7 +99,8 @@ export const getDeductionTypeById = async (req, res) => {
 
 export const createDeductionType = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, code, description, isStatutory, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         if (!name || !code) {
@@ -154,7 +155,8 @@ export const createDeductionType = async (req, res) => {
 export const updateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { name, code, description, isStatutory, isActive, defaultCalculationMethod, defaultAmount, defaultCalculationRuleId } = req.body;
 
         const existing = await prisma.deductionType.findFirst({
@@ -225,7 +227,8 @@ export const updateDeductionType = async (req, res) => {
 export const activateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.deductionType.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -276,7 +279,8 @@ export const activateDeductionType = async (req, res) => {
 export const deactivateDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const existing = await prisma.deductionType.findFirst({
             where: { id, tenantId, deletedAt: null },
@@ -330,7 +334,8 @@ export const deactivateDeductionType = async (req, res) => {
 export const deleteDeductionType = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const deductionType = await prisma.deductionType.findFirst({
             where: { id, tenantId, deletedAt: null },

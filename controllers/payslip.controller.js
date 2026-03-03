@@ -14,7 +14,8 @@ import archiver from "archiver";
  */
 export const getAllPayslips = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const {
             search,
             payPeriodId,
@@ -181,7 +182,8 @@ export const getAllPayslips = async (req, res) => {
 export const getPayslipsByPayrollRun = async (req, res) => {
     try {
         const { runId } = req.params;
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { includeBreakdown } = req.query;
 
         // Verify payroll run exists and belongs to tenant

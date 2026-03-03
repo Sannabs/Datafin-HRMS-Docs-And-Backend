@@ -14,7 +14,8 @@ import { recordRecentActivity } from "../utils/activity.util.js";
 
 export const getLeavePolicy = async (req, res) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -70,7 +71,8 @@ export const getLeavePolicy = async (req, res) => {
 
 export const updateLeavePolicy = async (req, res, next) => {
   try {
-    const { tenantId, id: userId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const {
       defaultDaysPerYear,
       accrualMethod,
@@ -376,7 +378,7 @@ export const updateLeavePolicy = async (req, res, next) => {
 
 export const getAllLeaveTypes = async (req, res, next) => {
   try {
-    const { tenantId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { isActive } = req.query;
 
     if (!tenantId) {

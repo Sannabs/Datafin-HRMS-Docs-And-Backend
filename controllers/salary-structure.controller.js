@@ -93,7 +93,8 @@ async function getFormulaFromRuleId(calculationRuleId, tenantId) {
  */
 export const getMySalaryStructure = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const today = new Date();
         const salaryStructure = await prisma.salaryStructure.findFirst({
@@ -176,7 +177,8 @@ export const getMySalaryStructure = async (req, res) => {
  */
 export const getMySalaryStructures = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const salaryStructures = await prisma.salaryStructure.findMany({
             where: {

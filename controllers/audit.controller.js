@@ -3,7 +3,7 @@ import prisma from "../config/prisma.config.js";
 
 export const getAuditLogs = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const page = parseInt(req.query.page || 1);
     const limit = Math.min(parseInt(req.query.limit || 10), 100); // Max limit 100
     const search = req.query.search?.trim() || "";

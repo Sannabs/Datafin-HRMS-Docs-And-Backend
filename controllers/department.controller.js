@@ -5,7 +5,7 @@ import { addLog } from "../utils/audit.utils.js";
 // List all departments (tenant-scoped)
 export const getAllDepartments = async (req, res) => {
   try {
-    const { tenantId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     const departments = await prisma.department.findMany({
       where: {
@@ -44,7 +44,8 @@ export const getAllDepartments = async (req, res) => {
 // Create a department (tenant-scoped)
 export const createDepartment = async (req, res) => {
   try {
-    const { id: userId, tenantId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { name } = req.body;
 
     if (!name) {

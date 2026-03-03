@@ -5,7 +5,7 @@ import { addLog } from "../utils/audit.utils.js";
 // List all positions (tenant-scoped)
 export const getAllPositions = async (req, res) => {
   try {
-    const { tenantId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     const where = {
       tenantId,
@@ -46,7 +46,8 @@ export const getAllPositions = async (req, res) => {
 // Create a position (tenant-scoped)
 export const createPosition = async (req, res) => {
   try {
-    const { id: userId, tenantId } = req.user;
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const { title } = req.body;
 
     if (!title) {

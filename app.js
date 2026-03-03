@@ -18,6 +18,7 @@ import payPeriodRoutes from "./routes/pay-period.route.js";
 import payScheduleRoutes from "./routes/pay-schedule.route.js";
 import payrollRunRoutes from "./routes/payroll-run.route.js";
 import auditRoutes from "./routes/audit.route.js";
+import superAdminRoutes from "./routes/super-admin.route.js";
 import payslipRoutes from "./routes/payslip.route.js";
 import holidayRoutes from "./routes/holiday.route.js";
 import notificationRoutes from "./routes/notification.route.js";
@@ -93,6 +94,7 @@ app.use("/api/positions", positionRoutes);
 app.use("/api/tenant", tenantRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
+app.use("/api/super-admin", superAdminRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {

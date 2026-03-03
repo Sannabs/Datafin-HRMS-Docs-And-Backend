@@ -22,7 +22,6 @@ export const requireAuth = async (req, res, next) => {
         id: true,
         role: true,
         tenantId: true,
-
       },
     });
 
@@ -36,6 +35,36 @@ export const requireAuth = async (req, res, next) => {
 
     req.user = user;
     req.session = session;
+
+    const role = user.role;
+    let effectiveTenantId = user.tenantId;
+
+    if (role === "SUPER_ADMIN") {
+      const headerTenantIdRaw = req.headers["x-tenant-id"];
+      const headerTenantId = Array.isArray(headerTenantIdRaw)
+        ? headerTenantIdRaw[0]
+        : headerTenantIdRaw;
+
+      if (headerTenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: headerTenantId },
+          select: { id: true },
+        });
+
+        if (!tenant) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "Invalid X-Tenant-Id header: tenant not found",
+          });
+        }
+
+        effectiveTenantId = headerTenantId;
+      } else {
+        effectiveTenantId = null;
+      }
+    }
+
+    req.effectiveTenantId = effectiveTenantId;
 
     next();
   } catch (error) {

@@ -27,7 +27,7 @@ export const sendInvitation = async (req, res, next) => {
       salaryEffectiveDate,
       salaryCurrency,
     } = req.body;
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const senderId = req.user.id;
     const senderRole = req.user.role;
 
@@ -736,7 +736,7 @@ export const getInvitations = async (req, res, next) => {
       });
     }
 
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userRole = req.user.role;
 
     if (!tenantId) {

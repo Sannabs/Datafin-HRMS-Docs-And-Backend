@@ -12,7 +12,7 @@ const VALID_NOTIFICATION_TYPES = [
 
 export const getUserNotifications = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.user.id;
     const page = parseInt(req.query.page || 1);
     const limit = Math.min(parseInt(req.query.limit || 10), 100);
@@ -82,7 +82,7 @@ export const getUserNotifications = async (req, res, next) => {
 
 export const getUnreadNotificationCount = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.user.id;
 
     if (!tenantId) {
@@ -120,7 +120,7 @@ export const getUnreadNotificationCount = async (req, res, next) => {
 
 export const markNotificationAsRead = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.user.id;
     const notificationId = parseInt(req.params.id);
 
@@ -181,7 +181,7 @@ export const markNotificationAsRead = async (req, res, next) => {
 
 export const markAllNotificationsAsRead = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.user.id;
 
     if (!tenantId) {
@@ -221,7 +221,7 @@ export const markAllNotificationsAsRead = async (req, res, next) => {
 
 export const deleteUserNotification = async (req, res, next) => {
   try {
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.user.id;
     const notificationId = parseInt(req.params.id);
 

@@ -18,7 +18,7 @@ const COMPANY_INFO_SELECT = {
  */
 export const getTenantProfile = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
@@ -68,7 +68,8 @@ export const getTenantProfile = async (req, res) => {
  */
 export const updateTenantProfile = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const { id: userId } = req.user;
         const { name, code, addressLine1, addressLine2, phone, email, website } = req.body;
 
         const updateData = {};
@@ -187,7 +188,7 @@ export const updateTenantProfile = async (req, res) => {
  */
 export const getPayrollSettings = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
@@ -236,7 +237,8 @@ export const getPayrollSettings = async (req, res) => {
  */
 export const updatePayrollSettings = async (req, res) => {
     try {
-        const { tenantId, id: userId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { gambiaStatutoryEnabled, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays } = req.body;
 
         const updateData = {};

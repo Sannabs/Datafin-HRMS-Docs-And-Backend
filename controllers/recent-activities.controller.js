@@ -12,7 +12,7 @@ function formatTime(date) {
 export const getRecentActivities = async (req, res) => {
   try {
     const userId = req.user.id;
-    const tenantId = req.user.tenantId;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     const rows = await prisma.recentActivity.findMany({
       where: { userId, tenantId },

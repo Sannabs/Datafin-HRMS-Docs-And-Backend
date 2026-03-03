@@ -23,7 +23,8 @@ import { escapeCsv, formatDateForCsv } from "../utils/csv.utils.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { payPeriodId, employeeIds, runCode: customRunCode } = req.body;
 
         if (!payPeriodId) {
@@ -157,7 +158,8 @@ export const createPayrollRun = async (req, res) => {
 export const startPayrollRun = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payrollRun = await prisma.payrollRun.findFirst({
             where: {
@@ -289,7 +291,8 @@ export const startPayrollRun = async (req, res) => {
 export const deletePayrollRun = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payrollRun = await prisma.payrollRun.findFirst({
             where: { id, tenantId },
@@ -342,7 +345,8 @@ export const deletePayrollRun = async (req, res) => {
 export const updatePayrollRun = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { runCode, payPeriodId: newPayPeriodId, employeeIds: rawEmployeeIds } = req.body;
 
         const payrollRun = await prisma.payrollRun.findFirst({
@@ -589,7 +593,7 @@ function buildPayrollRunsOrderBy(query) {
 
 export const getPayrollRuns = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const where = buildPayrollRunsWhere(tenantId, req.query);
         const orderBy = buildPayrollRunsOrderBy(req.query);
 
@@ -666,7 +670,7 @@ export const getPayrollRuns = async (req, res) => {
  */
 export const getPayrollFilterOptions = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const runs = await prisma.payrollRun.findMany({
             where: { tenantId },
             select: { processedBy: true },
@@ -701,7 +705,7 @@ export const getPayrollFilterOptions = async (req, res) => {
  */
 export const exportPayrollRuns = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const where = buildPayrollRunsWhere(tenantId, req.query);
 
         const payrollRuns = await prisma.payrollRun.findMany({
@@ -772,7 +776,7 @@ export const exportPayrollRuns = async (req, res) => {
 export const getPayrollRunById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payrollRun = await prisma.payrollRun.findFirst({
             where: {
@@ -860,7 +864,8 @@ export const processSingleEmployee = async (req, res) => {
     try {
         const { id: payrollRunId } = req.params;
         const { employeeId } = req.body;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         if (!employeeId) {
             return res.status(400).json({
@@ -981,7 +986,7 @@ export const processSingleEmployee = async (req, res) => {
 export const getPayrollRunStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payrollRun = await prisma.payrollRun.findFirst({
             where: {
@@ -1056,7 +1061,7 @@ export const getPayrollRunStatus = async (req, res) => {
 export const getPayrollRunStatusStream = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payrollRun = await prisma.payrollRun.findFirst({
             where: {
@@ -1197,7 +1202,7 @@ export const getPayrollRunStatusStream = async (req, res) => {
 
 export const previewPayrollRun = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { payPeriodId, employeeIds } = req.body;
 
         if (!payPeriodId) {
@@ -1243,7 +1248,7 @@ export const previewPayrollRun = async (req, res) => {
 export const getPayrollJobStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         // Find payroll run to get queue job ID
         const payrollRun = await prisma.payrollRun.findFirst({
@@ -1337,7 +1342,8 @@ export const getPayrollQueueMetrics = async (req, res) => {
 export const retryPayrollJob = async (req, res) => {
     try {
         const { id } = req.params;
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         // Find payroll run to get queue job ID
         const payrollRun = await prisma.payrollRun.findFirst({

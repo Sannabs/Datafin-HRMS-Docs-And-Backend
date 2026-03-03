@@ -13,7 +13,8 @@ import {
 
 export const createPayPeriod = async (req, res) => {
     try {
-        const { id: userId, tenantId } = req.user;
+        const { id: userId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { periodName: periodNameRaw, startDate, endDate } = req.body;
 
         if (!startDate || !endDate) {
@@ -131,7 +132,7 @@ export const createPayPeriod = async (req, res) => {
 
 export const getPayPeriods = async (req, res) => {
     try {
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { status, fromDate, toDate } = req.query;
 
         const where = {
@@ -190,7 +191,7 @@ export const getPayPeriods = async (req, res) => {
 export const getPayPeriodById = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tenantId } = req.user;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
         const payPeriod = await prisma.payPeriod.findFirst({
             where: {
