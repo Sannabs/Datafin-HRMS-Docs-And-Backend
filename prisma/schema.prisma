@@ -50,31 +50,31 @@ enum SalaryPeriodType {
 }
 
 model Invitation {
-  id           String           @id @default(uuid())
-  senderId     String
-  tenantId     String
-  departmentId String?
-  email        String
-  token        String           @unique
-  status       InvitationStatus @default(PENDING)
-  positionId   String?
-  expiresAt    DateTime
-  role         UserRole         @default(STAFF)
+  id                  String            @id @default(uuid())
+  senderId            String
+  tenantId            String
+  departmentId        String?
+  email               String
+  token               String            @unique
+  status              InvitationStatus  @default(PENDING)
+  positionId          String?
+  expiresAt           DateTime
+  role                UserRole          @default(STAFF)
   // User fields (applied on accept)
-  hireDate          DateTime?
-  employmentStatus  EmployeeStatus?
-  employmentType    EmploymentType?
+  hireDate            DateTime?
+  employmentStatus    EmployeeStatus?
+  employmentType      EmploymentType?
   // Compensation (creates SalaryStructure on accept when baseSalary is set)
   baseSalary          Float?
   salaryPeriodType    SalaryPeriodType? @default(MONTHLY)
   salaryEffectiveDate DateTime?
-  salaryCurrency      String?         @default("USD")
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  sender       User             @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  position     Position?        @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  salaryCurrency      String?           @default("USD")
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  sender              User              @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department          Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  position            Position?         @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([email])
@@ -184,17 +184,17 @@ enum LeaveRequestStatus {
 // ------------------------------------------------------------
 
 model Tenant {
-  id        String   @id @default(uuid())
-  code      String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  address   String?
+  id           String   @id @default(uuid())
+  code         String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  address      String?
   addressLine1 String?
   addressLine2 String?
-  phone     String?
-  email     String?
-  website   String?
+  phone        String?
+  email        String?
+  website      String?
 
   // Weekend configuration: array of day numbers (0=Sunday, 6=Saturday)
   // Default: [0, 6] for Saturday/Sunday weekends
@@ -202,7 +202,7 @@ model Tenant {
   weekendDays Int[] @default([0, 6])
 
   // Clock-in configurations
-  allowedClockInMethods ClockMethod[] @default([GPS, QR_CODE])
+  allowedClockInMethods  ClockMethod[] @default([GPS, QR_CODE])
   requirePhoto           Boolean       @default(false)
   geofenceRadius         Float         @default(100)
   gracePeriodMinutes     Int           @default(5)
@@ -211,12 +211,12 @@ model Tenant {
   consecutiveLatePenalty Float?        @default(0)
 
   // Gambia statutory payroll (PAYE + SSN): when true, applied automatically for all employees
-  gambiaStatutoryEnabled   Boolean   @default(false)
-  employerSocialSecurityRate Float?  // e.g. 10 for 10% (reporting only, not deducted from pay)
+  gambiaStatutoryEnabled     Boolean @default(false)
+  employerSocialSecurityRate Float? // e.g. 10 for 10% (reporting only, not deducted from pay)
 
   // Pay period governance: control creation of past pay periods
-  allowPastPayPeriodCreation  Boolean @default(true)
-  maxPayPeriodLookbackDays    Int?    // null = unlimited; e.g. 365 = max 12 months back
+  allowPastPayPeriodCreation Boolean @default(true)
+  maxPayPeriodLookbackDays   Int? // null = unlimited; e.g. 365 = max 12 months back
 
   users              User[]
   departments        Department[]
@@ -333,21 +333,21 @@ model User {
   lastLogin     DateTime?
 
   // Employee fields (optional - not all users are employees)
-  employeeId       String
-  gender           Gender?         @default(PREFER_NOT_TO_SAY)
-  phone            String?
-  hireDate         DateTime?
-  address          String?
-  addressLine1     String?
-  addressLine2     String?
-  emergencyContact String?
+  employeeId                     String
+  gender                         Gender?         @default(PREFER_NOT_TO_SAY)
+  phone                          String?
+  hireDate                       DateTime?
+  address                        String?
+  addressLine1                   String?
+  addressLine2                   String?
+  emergencyContact               String?
   emergencyContactName           String?
   emergencyContactRelationship   String?
   emergencyContactPhone          String?
   emergencyContactPhoneSecondary String?
-  status           EmployeeStatus? @default(ACTIVE)
-  employmentType   EmploymentType? @default(FULL_TIME)
-  workLocation     WorkLocation?
+  status                         EmployeeStatus? @default(ACTIVE)
+  employmentType                 EmploymentType? @default(FULL_TIME)
+  workLocation                   WorkLocation?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -446,14 +446,14 @@ model SalaryStructure {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Salary fields (baseSalary/grossSalary are in the period indicated by salaryPeriodType)
-  baseSalary       Float              @default(0)
-  grossSalary      Float              @default(0)
-  salaryPeriodType SalaryPeriodType   @default(MONTHLY)
+  baseSalary       Float            @default(0)
+  grossSalary      Float            @default(0)
+  salaryPeriodType SalaryPeriodType @default(MONTHLY)
   effectiveDate    DateTime
   endDate          DateTime?
-  currency         String             @default("USD")
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  currency         String           @default("USD")
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   // Reverse relations
   allowances Allowance[]
@@ -505,11 +505,11 @@ model Allowance {
   allowanceTypeId String
   allowanceType   AllowanceType @relation(fields: [allowanceTypeId], references: [id], onDelete: Restrict)
 
-  amount               Float             @default(0)
-  amountPeriodType      SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
-  calculationMethod    CalculationMethod @default(FIXED)
-  formulaExpression    String?            // Used when calculationMethod is FORMULA
-  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
+  amount            Float             @default(0)
+  amountPeriodType  SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
+  calculationMethod CalculationMethod @default(FIXED)
+  formulaExpression String? // Used when calculationMethod is FORMULA
+  calculationRuleId String? // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -558,11 +558,11 @@ model Deduction {
   deductionTypeId String
   deductionType   DeductionType @relation(fields: [deductionTypeId], references: [id], onDelete: Restrict)
 
-  amount               Float             @default(0)
-  amountPeriodType      SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
-  calculationMethod    CalculationMethod @default(FIXED)
-  formulaExpression    String?            // Used when calculationMethod is FORMULA
-  calculationRuleId    String?            // Optional reference to CalculationRule (for display/audit when FORMULA)
+  amount            Float             @default(0)
+  amountPeriodType  SalaryPeriodType? @default(MONTHLY) // For FIXED only: amount is per this period
+  calculationMethod CalculationMethod @default(FIXED)
+  formulaExpression String? // Used when calculationMethod is FORMULA
+  calculationRuleId String? // Optional reference to CalculationRule (for display/audit when FORMULA)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -622,7 +622,7 @@ model PaySchedule {
   tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String
   frequency PayScheduleFrequency
-  config    Json?                // e.g. { "dates": [1, 15] } for semi-monthly, { "anchorDate": "2025-01-03" } for bi-weekly
+  config    Json? // e.g. { "dates": [1, 15] } for semi-monthly, { "anchorDate": "2025-01-03" } for bi-weekly
   isActive  Boolean              @default(true)
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
@@ -834,14 +834,14 @@ enum NotificationType {
 
 // Recent activity feed (home screen, max 10 per request)
 model RecentActivity {
-  id          String              @id @default(cuid())
+  id          String             @id @default(cuid())
   tenantId    String
   userId      String
   type        RecentActivityType
   description String
   icon        String
   color       String
-  createdAt   DateTime            @default(now())
+  createdAt   DateTime           @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -867,7 +867,7 @@ enum RecentActivityType {
 // Attendance, Workday, shift models
 // ------------------------------------------------------------
 
-model Attendance {  
+model Attendance {
   id         String  @id @default(uuid())
   tenantId   String
   userId     String
