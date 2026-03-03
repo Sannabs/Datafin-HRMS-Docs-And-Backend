@@ -1610,7 +1610,6 @@ export const getHomeStats = async (req, res) => {
         const [payslip, holiday] = await Promise.all([
             prisma.payslip.findFirst({
                 where: {
-                    tenantId,
                     userId,
                     generatedAt: { gte: monthStart },
                 },
