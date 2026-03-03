@@ -1,5 +1,6 @@
 import "dotenv/config";
-import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { hashPassword } from "better-auth/crypto";
 import prisma from "../config/prisma.config.js";
 import { ensurePlatformTenant } from "../utils/platformTenant.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
@@ -16,16 +17,37 @@ async function main() {
     process.exit(1);
   }
 
+  const hashedPassword = await hashPassword(password);
+
   const existing = await prisma.user.findFirst({
     where: {
       email,
       role: "SUPER_ADMIN",
     },
     select: { id: true },
+    include: {
+      accounts: {
+        where: { providerId: "credential" },
+        select: { id: true },
+      },
+    },
   });
 
   if (existing) {
-    console.log("SUPER_ADMIN already exists for this email, nothing to do.");
+    if (existing.accounts?.length > 0) {
+      console.log("SUPER_ADMIN already exists for this email with credential account, nothing to do.");
+      return;
+    }
+    await prisma.account.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: existing.id,
+        accountId: existing.id,
+        providerId: "credential",
+        password: hashedPassword,
+      },
+    });
+    console.log("Credential account created for existing SUPER_ADMIN:", existing.id);
     return;
   }
 
@@ -36,7 +58,6 @@ async function main() {
     platformTenant,
     null
   );
-  const hashedPassword = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
     data: {
@@ -56,6 +77,16 @@ async function main() {
       tenantId: true,
       role: true,
       createdAt: true,
+    },
+  });
+
+  await prisma.account.create({
+    data: {
+      id: crypto.randomUUID(),
+      userId: user.id,
+      accountId: user.id,
+      providerId: "credential",
+      password: hashedPassword,
     },
   });
 
