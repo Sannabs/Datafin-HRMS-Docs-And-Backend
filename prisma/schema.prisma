@@ -984,6 +984,7 @@ model Location {
   latitude  Float
   longitude Float
   wifiSSID  String?
+  isActive  Boolean @default(true)
 
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
