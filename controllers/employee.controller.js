@@ -1605,16 +1605,14 @@ export const getHomeStats = async (req, res) => {
             entitlement.usedDays -
             entitlement.pendingDays;
 
-        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-
         const [payslip, holiday] = await Promise.all([
             prisma.payslip.findFirst({
                 where: {
                     userId,
-                    generatedAt: { gte: monthStart },
+                    payrollRun: { tenantId },
                 },
                 orderBy: { generatedAt: "desc" },
-                select: { netSalary: true },
+                select: { netSalary: true, grossSalary: true, totalDeductions: true },
             }),
             prisma.holiday.findFirst({
                 where: {
@@ -1627,11 +1625,24 @@ export const getHomeStats = async (req, res) => {
             }),
         ]);
 
+        // Use stored netSalary; if missing or zero, compute from gross - deductions (same as Pay tab logic)
+        let latestNetPay = null;
+        if (payslip) {
+            const stored = payslip.netSalary;
+            if (stored != null && Number(stored) > 0) {
+                latestNetPay = Number(stored);
+            } else {
+                const gross = Number(payslip.grossSalary) || 0;
+                const deductions = Number(payslip.totalDeductions) || 0;
+                latestNetPay = Math.max(0, Math.round((gross - deductions) * 100) / 100);
+            }
+        }
+
         res.status(200).json({
             success: true,
             data: {
                 leaveBalance: availableBalance,
-                latestPayslip: payslip?.netSalary ?? null,
+                latestPayslip: latestNetPay,
                 nextHoliday: holiday?.date ?? null,
                 pendingReviews: null,
             },

@@ -1158,6 +1158,16 @@ export const getMyLatestPayslip = async (req, res) => {
             return res.status(200).json({ success: true, data: null });
         }
 
+        // Ensure net pay is available: use stored netSalary or compute from gross - deductions
+        const storedNet = payslip.netSalary;
+        const netSalary =
+            storedNet != null && Number(storedNet) > 0
+                ? Number(storedNet)
+                : Math.max(
+                      0,
+                      Math.round(((Number(payslip.grossSalary) || 0) - (Number(payslip.totalDeductions) || 0)) * 100) / 100
+                  );
+
         const downloadUrl = payslip.filePath ? getPayslipUrl(payslip.filePath) : null;
 
         let breakdown = null;
@@ -1197,7 +1207,7 @@ export const getMyLatestPayslip = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: { ...payslip, downloadUrl, breakdown, ytd },
+            data: { ...payslip, netSalary, downloadUrl, breakdown, ytd },
         });
     } catch (error) {
         logger.error(`Error fetching my latest payslip: ${error.message}`, {
