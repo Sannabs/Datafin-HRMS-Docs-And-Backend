@@ -996,8 +996,11 @@ export const getAllLeaveRequests = async (req, res, next) => {
       });
     }
 
-    // Only HR can see all requests
-    if (!["HR_ADMIN", "HR_STAFF"].includes(role)) {
+    // Only HR (or SUPER_ADMIN impersonating tenant) can see all requests
+    const canViewAll =
+      ["HR_ADMIN", "HR_STAFF"].includes(role) ||
+      (role === "SUPER_ADMIN" && req.effectiveTenantId);
+    if (!canViewAll) {
       return res.status(403).json({
         success: false,
         error: "Forbidden",
@@ -1174,8 +1177,11 @@ export const getLeaveRequestById = async (req, res, next) => {
 
     // Regular employees can only view their own requests
     // Managers can view their team's requests
-    // HR can view all requests
-    if (!["HR_ADMIN", "HR_STAFF"].includes(role)) {
+    // HR (or SUPER_ADMIN impersonating tenant) can view all requests
+    const isHRForLeave =
+      ["HR_ADMIN", "HR_STAFF"].includes(role) ||
+      (role === "SUPER_ADMIN" && req.effectiveTenantId);
+    if (!isHRForLeave) {
       // Restrict access: user must be the requester or the assigned manager
       where.OR = [
         { userId: userId }, // Requester
@@ -1989,9 +1995,11 @@ export const rejectLeaveRequest = async (req, res, next) => {
     }
 
     // Access control: Manager can reject if they're the assigned manager
-    // HR can reject any request
+    // HR (or SUPER_ADMIN impersonating tenant) can reject any request
     const isManager = leaveRequest.managerId === userId;
-    const isHR = ["HR_ADMIN", "HR_STAFF"].includes(role);
+    const isHR =
+      ["HR_ADMIN", "HR_STAFF"].includes(role) ||
+      (role === "SUPER_ADMIN" && req.effectiveTenantId);
 
     if (!isManager && !isHR) {
       return res.status(403).json({

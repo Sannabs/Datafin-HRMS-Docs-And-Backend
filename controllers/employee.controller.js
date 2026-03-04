@@ -93,9 +93,12 @@ export const createEmployee = async (req, res) => {
             });
         }
 
-        // Only HR roles can create employees manually
+        // Only HR roles (or SUPER_ADMIN impersonating tenant) can create employees manually
         const allowedRoles = ["HR_ADMIN", "HR_STAFF"];
-        if (!allowedRoles.includes(actorRole)) {
+        const canCreate =
+            allowedRoles.includes(actorRole) ||
+            (actorRole === "SUPER_ADMIN" && req.effectiveTenantId);
+        if (!canCreate) {
             return res.status(403).json({
                 success: false,
                 error: "Forbidden",
