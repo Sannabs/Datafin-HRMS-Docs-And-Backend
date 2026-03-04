@@ -4,6 +4,7 @@ import logger from "../utils/logger.js";
 import { ensurePlatformTenant } from "../utils/platformTenant.js";
 import { auth } from "../utils/auth.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import { sendPlatformAdminInviteEmail } from "../views/sendPlatformAdminInviteEmail.js";
 
 // Companies
 
@@ -516,15 +517,41 @@ export const invitePlatformAdmin = async (req, res) => {
       throw new Error("Failed to create platform admin user");
     }
 
+    const userId = result.user.id;
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+    const resetToken = crypto.randomBytes(12).toString("hex");
+    const expiresAt = new Date(Date.now() + 3600 * 1000);
+
+    await prisma.verification.create({
+      data: {
+        id: crypto.randomUUID(),
+        identifier: `reset-password:${resetToken}`,
+        value: userId,
+        expiresAt,
+      },
+    });
+
+    const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
+    await sendPlatformAdminInviteEmail({
+      to: result.user.email,
+      resetUrl,
+      userName: name?.trim() || result.user.email,
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { emailVerified: true },
+    });
+
     logger.info("Platform admin invited by super admin", {
-      userId: result.user.id,
+      userId,
       invitedBy: req.user.id,
     });
 
     return res.status(201).json({
       success: true,
       message:
-        "Platform admin account created. The user can complete signup via email verification.",
+        "Platform admin invited. They will receive an email to set their password and sign in.",
       data: {
         id: result.user.id,
         email: result.user.email,
