@@ -7,6 +7,7 @@ import { createNotification } from "../services/notification.service.js";
 import { sendLeaveRequestToManagerEmail } from "../views/sendLeaveRequestToManagerEmail.js";
 import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConfirmationEmail.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
+import { getDepartmentFilter } from "../utils/access-control.utils.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -984,7 +985,7 @@ export const getPendingLeaveRequestsForManagerApproval = async (
 };
 export const getAllLeaveRequests = async (req, res, next) => {
   try {
-    const { id: userId, role } = req.user;
+    const { id: userId } = req.user;
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
@@ -996,14 +997,6 @@ export const getAllLeaveRequests = async (req, res, next) => {
       });
     }
 
-    // Only HR can see all requests
-    if (!["HR_ADMIN", "HR_STAFF"].includes(role)) {
-      return res.status(403).json({
-        success: false,
-        error: "Forbidden",
-        message: "Only HR staff can view all leave requests",
-      });
-    }
 
     // Pagination parameters
     const page = Math.max(1, parseInt(req.query.page || 1, 10));
@@ -1017,14 +1010,12 @@ export const getAllLeaveRequests = async (req, res, next) => {
     const {
       status,
       awaitingHrApproval,
-      employeeId,
       leaveTypeId,
-      startDate,
-      endDate,
     } = req.query;
 
     const where = {
       tenantId,
+      ...getDepartmentFilter(req.user)
     };
 
     // Filter by status (PENDING, MANAGER_APPROVED, APPROVED, REJECTED, CANCELLED)
@@ -1040,37 +1031,15 @@ export const getAllLeaveRequests = async (req, res, next) => {
         where.status = status.toUpperCase();
       }
     }
-
+    
     // Filter by awaiting HR approval (status = MANAGER_APPROVED)
     if (awaitingHrApproval === "true") {
       where.status = "MANAGER_APPROVED"; // Correct status for HR approval queue
     }
 
-    // Filter by employee
-    if (employeeId) {
-      where.userId = employeeId;
-    }
-
     // Filter by leave type
     if (leaveTypeId) {
       where.leaveTypeId = leaveTypeId;
-    }
-
-    // Filter by date range (requests that overlap with the date range)
-    if (startDate || endDate) {
-      where.OR = [];
-      if (startDate && endDate) {
-        where.OR.push({
-          AND: [
-            { startDate: { lte: new Date(endDate) } },
-            { endDate: { gte: new Date(startDate) } },
-          ],
-        });
-      } else if (startDate) {
-        where.OR.push({ endDate: { gte: new Date(startDate) } });
-      } else if (endDate) {
-        where.OR.push({ startDate: { lte: new Date(endDate) } });
-      }
     }
 
     const [leaveRequests, total] = await Promise.all([
