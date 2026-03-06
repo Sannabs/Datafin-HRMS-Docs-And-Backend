@@ -261,6 +261,7 @@ export const recalculateSalary = async (
  * @param {string} [tenantId] - Tenant ID
  * @param {boolean} [gambiaStatutoryEnabled] - When true, append PAYE (GRA) and (optionally) SSN employee share to deduction lines
  * @param {"DEDUCT_FROM_EMPLOYEE"|"EMPLOYER_PAYS_ON_BEHALF"} [gambiaSsnFundingMode] - How to treat the SSN 5% employee share
+ * @param {boolean} [isGambiaTaxExempt] - When true, skip PAYE for this employee (age-based exemption)
  * @returns {Promise<Object>} { grossSalary, netSalary, totalDeductions, allowanceLines: [{ name, amount, calculationMethod, description }], deductionLines: [{ name, amount, calculationMethod, description }] }
  */
 export const getSalaryBreakdownItemized = async (
@@ -270,7 +271,8 @@ export const getSalaryBreakdownItemized = async (
     employeeContext = null,
     tenantId = null,
     gambiaStatutoryEnabled = false,
-    gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE"
+    gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE",
+    isGambiaTaxExempt = false
 ) => {
     const allowanceLines = [];
     let totalAllowances = 0;
@@ -321,7 +323,7 @@ export const getSalaryBreakdownItemized = async (
         deductionLines.push({ name, amount, calculationMethod: method, description });
     }
 
-    if (gambiaStatutoryEnabled) {
+    if (gambiaStatutoryEnabled && !isGambiaTaxExempt) {
         const payeAmount = calculateGambiaPAYE(grossSalary);
         deductionLines.push({ name: "PAYE (GRA)", amount: payeAmount, calculationMethod: "FORMULA", description: "GRA tax bands" });
         totalDeductions += payeAmount;

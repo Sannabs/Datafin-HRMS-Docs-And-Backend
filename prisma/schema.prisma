@@ -227,6 +227,10 @@ model Tenant {
   employerSocialSecurityRate Float? // e.g. 10 for 10% (reporting only, not deducted from pay)
   gambiaSsnFundingMode       GambiaSsnFundingMode @default(DEDUCT_FROM_EMPLOYEE)
 
+  // Gambia age-based PAYE exemption
+  gambiaTaxAgeExemptionEnabled Boolean @default(false) // When true, use gambiaTaxExemptionAge to exempt older employees from PAYE
+  gambiaTaxExemptionAge        Int? // Minimum age for PAYE exemption; null = no age-based exemption
+
   // Pay period governance: control creation of past pay periods
   allowPastPayPeriodCreation Boolean @default(true)
   maxPayPeriodLookbackDays   Int? // null = unlimited; e.g. 365 = max 12 months back

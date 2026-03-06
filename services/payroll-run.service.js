@@ -285,7 +285,13 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
     try {
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
-            select: { gambiaStatutoryEnabled: true, gambiaSsnFundingMode: true, employerSocialSecurityRate: true },
+            select: {
+                gambiaStatutoryEnabled: true,
+                gambiaSsnFundingMode: true,
+                employerSocialSecurityRate: true,
+                gambiaTaxAgeExemptionEnabled: true,
+                gambiaTaxExemptionAge: true,
+            },
         });
 
         // Get employee with active salary structure
@@ -304,6 +310,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 employmentType: true,
                 status: true,
                 hireDate: true,
+                dateOfBirth: true,
             },
         });
 
@@ -369,7 +376,28 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             baseSalary: baseSalaryMonthly,
             status: employee.status,
             hireDate: employee.hireDate,
+            dateOfBirth: employee.dateOfBirth,
         };
+
+        const getAgeFromDate = (date) => {
+            if (!date) return null;
+            const today = new Date();
+            const dob = new Date(date);
+            let age = today.getFullYear() - dob.getFullYear();
+            const monthDiff = today.getMonth() - dob.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+                age--;
+            }
+            return age;
+        };
+
+        const employeeAge = getAgeFromDate(employee.dateOfBirth);
+        const isGambiaTaxExempt =
+            Boolean(tenant?.gambiaStatutoryEnabled) &&
+            Boolean(tenant?.gambiaTaxAgeExemptionEnabled) &&
+            tenant?.gambiaTaxExemptionAge != null &&
+            employeeAge != null &&
+            employeeAge >= tenant.gambiaTaxExemptionAge;
 
         // Calculate gross and net salary (with warning detection)
         const salaryResult = await recalculateSalary(
@@ -419,13 +447,18 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
 
         let netSalaryFinal = netSalary;
         if (tenant?.gambiaStatutoryEnabled) {
-            const payeAmount = calculateGambiaPAYE(grossSalary);
-            totalDeductions += payeAmount;
             const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+
+            if (!isGambiaTaxExempt) {
+                const payeAmount = calculateGambiaPAYE(grossSalary);
+                totalDeductions += payeAmount;
+            }
+
             if (ssnFundingMode === "DEDUCT_FROM_EMPLOYEE") {
                 const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
                 totalDeductions += ssnAmount;
             }
+
             netSalaryFinal = Math.max(0, grossSalary - totalDeductions);
         }
 
@@ -437,7 +470,8 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             employeeContext,
             tenantId,
             tenant?.gambiaStatutoryEnabled ?? false,
-            tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE"
+            tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
+            isGambiaTaxExempt
         );
         const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
         const employerRatePercent = resolveEmployerSocialSecurityRatePercent(

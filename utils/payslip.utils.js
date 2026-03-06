@@ -79,6 +79,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             employmentType: true,
             status: true,
             hireDate: true,
+            dateOfBirth: true,
         },
     });
 
@@ -89,14 +90,41 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             employmentType: user.employmentType,
             status: user.status,
             hireDate: user.hireDate,
+            dateOfBirth: user.dateOfBirth,
             baseSalary: baseSalaryMonthly,
           }
         : null;
 
     const tenant = await prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true, gambiaSsnFundingMode: true },
+        select: {
+            gambiaStatutoryEnabled: true,
+            employerSocialSecurityRate: true,
+            gambiaSsnFundingMode: true,
+            gambiaTaxAgeExemptionEnabled: true,
+            gambiaTaxExemptionAge: true,
+        },
     });
+
+    const getAgeFromDate = (date) => {
+        if (!date) return null;
+        const today = new Date();
+        const dob = new Date(date);
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+            age--;
+        }
+        return age;
+    };
+
+    const employeeAge = user ? getAgeFromDate(user.dateOfBirth) : null;
+    const isGambiaTaxExempt =
+        Boolean(tenant?.gambiaStatutoryEnabled) &&
+        Boolean(tenant?.gambiaTaxAgeExemptionEnabled) &&
+        tenant?.gambiaTaxExemptionAge != null &&
+        employeeAge != null &&
+        employeeAge >= tenant.gambiaTaxExemptionAge;
 
     const itemized = await getSalaryBreakdownItemized(
         baseSalaryMonthly,
@@ -105,7 +133,8 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         employeeContext,
         tenantId,
         tenant?.gambiaStatutoryEnabled ?? false,
-        tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE"
+        tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
+        isGambiaTaxExempt
     );
 
     const grossSalaryForEmployer =
