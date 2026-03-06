@@ -434,11 +434,14 @@ export const listPlatformAdmins = async (req, res) => {
     const admins = await prisma.user.findMany({
       where: {
         role: "SUPER_ADMIN",
+        isDeleted: false,
       },
       select: {
         id: true,
         email: true,
         name: true,
+        image: true,
+        status: true,
         createdAt: true,
         lastLogin: true,
       },
@@ -458,6 +461,135 @@ export const listPlatformAdmins = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to list platform admins",
+    });
+  }
+};
+
+export const suspendPlatformAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot suspend yourself",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "INACTIVE" },
+    });
+    logger.info("Platform admin suspended", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin suspended",
+    });
+  } catch (error) {
+    logger.error(
+      `Error suspending platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to suspend platform admin",
+    });
+  }
+};
+
+export const activatePlatformAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot change your own status",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "ACTIVE" },
+    });
+    logger.info("Platform admin activated", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin activated",
+    });
+  } catch (error) {
+    logger.error(
+      `Error activating platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to activate platform admin",
+    });
+  }
+};
+
+export const deletePlatformAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot delete yourself",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    logger.info("Platform admin deleted (soft)", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin removed",
+    });
+  } catch (error) {
+    logger.error(
+      `Error deleting platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to delete platform admin",
     });
   }
 };
