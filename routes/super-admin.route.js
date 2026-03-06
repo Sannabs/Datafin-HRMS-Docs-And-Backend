@@ -10,6 +10,7 @@ import {
   suspendCompany,
   sendCompanyInvitationAsSuperAdmin,
   listPlatformAdmins,
+  getPlatformAdminById,
   invitePlatformAdmin,
   suspendPlatformAdmin,
   activatePlatformAdmin,
@@ -40,6 +41,7 @@ router.post(
 
 // Platform admins
 router.get("/admins", listPlatformAdmins);
+router.get("/admins/:userId", getPlatformAdminById);
 router.post("/admins/invite", invitePlatformAdmin);
 router.post("/admins/:userId/suspend", suspendPlatformAdmin);
 router.post("/admins/:userId/activate", activatePlatformAdmin);

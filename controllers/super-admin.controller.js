@@ -466,6 +466,67 @@ export const listPlatformAdmins = async (req, res) => {
   }
 };
 
+export const getPlatformAdminById = async (req, res) => {
+  try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can view this profile",
+      });
+    }
+    const { userId } = req.params;
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        role: "SUPER_ADMIN",
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        phone: true,
+        gender: true,
+        dateOfBirth: true,
+        SSN: true,
+        tinNumber: true,
+        emergencyContactName: true,
+        emergencyContactRelationship: true,
+        emergencyContactPhone: true,
+        addressLine1: true,
+        addressLine2: true,
+        status: true,
+        isPlatformOwner: true,
+        createdAt: true,
+        lastLogin: true,
+      },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    logger.error(
+      `Error fetching platform admin (super admin): ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to fetch platform admin",
+    });
+  }
+};
+
 export const suspendPlatformAdmin = async (req, res) => {
   try {
     if (!req.user.isPlatformOwner) {
