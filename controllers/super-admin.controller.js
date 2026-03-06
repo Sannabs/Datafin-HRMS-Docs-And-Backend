@@ -442,6 +442,7 @@ export const listPlatformAdmins = async (req, res) => {
         name: true,
         image: true,
         status: true,
+        isPlatformOwner: true,
         createdAt: true,
         lastLogin: true,
       },
@@ -467,6 +468,13 @@ export const listPlatformAdmins = async (req, res) => {
 
 export const suspendPlatformAdmin = async (req, res) => {
   try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
     const { userId } = req.params;
     if (req.user.id === userId) {
       return res.status(400).json({
@@ -477,13 +485,20 @@ export const suspendPlatformAdmin = async (req, res) => {
     }
     const user = await prisma.user.findFirst({
       where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
-      select: { id: true },
+      select: { id: true, isPlatformOwner: true },
     });
     if (!user) {
       return res.status(404).json({
         success: false,
         error: "Not Found",
         message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot suspend the platform owner",
       });
     }
     await prisma.user.update({
@@ -511,6 +526,13 @@ export const suspendPlatformAdmin = async (req, res) => {
 
 export const activatePlatformAdmin = async (req, res) => {
   try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
     const { userId } = req.params;
     if (req.user.id === userId) {
       return res.status(400).json({
@@ -521,13 +543,20 @@ export const activatePlatformAdmin = async (req, res) => {
     }
     const user = await prisma.user.findFirst({
       where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
-      select: { id: true },
+      select: { id: true, isPlatformOwner: true },
     });
     if (!user) {
       return res.status(404).json({
         success: false,
         error: "Not Found",
         message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot activate the platform owner",
       });
     }
     await prisma.user.update({
@@ -554,6 +583,13 @@ export const activatePlatformAdmin = async (req, res) => {
 
 export const deletePlatformAdmin = async (req, res) => {
   try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
     const { userId } = req.params;
     if (req.user.id === userId) {
       return res.status(400).json({
@@ -564,13 +600,20 @@ export const deletePlatformAdmin = async (req, res) => {
     }
     const user = await prisma.user.findFirst({
       where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
-      select: { id: true },
+      select: { id: true, isPlatformOwner: true },
     });
     if (!user) {
       return res.status(404).json({
         success: false,
         error: "Not Found",
         message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot delete the platform owner",
       });
     }
     await prisma.user.update({
@@ -598,6 +641,13 @@ export const deletePlatformAdmin = async (req, res) => {
 
 export const invitePlatformAdmin = async (req, res) => {
   try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can invite other platform admins",
+      });
+    }
     const { email, name } = req.body;
 
     if (!email) {

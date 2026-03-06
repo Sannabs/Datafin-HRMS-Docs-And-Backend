@@ -45,6 +45,7 @@ export const auth = betterAuth({
       createdBy: { type: "string", required: false },
       address: { type: "string", required: false },
       role: { type: "string", required: false },
+      isPlatformOwner: { type: "boolean", required: false },
       isDeleted: { type: "boolean", required: false },
       lastLogin: { type: "date", required: false },
       employeeId: { type: "string", required: true },

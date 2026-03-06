@@ -335,9 +335,10 @@ model User {
   dateOfBirth   DateTime?
   SSN           String?
   tinNumber     String?
-  role          UserRole  @default(STAFF)
-  isDeleted     Boolean   @default(false)
-  lastLogin     DateTime?
+  role              UserRole  @default(STAFF)
+  isPlatformOwner   Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
+  isDeleted         Boolean   @default(false)
+  lastLogin         DateTime?
 
   // Employee fields (optional - not all users are employees)
   employeeId                     String

@@ -241,6 +241,7 @@ export const getMe = async (req, res, next) => {
         name: true,
         image: true,
         role: true,
+        isPlatformOwner: true,
         phone: true,
         employeeId: true,
         gender: true,

@@ -24,6 +24,7 @@ export const requireAuth = async (req, res, next) => {
         tenantId: true,
         isDeleted: true,
         status: true,
+        isPlatformOwner: true,
       },
     });
 
