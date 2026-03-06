@@ -11,7 +11,12 @@ import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 import { addPayrollRunJob } from "../queues/payroll.queue.js";
 import { updatePayPeriodStatusAutomatically } from "./pay-period-automation.service.js";
 import { validateStatusTransition } from "../utils/payroll-run.utils.js";
-import { calculateGambiaPAYE, GAMBIA_SSN_EMPLOYEE_RATE } from "../constants/gambia-payroll.defaults.js";
+import {
+    buildGambiaEmployerContributionLines,
+    calculateGambiaPAYE,
+    GAMBIA_SSN_EMPLOYEE_RATE,
+    resolveEmployerSocialSecurityRatePercent,
+} from "../constants/gambia-payroll.defaults.js";
 
 /**
  * Get active employees for payroll processing
@@ -280,7 +285,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
     try {
         const tenant = await prisma.tenant.findUnique({
             where: { id: tenantId },
-            select: { gambiaStatutoryEnabled: true },
+            select: { gambiaStatutoryEnabled: true, gambiaSsnFundingMode: true, employerSocialSecurityRate: true },
         });
 
         // Get employee with active salary structure
@@ -415,8 +420,12 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
         let netSalaryFinal = netSalary;
         if (tenant?.gambiaStatutoryEnabled) {
             const payeAmount = calculateGambiaPAYE(grossSalary);
-            const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
-            totalDeductions += payeAmount + ssnAmount;
+            totalDeductions += payeAmount;
+            const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+            if (ssnFundingMode === "DEDUCT_FROM_EMPLOYEE") {
+                const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+                totalDeductions += ssnAmount;
+            }
             netSalaryFinal = Math.max(0, grossSalary - totalDeductions);
         }
 
@@ -427,8 +436,18 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             salaryStructure.deductions,
             employeeContext,
             tenantId,
+            tenant?.gambiaStatutoryEnabled ?? false,
+            tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE"
+        );
+        const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+        const employerRatePercent = resolveEmployerSocialSecurityRatePercent(
+            tenant?.employerSocialSecurityRate ?? null,
             tenant?.gambiaStatutoryEnabled ?? false
         );
+        const employerContributions = tenant?.gambiaStatutoryEnabled
+            ? buildGambiaEmployerContributionLines(grossSalary, ssnFundingMode, employerRatePercent ?? 0)
+            : [];
+        const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
         const breakdownSnapshot = {
             baseSalary: baseSalaryMonthly,
             currency: salaryStructure.currency || "USD",
@@ -444,6 +463,15 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 calculationMethod: line.calculationMethod,
                 description: line.description,
             })),
+            ...(tenant?.gambiaStatutoryEnabled && {
+                gambiaSsnFundingMode: ssnFundingMode,
+                employerContributions,
+                ...(employerRatePercent != null &&
+                    employerSSHFCLine?.amount != null && {
+                        employerSSHFCRate: employerRatePercent,
+                        employerSSHFCAmount: employerSSHFCLine.amount,
+                    }),
+            }),
         };
 
         return {

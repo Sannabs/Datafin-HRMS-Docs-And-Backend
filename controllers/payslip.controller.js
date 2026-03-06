@@ -7,6 +7,10 @@ import { getPayslipBreakdown, getPayslipYTD, formatCurrency, sanitizePeriodNameF
 import { sendEmail } from "../services/resend.service.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
 import { calculatePayrollRunTotals } from "../services/payroll-run.service.js";
+import {
+    buildGambiaEmployerContributionLines,
+    resolveEmployerSocialSecurityRatePercent,
+} from "../constants/gambia-payroll.defaults.js";
 import archiver from "archiver";
 
 /**
@@ -720,17 +724,30 @@ export const getPayslipById = async (req, res) => {
                     payslip.payrollRun.payPeriod.endDate
                 );
             }
-            // Enrich with employer SSHFC when missing (e.g. from snapshot or old data)
-            if (breakdown && breakdown.employerSSHFCRate == null) {
+            // Enrich with employer contribution lines when missing (e.g. snapshot/old data)
+            if (breakdown && (breakdown.employerSSHFCRate == null || breakdown.employerContributions == null)) {
                 const tenant = await prisma.tenant.findUnique({
                     where: { id: tenantId },
-                    select: { employerSocialSecurityRate: true },
+                    select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true, gambiaSsnFundingMode: true },
                 });
-                const rate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
-                if (rate != null && !Number.isNaN(rate)) {
-                    const amount = Math.round(Number(payslip.grossSalary) * (rate / 100) * 100) / 100;
-                    breakdown = { ...breakdown, employerSSHFCRate: rate, employerSSHFCAmount: amount };
-                }
+                const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+                const ssnFundingMode =
+                    breakdown?.gambiaSsnFundingMode ?? tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+                const rate = resolveEmployerSocialSecurityRatePercent(tenant?.employerSocialSecurityRate ?? null, gambiaEnabled);
+                const gross = Number(payslip.grossSalary) || 0;
+                const employerContributions = gambiaEnabled
+                    ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
+                    : [];
+                const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
+                const enriched = {
+                    ...(gambiaEnabled && { gambiaSsnFundingMode: ssnFundingMode, employerContributions }),
+                    ...(rate != null &&
+                        employerSSHFCLine?.amount != null && {
+                            employerSSHFCRate: rate,
+                            employerSSHFCAmount: employerSSHFCLine.amount,
+                        }),
+                };
+                if (Object.keys(enriched).length > 0) breakdown = { ...breakdown, ...enriched };
             }
         }
 
@@ -1191,16 +1208,29 @@ export const getMyLatestPayslip = async (req, res) => {
             );
         }
 
-        if (breakdown && breakdown.employerSSHFCRate == null) {
+        if (breakdown && (breakdown.employerSSHFCRate == null || breakdown.employerContributions == null)) {
             const tenant = await prisma.tenant.findUnique({
                 where: { id: tenantId },
-                select: { employerSocialSecurityRate: true },
+                select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true, gambiaSsnFundingMode: true },
             });
-            const rate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
-            if (rate != null && !Number.isNaN(rate)) {
-                const amount = Math.round(Number(payslip.grossSalary) * (rate / 100) * 100) / 100;
-                breakdown = { ...breakdown, employerSSHFCRate: rate, employerSSHFCAmount: amount };
-            }
+            const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+            const ssnFundingMode =
+                breakdown?.gambiaSsnFundingMode ?? tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+            const rate = resolveEmployerSocialSecurityRatePercent(tenant?.employerSocialSecurityRate ?? null, gambiaEnabled);
+            const gross = Number(payslip.grossSalary) || 0;
+            const employerContributions = gambiaEnabled
+                ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
+                : [];
+            const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
+            const enriched = {
+                ...(gambiaEnabled && { gambiaSsnFundingMode: ssnFundingMode, employerContributions }),
+                ...(rate != null &&
+                    employerSSHFCLine?.amount != null && {
+                        employerSSHFCRate: rate,
+                        employerSSHFCAmount: employerSSHFCLine.amount,
+                    }),
+            };
+            if (Object.keys(enriched).length > 0) breakdown = { ...breakdown, ...enriched };
         }
 
         let ytd = null;

@@ -92,24 +92,39 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
                 </table>
             </div>`;
 
-        // Employer SSHFC section (for transparency; does not affect net pay)
+        // Employer contributions section (for transparency; does not affect net pay)
         let employerSSHFCSectionHTML = "";
-        if (
-            payslipData.employerSSHFCRate != null &&
-            !Number.isNaN(Number(payslipData.employerSSHFCRate)) &&
-            payslipData.employerSSHFCAmount != null
-        ) {
-            const rate = Number(payslipData.employerSSHFCRate);
-            const amount = formatCurrency(payslipData.employerSSHFCAmount, currency);
+        const employerContributions = Array.isArray(payslipData.employerContributions)
+            ? payslipData.employerContributions
+            : [];
+        const fallbackRate =
+            payslipData.employerSSHFCRate != null && !Number.isNaN(Number(payslipData.employerSSHFCRate))
+                ? Number(payslipData.employerSSHFCRate)
+                : null;
+        const fallbackAmount = payslipData.employerSSHFCAmount != null ? Number(payslipData.employerSSHFCAmount) : null;
+
+        const linesToRender =
+            employerContributions.length > 0
+                ? employerContributions
+                : fallbackRate != null && fallbackAmount != null
+                  ? [{ name: "Employer SSHFC", amount: fallbackAmount }]
+                  : [];
+
+        if (linesToRender.length > 0) {
+            const rows = linesToRender
+                .map((line) => {
+                    const name =
+                        line?.name === "Employer SSHFC" && fallbackRate != null ? `Employer SSHFC (${fallbackRate}%)` : String(line?.name ?? "Employer contribution");
+                    const amount = formatCurrency(line?.amount || 0, currency);
+                    return `<tr><td>${name}</td><td class="amount">${amount}</td></tr>`;
+                })
+                .join("");
             employerSSHFCSectionHTML = `
             <div class="breakdown-section employer-section">
                 <div class="section-title">Employer contribution</div>
                 <table>
                     <tbody>
-                        <tr>
-                            <td>Employer SSHFC (${rate}%)</td>
-                            <td class="amount">${amount}</td>
-                        </tr>
+                        ${rows}
                     </tbody>
                 </table>
             </div>`;
@@ -317,11 +332,18 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             typeof rawCompanyName === "string" && rawCompanyName.trim() !== ""
                 ? rawCompanyName.trim()
                 : "Company Name";
-        const employerRate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
+        const employerRate =
+            breakdown?.employerSSHFCRate != null
+                ? Number(breakdown.employerSSHFCRate)
+                : tenant?.employerSocialSecurityRate != null
+                  ? Number(tenant.employerSocialSecurityRate)
+                  : null;
         const employerSSHFCAmount =
-            employerRate != null && !Number.isNaN(employerRate)
-                ? Math.round(payslip.grossSalary * (employerRate / 100) * 100) / 100
-                : null;
+            breakdown?.employerSSHFCAmount != null
+                ? Number(breakdown.employerSSHFCAmount)
+                : employerRate != null && !Number.isNaN(employerRate)
+                  ? Math.round(payslip.grossSalary * (employerRate / 100) * 100) / 100
+                  : null;
         const ytd = await getPayslipYTD(
             payslip.userId,
             tenantId,
@@ -348,6 +370,7 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             currency: breakdown.currency,
             employerSSHFCRate: employerRate,
             employerSSHFCAmount,
+            employerContributions: Array.isArray(breakdown?.employerContributions) ? breakdown.employerContributions : undefined,
             grossSalaryYTD: ytd.grossSalaryYTD,
             totalDeductionsYTD: ytd.totalDeductionsYTD,
             netSalaryYTD: ytd.netSalaryYTD,

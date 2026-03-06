@@ -55,6 +55,11 @@ enum SalaryPeriodType {
   ANNUAL
 }
 
+enum GambiaSsnFundingMode {
+  DEDUCT_FROM_EMPLOYEE
+  EMPLOYER_PAYS_ON_BEHALF
+}
+
 model Invitation {
   id                  String            @id @default(uuid())
   senderId            String
@@ -220,6 +225,7 @@ model Tenant {
   // Gambia statutory payroll (PAYE + SSN): when true, applied automatically for all employees
   gambiaStatutoryEnabled     Boolean @default(false)
   employerSocialSecurityRate Float? // e.g. 10 for 10% (reporting only, not deducted from pay)
+  gambiaSsnFundingMode       GambiaSsnFundingMode @default(DEDUCT_FROM_EMPLOYEE)
 
   // Pay period governance: control creation of past pay periods
   allowPastPayPeriodCreation Boolean @default(true)
