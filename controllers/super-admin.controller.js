@@ -490,6 +490,7 @@ export const suspendPlatformAdmin = async (req, res) => {
       where: { id: userId },
       data: { status: "INACTIVE" },
     });
+    await prisma.session.deleteMany({ where: { userId } });
     logger.info("Platform admin suspended", { userId, by: req.user.id });
     return res.status(200).json({
       success: true,
@@ -576,6 +577,7 @@ export const deletePlatformAdmin = async (req, res) => {
       where: { id: userId },
       data: { isDeleted: true, deletedAt: new Date() },
     });
+    await prisma.session.deleteMany({ where: { userId } });
     logger.info("Platform admin deleted (soft)", { userId, by: req.user.id });
     return res.status(200).json({
       success: true,

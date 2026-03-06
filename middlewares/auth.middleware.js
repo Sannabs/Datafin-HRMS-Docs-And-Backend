@@ -22,6 +22,8 @@ export const requireAuth = async (req, res, next) => {
         id: true,
         role: true,
         tenantId: true,
+        isDeleted: true,
+        status: true,
       },
     });
 
@@ -30,6 +32,20 @@ export const requireAuth = async (req, res, next) => {
       return res.status(401).json({
         error: "Unauthorized",
         message: "User account not found",
+      });
+    }
+
+    if (user.isDeleted) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Account has been removed",
+      });
+    }
+
+    if (user.role === "SUPER_ADMIN" && user.status === "INACTIVE") {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Account is suspended",
       });
     }
 
