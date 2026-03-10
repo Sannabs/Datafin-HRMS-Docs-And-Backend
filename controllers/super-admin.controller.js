@@ -4,6 +4,7 @@ import logger from "../utils/logger.js";
 import { ensurePlatformTenant } from "../utils/platformTenant.js";
 import { auth } from "../utils/auth.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import { sendPlatformAdminInviteEmail } from "../views/sendPlatformAdminInviteEmail.js";
 
 // Companies
 
@@ -433,11 +434,15 @@ export const listPlatformAdmins = async (req, res) => {
     const admins = await prisma.user.findMany({
       where: {
         role: "SUPER_ADMIN",
+        isDeleted: false,
       },
       select: {
         id: true,
         email: true,
         name: true,
+        image: true,
+        status: true,
+        isPlatformOwner: true,
         createdAt: true,
         lastLogin: true,
       },
@@ -461,8 +466,249 @@ export const listPlatformAdmins = async (req, res) => {
   }
 };
 
+export const getPlatformAdminById = async (req, res) => {
+  try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can view this profile",
+      });
+    }
+    const { userId } = req.params;
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        role: "SUPER_ADMIN",
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        phone: true,
+        gender: true,
+        dateOfBirth: true,
+        SSN: true,
+        tinNumber: true,
+        emergencyContactName: true,
+        emergencyContactRelationship: true,
+        emergencyContactPhone: true,
+        addressLine1: true,
+        addressLine2: true,
+        status: true,
+        isPlatformOwner: true,
+        createdAt: true,
+        lastLogin: true,
+      },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    logger.error(
+      `Error fetching platform admin (super admin): ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to fetch platform admin",
+    });
+  }
+};
+
+export const suspendPlatformAdmin = async (req, res) => {
+  try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot suspend yourself",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true, isPlatformOwner: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot suspend the platform owner",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "INACTIVE" },
+    });
+    await prisma.session.deleteMany({ where: { userId } });
+    logger.info("Platform admin suspended", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin suspended",
+    });
+  } catch (error) {
+    logger.error(
+      `Error suspending platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to suspend platform admin",
+    });
+  }
+};
+
+export const activatePlatformAdmin = async (req, res) => {
+  try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot change your own status",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true, isPlatformOwner: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot activate the platform owner",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "ACTIVE" },
+    });
+    logger.info("Platform admin activated", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin activated",
+    });
+  } catch (error) {
+    logger.error(
+      `Error activating platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to activate platform admin",
+    });
+  }
+};
+
+export const deletePlatformAdmin = async (req, res) => {
+  try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can perform this action",
+      });
+    }
+    const { userId } = req.params;
+    if (req.user.id === userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "You cannot delete yourself",
+      });
+    }
+    const user = await prisma.user.findFirst({
+      where: { id: userId, role: "SUPER_ADMIN", isDeleted: false },
+      select: { id: true, isPlatformOwner: true },
+    });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Platform admin not found",
+      });
+    }
+    if (user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Cannot delete the platform owner",
+      });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    await prisma.session.deleteMany({ where: { userId } });
+    logger.info("Platform admin deleted (soft)", { userId, by: req.user.id });
+    return res.status(200).json({
+      success: true,
+      message: "Platform admin removed",
+    });
+  } catch (error) {
+    logger.error(
+      `Error deleting platform admin: ${error.message}`,
+      { stack: error.stack }
+    );
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to delete platform admin",
+    });
+  }
+};
+
 export const invitePlatformAdmin = async (req, res) => {
   try {
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Only the platform owner can invite other platform admins",
+      });
+    }
     const { email, name } = req.body;
 
     if (!email) {
@@ -516,15 +762,41 @@ export const invitePlatformAdmin = async (req, res) => {
       throw new Error("Failed to create platform admin user");
     }
 
+    const userId = result.user.id;
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+    const resetToken = crypto.randomBytes(12).toString("hex");
+    const expiresAt = new Date(Date.now() + 3600 * 1000);
+
+    await prisma.verification.create({
+      data: {
+        id: crypto.randomUUID(),
+        identifier: `reset-password:${resetToken}`,
+        value: userId,
+        expiresAt,
+      },
+    });
+
+    const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
+    await sendPlatformAdminInviteEmail({
+      to: result.user.email,
+      resetUrl,
+      userName: name?.trim() || result.user.email,
+    });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { emailVerified: true },
+    });
+
     logger.info("Platform admin invited by super admin", {
-      userId: result.user.id,
+      userId,
       invitedBy: req.user.id,
     });
 
     return res.status(201).json({
       success: true,
       message:
-        "Platform admin account created. The user can complete signup via email verification.",
+        "Platform admin invited. They will receive an email to set their password and sign in.",
       data: {
         id: result.user.id,
         email: result.user.email,

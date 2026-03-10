@@ -259,7 +259,9 @@ export const recalculateSalary = async (
  * @param {Array} deductions - Deduction rows with deductionType: { name }, amount, calculationMethod, formulaExpression
  * @param {Object} [employeeContext] - Employee context for formula evaluation
  * @param {string} [tenantId] - Tenant ID
- * @param {boolean} [gambiaStatutoryEnabled] - When true, append PAYE (GRA) and SSN (5% employee) to deduction lines
+ * @param {boolean} [gambiaStatutoryEnabled] - When true, append PAYE (GRA) and (optionally) SSN employee share to deduction lines
+ * @param {"DEDUCT_FROM_EMPLOYEE"|"EMPLOYER_PAYS_ON_BEHALF"} [gambiaSsnFundingMode] - How to treat the SSN 5% employee share
+ * @param {boolean} [isGambiaTaxExempt] - When true, skip PAYE for this employee (age-based exemption)
  * @returns {Promise<Object>} { grossSalary, netSalary, totalDeductions, allowanceLines: [{ name, amount, calculationMethod, description }], deductionLines: [{ name, amount, calculationMethod, description }] }
  */
 export const getSalaryBreakdownItemized = async (
@@ -268,7 +270,9 @@ export const getSalaryBreakdownItemized = async (
     deductions = [],
     employeeContext = null,
     tenantId = null,
-    gambiaStatutoryEnabled = false
+    gambiaStatutoryEnabled = false,
+    gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE",
+    isGambiaTaxExempt = false
 ) => {
     const allowanceLines = [];
     let totalAllowances = 0;
@@ -319,14 +323,21 @@ export const getSalaryBreakdownItemized = async (
         deductionLines.push({ name, amount, calculationMethod: method, description });
     }
 
-    if (gambiaStatutoryEnabled) {
+    if (gambiaStatutoryEnabled && !isGambiaTaxExempt) {
         const payeAmount = calculateGambiaPAYE(grossSalary);
-        const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
-        deductionLines.push(
-            { name: "PAYE (GRA)", amount: payeAmount, calculationMethod: "FORMULA", description: "GRA tax bands" },
-            { name: "SSN - Employee", amount: ssnAmount, calculationMethod: "PERCENTAGE", description: "5% of gross" }
-        );
-        totalDeductions += payeAmount + ssnAmount;
+        deductionLines.push({ name: "PAYE (GRA)", amount: payeAmount, calculationMethod: "FORMULA", description: "GRA tax bands" });
+        totalDeductions += payeAmount;
+
+        if (gambiaSsnFundingMode === "DEDUCT_FROM_EMPLOYEE") {
+            const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
+            deductionLines.push({
+                name: "SSN - Employee",
+                amount: ssnAmount,
+                calculationMethod: "PERCENTAGE",
+                description: "5% of gross",
+            });
+            totalDeductions += ssnAmount;
+        }
     }
 
     const netSalary = Math.max(0, grossSalary - totalDeductions);

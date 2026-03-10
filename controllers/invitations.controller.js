@@ -72,7 +72,10 @@ export const sendInvitation = async (req, res, next) => {
       });
     }
 
-    if (senderRole !== "HR_ADMIN") {
+    const canSend =
+      senderRole === "HR_ADMIN" ||
+      (senderRole === "SUPER_ADMIN" && req.effectiveTenantId);
+    if (!canSend) {
       return res.status(403).json({
         success: false,
         message: "Only HR_ADMIN can send invitations",
@@ -764,7 +767,10 @@ export const getInvitations = async (req, res, next) => {
     };
 
     // Role-based filtering: Non-admins can only see their own invitations
-    if (userRole !== "HR_ADMIN") {
+    const canSeeAll =
+      userRole === "HR_ADMIN" ||
+      (userRole === "SUPER_ADMIN" && req.effectiveTenantId);
+    if (!canSeeAll) {
       where.email = req.user.email;
     }
 

@@ -51,6 +51,7 @@ async function main() {
       name,
       emailVerified: true,
       role: "SUPER_ADMIN",
+      isPlatformOwner: true,
       employeeId,
       status: "ACTIVE",
       employmentType: "FULL_TIME",

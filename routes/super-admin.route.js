@@ -10,7 +10,11 @@ import {
   suspendCompany,
   sendCompanyInvitationAsSuperAdmin,
   listPlatformAdmins,
+  getPlatformAdminById,
   invitePlatformAdmin,
+  suspendPlatformAdmin,
+  activatePlatformAdmin,
+  deletePlatformAdmin,
   startImpersonation,
   stopImpersonation,
 } from "../controllers/super-admin.controller.js";
@@ -37,7 +41,11 @@ router.post(
 
 // Platform admins
 router.get("/admins", listPlatformAdmins);
+router.get("/admins/:userId", getPlatformAdminById);
 router.post("/admins/invite", invitePlatformAdmin);
+router.post("/admins/:userId/suspend", suspendPlatformAdmin);
+router.post("/admins/:userId/activate", activatePlatformAdmin);
+router.delete("/admins/:userId", deletePlatformAdmin);
 
 // Impersonation
 router.post("/impersonation/start", startImpersonation);

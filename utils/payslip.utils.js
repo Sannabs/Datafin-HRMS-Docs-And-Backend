@@ -1,5 +1,9 @@
 import prisma from "../config/prisma.config.js";
 import { getSalaryBreakdownItemized } from "../calculations/salary-calculations.js";
+import {
+    buildGambiaEmployerContributionLines,
+    resolveEmployerSocialSecurityRatePercent,
+} from "../constants/gambia-payroll.defaults.js";
 
 /**
  * Get itemized allowances and deductions breakdown for a payslip with calculated amounts
@@ -75,6 +79,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             employmentType: true,
             status: true,
             hireDate: true,
+            dateOfBirth: true,
         },
     });
 
@@ -85,14 +90,41 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             employmentType: user.employmentType,
             status: user.status,
             hireDate: user.hireDate,
+            dateOfBirth: user.dateOfBirth,
             baseSalary: baseSalaryMonthly,
           }
         : null;
 
     const tenant = await prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true },
+        select: {
+            gambiaStatutoryEnabled: true,
+            employerSocialSecurityRate: true,
+            gambiaSsnFundingMode: true,
+            gambiaTaxAgeExemptionEnabled: true,
+            gambiaTaxExemptionAge: true,
+        },
     });
+
+    const getAgeFromDate = (date) => {
+        if (!date) return null;
+        const today = new Date();
+        const dob = new Date(date);
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+            age--;
+        }
+        return age;
+    };
+
+    const employeeAge = user ? getAgeFromDate(user.dateOfBirth) : null;
+    const isGambiaTaxExempt =
+        Boolean(tenant?.gambiaStatutoryEnabled) &&
+        Boolean(tenant?.gambiaTaxAgeExemptionEnabled) &&
+        tenant?.gambiaTaxExemptionAge != null &&
+        employeeAge != null &&
+        employeeAge >= tenant.gambiaTaxExemptionAge;
 
     const itemized = await getSalaryBreakdownItemized(
         baseSalaryMonthly,
@@ -100,16 +132,23 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         salaryStructure.deductions,
         employeeContext,
         tenantId,
-        tenant?.gambiaStatutoryEnabled ?? false
+        tenant?.gambiaStatutoryEnabled ?? false,
+        tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
+        isGambiaTaxExempt
     );
 
     const grossSalaryForEmployer =
         baseSalaryMonthly + itemized.allowanceLines.reduce((sum, l) => sum + (l.amount || 0), 0);
-    const employerRate = tenant?.employerSocialSecurityRate != null ? Number(tenant.employerSocialSecurityRate) : null;
-    const employerSSHFCAmount =
-        employerRate != null && !Number.isNaN(employerRate)
-            ? Math.round(grossSalaryForEmployer * (employerRate / 100) * 100) / 100
-            : null;
+    const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+    const employerRate = resolveEmployerSocialSecurityRatePercent(
+        tenant?.employerSocialSecurityRate ?? null,
+        tenant?.gambiaStatutoryEnabled ?? false
+    );
+    const employerContributions =
+        tenant?.gambiaStatutoryEnabled
+            ? buildGambiaEmployerContributionLines(grossSalaryForEmployer, ssnFundingMode, employerRate ?? 0)
+            : [];
+    const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
 
     return {
         baseSalary: baseSalaryMonthly,
@@ -126,10 +165,14 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             calculationMethod: line.calculationMethod,
             description: line.description,
         })),
+        ...(tenant?.gambiaStatutoryEnabled && {
+            gambiaSsnFundingMode: ssnFundingMode,
+            employerContributions,
+        }),
         ...(employerRate != null &&
-            employerSSHFCAmount != null && {
+            employerSSHFCLine?.amount != null && {
                 employerSSHFCRate: employerRate,
-                employerSSHFCAmount,
+                employerSSHFCAmount: employerSSHFCLine.amount,
             }),
     };
 };

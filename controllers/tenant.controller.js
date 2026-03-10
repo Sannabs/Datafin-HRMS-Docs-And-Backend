@@ -195,8 +195,11 @@ export const getPayrollSettings = async (req, res) => {
             select: {
                 gambiaStatutoryEnabled: true,
                 employerSocialSecurityRate: true,
+                gambiaSsnFundingMode: true,
                 allowPastPayPeriodCreation: true,
                 maxPayPeriodLookbackDays: true,
+                gambiaTaxAgeExemptionEnabled: true,
+                gambiaTaxExemptionAge: true,
             },
         });
 
@@ -213,8 +216,11 @@ export const getPayrollSettings = async (req, res) => {
             data: {
                 gambiaStatutoryEnabled: tenant.gambiaStatutoryEnabled ?? false,
                 employerSocialSecurityRate: tenant.employerSocialSecurityRate ?? null,
+                gambiaSsnFundingMode: tenant.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
                 allowPastPayPeriodCreation: tenant.allowPastPayPeriodCreation ?? true,
                 maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
+                gambiaTaxAgeExemptionEnabled: tenant.gambiaTaxAgeExemptionEnabled ?? false,
+                gambiaTaxExemptionAge: tenant.gambiaTaxExemptionAge ?? null,
             },
         });
     } catch (error) {
@@ -239,7 +245,15 @@ export const updatePayrollSettings = async (req, res) => {
     try {
         const { id: userId } = req.user;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const { gambiaStatutoryEnabled, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays } = req.body;
+        const {
+            gambiaStatutoryEnabled,
+            employerSocialSecurityRate,
+            gambiaSsnFundingMode,
+            allowPastPayPeriodCreation,
+            maxPayPeriodLookbackDays,
+            gambiaTaxAgeExemptionEnabled,
+            gambiaTaxExemptionAge,
+        } = req.body;
 
         const updateData = {};
         if (typeof gambiaStatutoryEnabled === "boolean") {
@@ -250,6 +264,17 @@ export const updatePayrollSettings = async (req, res) => {
                 employerSocialSecurityRate == null || employerSocialSecurityRate === ""
                     ? null
                     : Number(employerSocialSecurityRate);
+        }
+        if (gambiaSsnFundingMode !== undefined) {
+            const allowed = ["DEDUCT_FROM_EMPLOYEE", "EMPLOYER_PAYS_ON_BEHALF"];
+            if (!allowed.includes(gambiaSsnFundingMode)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "gambiaSsnFundingMode must be DEDUCT_FROM_EMPLOYEE or EMPLOYER_PAYS_ON_BEHALF",
+                });
+            }
+            updateData.gambiaSsnFundingMode = gambiaSsnFundingMode;
         }
         if (typeof allowPastPayPeriodCreation === "boolean") {
             updateData.allowPastPayPeriodCreation = allowPastPayPeriodCreation;
@@ -269,12 +294,30 @@ export const updatePayrollSettings = async (req, res) => {
                 updateData.maxPayPeriodLookbackDays = val;
             }
         }
+        if (typeof gambiaTaxAgeExemptionEnabled === "boolean") {
+            updateData.gambiaTaxAgeExemptionEnabled = gambiaTaxAgeExemptionEnabled;
+        }
+        if (gambiaTaxExemptionAge !== undefined) {
+            if (gambiaTaxExemptionAge == null || gambiaTaxExemptionAge === "") {
+                updateData.gambiaTaxExemptionAge = null;
+            } else {
+                const age = Number(gambiaTaxExemptionAge);
+                if (!Number.isInteger(age) || age <= 0 || age > 100) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Bad Request",
+                        message: "gambiaTaxExemptionAge must be an integer between 1 and 100, or null to disable",
+                    });
+                }
+                updateData.gambiaTaxExemptionAge = age;
+            }
+        }
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No valid fields to update (gambiaStatutoryEnabled, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays)",
+                message: "No valid fields to update (gambiaStatutoryEnabled, gambiaSsnFundingMode, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays, gambiaTaxAgeExemptionEnabled, gambiaTaxExemptionAge)",
             });
         }
 
@@ -284,8 +327,11 @@ export const updatePayrollSettings = async (req, res) => {
             select: {
                 gambiaStatutoryEnabled: true,
                 employerSocialSecurityRate: true,
+                gambiaSsnFundingMode: true,
                 allowPastPayPeriodCreation: true,
                 maxPayPeriodLookbackDays: true,
+                gambiaTaxAgeExemptionEnabled: true,
+                gambiaTaxExemptionAge: true,
             },
         });
 
@@ -300,8 +346,11 @@ export const updatePayrollSettings = async (req, res) => {
             data: {
                 gambiaStatutoryEnabled: tenant.gambiaStatutoryEnabled ?? false,
                 employerSocialSecurityRate: tenant.employerSocialSecurityRate ?? null,
+                gambiaSsnFundingMode: tenant.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
                 allowPastPayPeriodCreation: tenant.allowPastPayPeriodCreation ?? true,
                 maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
+                gambiaTaxAgeExemptionEnabled: tenant.gambiaTaxAgeExemptionEnabled ?? false,
+                gambiaTaxExemptionAge: tenant.gambiaTaxExemptionAge ?? null,
             },
             message: "Payroll settings updated",
         });

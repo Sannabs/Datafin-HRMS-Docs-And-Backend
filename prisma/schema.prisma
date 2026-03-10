@@ -55,6 +55,11 @@ enum SalaryPeriodType {
   ANNUAL
 }
 
+enum GambiaSsnFundingMode {
+  DEDUCT_FROM_EMPLOYEE
+  EMPLOYER_PAYS_ON_BEHALF
+}
+
 model Invitation {
   id                  String            @id @default(uuid())
   senderId            String
@@ -220,6 +225,11 @@ model Tenant {
   // Gambia statutory payroll (PAYE + SSN): when true, applied automatically for all employees
   gambiaStatutoryEnabled     Boolean @default(false)
   employerSocialSecurityRate Float? // e.g. 10 for 10% (reporting only, not deducted from pay)
+  gambiaSsnFundingMode       GambiaSsnFundingMode @default(DEDUCT_FROM_EMPLOYEE)
+
+  // Gambia age-based PAYE exemption
+  gambiaTaxAgeExemptionEnabled Boolean @default(false) // When true, use gambiaTaxExemptionAge to exempt older employees from PAYE
+  gambiaTaxExemptionAge        Int? // Minimum age for PAYE exemption; null = no age-based exemption
 
   // Pay period governance: control creation of past pay periods
   allowPastPayPeriodCreation Boolean @default(true)
@@ -335,9 +345,10 @@ model User {
   dateOfBirth   DateTime?
   SSN           String?
   tinNumber     String?
-  role          UserRole  @default(STAFF)
-  isDeleted     Boolean   @default(false)
-  lastLogin     DateTime?
+  role              UserRole  @default(STAFF)
+  isPlatformOwner   Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
+  isDeleted         Boolean   @default(false)
+  lastLogin         DateTime?
 
   // Employee fields (optional - not all users are employees)
   employeeId                     String
