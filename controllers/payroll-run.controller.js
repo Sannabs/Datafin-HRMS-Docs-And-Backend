@@ -564,16 +564,7 @@ function buildPayrollRunsWhere(tenantId, query) {
 
     if (search && String(search).trim()) {
         const q = String(search).trim();
-        const statusOpts = ["DRAFT", "PROCESSING", "COMPLETED", "FAILED"];
-        const statusUpper = q.toUpperCase();
-        const orConditions = [
-            { runCode: { contains: q, mode: "insensitive" } },
-            { processor: { name: { contains: q, mode: "insensitive" } } },
-        ];
-        if (statusOpts.includes(statusUpper)) {
-            orConditions.push({ status: statusUpper });
-        }
-        where.OR = orConditions;
+        where.runCode = { contains: q, mode: "insensitive" };
     }
 
     return where;
