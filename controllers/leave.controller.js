@@ -985,7 +985,7 @@ export const getPendingLeaveRequestsForManagerApproval = async (
 };
 export const getAllLeaveRequests = async (req, res, next) => {
   try {
-    const { id: userId } = req.user;
+    const { id: userId, role } = req.user;
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
     // Validation
@@ -1080,6 +1080,7 @@ export const getAllLeaveRequests = async (req, res, next) => {
             select: {
               id: true,
               name: true,
+              image: true,
               employeeId: true,
               department: {
                 select: {
