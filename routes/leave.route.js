@@ -61,7 +61,7 @@ router.get(
 );
 router.get(
   "/requests",
-  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
   getAllLeaveRequests
 );
 router.get("/requests/:id", getLeaveRequestById);

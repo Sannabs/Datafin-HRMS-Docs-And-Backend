@@ -1039,7 +1039,8 @@ model AnnualLeavePolicy {
   encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT
 
   // Request Constraints
-  advanceNoticeDays Int @default(0)
+  advanceNoticeDays     Int     @default(0)
+  requireManagerApproval Boolean @default(true) // true = two-tier (manager then HR), false = single-tier (HR only)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1144,9 +1145,10 @@ model LeaveRequest {
   manager           User?     @relation("LeaveManager", fields: [managerId], references: [id], onDelete: SetNull)
   managerApprovedAt DateTime?
 
-  hrId         String?
-  hr           User?     @relation("LeaveHR", fields: [hrId], references: [id], onDelete: SetNull)
-  hrApprovedAt DateTime?
+  hrId                   String?
+  hr                     User?     @relation("LeaveHR", fields: [hrId], references: [id], onDelete: SetNull)
+  hrApprovedAt           DateTime?
+  hrApprovedWithoutManager Boolean? // true when HR approved from PENDING (override or single-tier)
 
   // Rejection
   rejectedBy      String?

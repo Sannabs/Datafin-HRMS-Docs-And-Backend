@@ -84,6 +84,7 @@ export const updateLeavePolicy = async (req, res, next) => {
       maxCarryoverDays,
       carryoverExpiryMonths,
       encashmentRate,
+      requireManagerApproval,
     } = req.body;
 
     if (!tenantId) {
@@ -323,6 +324,18 @@ export const updateLeavePolicy = async (req, res, next) => {
         });
       }
       updateData.encashmentRate = encashmentRate;
+    }
+
+    // Validate and set requireManagerApproval (two-tier vs single-tier approval)
+    if (requireManagerApproval !== undefined) {
+      if (typeof requireManagerApproval !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "requireManagerApproval must be a boolean value",
+        });
+      }
+      updateData.requireManagerApproval = requireManagerApproval;
     }
 
     // Check if there's anything to update
@@ -911,6 +924,27 @@ export const getPendingLeaveRequestsForManagerApproval = async (
       status: "PENDING", // Keep this filter - managers only need to see what requires action
     };
 
+    // Single-tier mode: when policy does not require manager approval, return empty queue
+    const policy = await prisma.annualLeavePolicy.findFirst({
+      where: { tenantId },
+      select: { requireManagerApproval: true },
+    });
+    if (policy && policy.requireManagerApproval === false) {
+      return res.status(200).json({
+        success: true,
+        message: "Pending leave requests fetched successfully",
+        data: [],
+        pagination: {
+          page: 1,
+          limit,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      });
+    }
+
     const [leaveRequests, total] = await Promise.all([
       prisma.leaveRequest.findMany({
         where,
@@ -1026,7 +1060,7 @@ export const getAllLeaveRequests = async (req, res, next) => {
 
     const where = {
       tenantId,
-      ...getDepartmentFilter(req.user)
+      user: { ...getDepartmentFilter(req.user) },
     };
 
     // Filter by status (PENDING, MANAGER_APPROVED, APPROVED, REJECTED, CANCELLED)
@@ -1069,6 +1103,7 @@ export const getAllLeaveRequests = async (req, res, next) => {
           reason: true,
           status: true,
           createdAt: true,
+          managerId: true,
           leaveType: {
             select: {
               id: true,
@@ -1147,10 +1182,35 @@ export const getLeaveRequestById = async (req, res, next) => {
       });
     }
 
+    // When tenantId is missing (e.g. SUPER_ADMIN not impersonating), resolve from the request and enforce access
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const stub = await prisma.leaveRequest.findUnique({
+        where: { id },
+        select: { tenantId: true, userId: true, managerId: true },
+      });
+      if (!stub) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave request not found",
+        });
+      }
+      const canAccess = stub.userId === userId || stub.managerId === userId;
+      if (!canAccess) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You are not authorized to view this leave request",
+        });
+      }
+      resolvedTenantId = stub.tenantId;
+    }
+
     // Build where clause with access control
     const where = {
       id,
-      tenantId,
+      tenantId: resolvedTenantId,
     };
 
     // Regular employees can only view their own requests
@@ -1195,14 +1255,12 @@ export const getLeaveRequestById = async (req, res, next) => {
               select: {
                 id: true,
                 name: true,
-                code: true,
               },
             },
             position: {
               select: {
                 id: true,
                 title: true,
-                code: true,
               },
             },
           },
@@ -1814,33 +1872,27 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
       });
     }
 
-    // Validate status - must be MANAGER_APPROVED
-    if (leaveRequest.status !== "MANAGER_APPROVED") {
+    // Allow HR approve when status is MANAGER_APPROVED (two-tier) or PENDING (override / single-tier)
+    if (!["MANAGER_APPROVED", "PENDING"].includes(leaveRequest.status)) {
       return res.status(400).json({
         success: false,
         error: "Bad Request",
-        message: `Cannot approve leave request. Current status: ${leaveRequest.status}. Manager must approve first.`,
+        message: `Cannot approve leave request. Current status: ${leaveRequest.status}.`,
       });
     }
 
-    // Validate that manager has approved
-    if (!leaveRequest.managerApprovedAt) {
-      return res.status(400).json({
-        success: false,
-        error: "Bad Request",
-        message: "Manager approval is required before HR approval",
-      });
-    }
+    const wasPending = leaveRequest.status === "PENDING";
 
     // Start transaction to update request and balance
     const updatedRequest = await prisma.$transaction(async (tx) => {
-      // Update leave request status
+      // Update leave request status; set audit flag when HR approved from PENDING
       const updated = await tx.leaveRequest.update({
         where: { id },
         data: {
           status: "APPROVED",
           hrId: userId,
           hrApprovedAt: new Date(),
+          ...(wasPending ? { hrApprovedWithoutManager: true } : {}),
         },
         include: {
           leaveType: true,
@@ -1901,7 +1953,9 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
     );
 
     logger.info(
-      `HR ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
+      wasPending
+        ? `HR ${userId} approved leave request ${id} (override/single-tier) for employee ${leaveRequest.user.employeeId}`
+        : `HR ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
     );
 
     res.status(200).json({
@@ -2020,10 +2074,10 @@ export const rejectLeaveRequest = async (req, res, next) => {
         },
       });
 
-      // If request was previously approved by manager and deducts from annual,
-      // we need to adjust balance (pendingDays was already counted)
+      // If request was PENDING or MANAGER_APPROVED and deducts from annual,
+      // we need to adjust balance (pendingDays was incremented at create)
       if (
-        leaveRequest.status === "MANAGER_APPROVED" &&
+        ["PENDING", "MANAGER_APPROVED"].includes(leaveRequest.status) &&
         leaveRequest.leaveType.deductsFromAnnual
       ) {
         const currentYear = new Date().getFullYear();
