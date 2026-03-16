@@ -8,6 +8,7 @@ import { sendLeaveRequestToManagerEmail } from "../views/sendLeaveRequestToManag
 import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConfirmationEmail.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
+import { requestOverlapsBlackout, getBlackoutSegmentsForYear, getBlackoutWindowLabel } from "../utils/leave.util.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -85,6 +86,10 @@ export const updateLeavePolicy = async (req, res, next) => {
       carryoverExpiryMonths,
       encashmentRate,
       requireManagerApproval,
+      blackoutStartMonth,
+      blackoutStartDay,
+      blackoutEndMonth,
+      blackoutEndDay,
     } = req.body;
 
     if (!tenantId) {
@@ -336,6 +341,59 @@ export const updateLeavePolicy = async (req, res, next) => {
         });
       }
       updateData.requireManagerApproval = requireManagerApproval;
+    }
+
+    const validateMonth = (v) =>
+      v === null ||
+      (typeof v === "number" &&
+        Number.isInteger(v) &&
+        v >= 1 &&
+        v <= 12);
+    const validateDay = (v) =>
+      v === null ||
+      (typeof v === "number" &&
+        Number.isInteger(v) &&
+        v >= 1 &&
+        v <= 31);
+    if (blackoutStartMonth !== undefined) {
+      if (!validateMonth(blackoutStartMonth)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "blackoutStartMonth must be null or an integer 1-12",
+        });
+      }
+      updateData.blackoutStartMonth = blackoutStartMonth;
+    }
+    if (blackoutStartDay !== undefined) {
+      if (!validateDay(blackoutStartDay)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "blackoutStartDay must be null or an integer 1-31",
+        });
+      }
+      updateData.blackoutStartDay = blackoutStartDay;
+    }
+    if (blackoutEndMonth !== undefined) {
+      if (!validateMonth(blackoutEndMonth)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "blackoutEndMonth must be null or an integer 1-12",
+        });
+      }
+      updateData.blackoutEndMonth = blackoutEndMonth;
+    }
+    if (blackoutEndDay !== undefined) {
+      if (!validateDay(blackoutEndDay)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "blackoutEndDay must be null or an integer 1-31",
+        });
+      }
+      updateData.blackoutEndDay = blackoutEndDay;
     }
 
     // Check if there's anything to update
@@ -1076,7 +1134,7 @@ export const getAllLeaveRequests = async (req, res, next) => {
         where.status = status.toUpperCase();
       }
     }
-    
+
     // Filter by awaiting HR approval (status = MANAGER_APPROVED)
     if (awaitingHrApproval === "true") {
       where.status = "MANAGER_APPROVED"; // Correct status for HR approval queue
@@ -1405,6 +1463,15 @@ export const createLeaveRequest = async (req, res) => {
       }
     }
 
+    if (leaveType.deductsFromAnnual && policy && requestOverlapsBlackout(policy, start, end)) {
+      const windowLabel = getBlackoutWindowLabel(policy);
+      logger.error(`Leave request overlaps recurring blackout window (${windowLabel})`);
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: `Annual leave cannot be taken during the blackout period (${windowLabel} each year).`,
+      });
+    }
     // Check for overlapping leave requests
     const overlappingRequest = await prisma.leaveRequest.findFirst({
       where: {

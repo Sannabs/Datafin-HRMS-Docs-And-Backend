@@ -195,11 +195,11 @@ enum LeaveRequestStatus {
 // ------------------------------------------------------------
 
 model Tenant {
-  id           String   @id @default(uuid())
+  id           String       @id @default(uuid())
   code         String
   name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   status       TenantStatus @default(ACTIVE)
   address      String?
   addressLine1 String?
@@ -223,7 +223,7 @@ model Tenant {
   consecutiveLatePenalty Float?        @default(0)
 
   // Gambia statutory payroll (PAYE + SSN): when true, applied automatically for all employees
-  gambiaStatutoryEnabled     Boolean @default(false)
+  gambiaStatutoryEnabled     Boolean              @default(false)
   employerSocialSecurityRate Float? // e.g. 10 for 10% (reporting only, not deducted from pay)
   gambiaSsnFundingMode       GambiaSsnFundingMode @default(DEDUCT_FROM_EMPLOYEE)
 
@@ -337,18 +337,18 @@ model User {
   payslips           Payslip[]
 
   // Authentication fields
-  email         String
-  password      String? // Better Auth - password (nullable, required for email/password auth)
-  name          String? // Better Auth - display name (optional, can map to firstName)
-  emailVerified Boolean   @default(false) // Better Auth - email verified flag (boolean; use verifiedAt for timestamp if needed)
-  image         String? // Better Auth - profile image URL (optional, can map to avatarUrl)
-  dateOfBirth   DateTime?
-  SSN           String?
-  tinNumber     String?
-  role              UserRole  @default(STAFF)
-  isPlatformOwner   Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
-  isDeleted         Boolean   @default(false)
-  lastLogin         DateTime?
+  email           String
+  password        String? // Better Auth - password (nullable, required for email/password auth)
+  name            String? // Better Auth - display name (optional, can map to firstName)
+  emailVerified   Boolean   @default(false) // Better Auth - email verified flag (boolean; use verifiedAt for timestamp if needed)
+  image           String? // Better Auth - profile image URL (optional, can map to avatarUrl)
+  dateOfBirth     DateTime?
+  SSN             String?
+  tinNumber       String?
+  role            UserRole  @default(STAFF)
+  isPlatformOwner Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
+  isDeleted       Boolean   @default(false)
+  lastLogin       DateTime?
 
   // Employee fields (optional - not all users are employees)
   employeeId                     String
@@ -1039,8 +1039,14 @@ model AnnualLeavePolicy {
   encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT
 
   // Request Constraints
-  advanceNoticeDays     Int     @default(0)
+  advanceNoticeDays      Int     @default(0)
   requireManagerApproval Boolean @default(true) // true = two-tier (manager then HR), false = single-tier (HR only)
+
+  // Recurring blackout (annual leave not allowed in this window every year). All four must be set for blackout to apply.
+  blackoutStartMonth Int? // 1-12
+  blackoutStartDay   Int? // 1-31
+  blackoutEndMonth   Int? // 1-12
+  blackoutEndDay     Int? // 1-31 (e.g. Dec 15 - Jan 15: 12, 15, 1, 15)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1145,9 +1151,9 @@ model LeaveRequest {
   manager           User?     @relation("LeaveManager", fields: [managerId], references: [id], onDelete: SetNull)
   managerApprovedAt DateTime?
 
-  hrId                   String?
-  hr                     User?     @relation("LeaveHR", fields: [hrId], references: [id], onDelete: SetNull)
-  hrApprovedAt           DateTime?
+  hrId                     String?
+  hr                       User?     @relation("LeaveHR", fields: [hrId], references: [id], onDelete: SetNull)
+  hrApprovedAt             DateTime?
   hrApprovedWithoutManager Boolean? // true when HR approved from PENDING (override or single-tier)
 
   // Rejection
