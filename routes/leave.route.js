@@ -92,6 +92,7 @@ router.get(
   requireRole(["HR_ADMIN", "HR_STAFF"]),
   getEmployeeLeaveBalance
 );
+
 router.get(
   "/balances",
   requireRole(["HR_ADMIN", "HR_STAFF"]),

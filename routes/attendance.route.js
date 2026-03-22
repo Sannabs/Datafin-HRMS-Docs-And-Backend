@@ -17,7 +17,6 @@ import {
   manualClockOut,
   createOrUpdateEmployeeWorkConfig,
   getEmployeeWorkConfig,
-  getEmployeeWorkConfigs,
   createOrUpdateCompanyWorkDay,
   getCompanyWorkDay,
   getTenantAttendanceSettings,
@@ -26,6 +25,7 @@ import {
   updateTenantLocation,
   deleteTenantLocation,
   updateTenantAttendanceSettings,
+  createAttendance,
 } from "../controllers/attendance.controller.js";
 
 const router = express.Router();
@@ -57,7 +57,6 @@ router.post("/manual-clock-out/:attendanceId", requireRole(["HR_ADMIN", "HR_STAF
 // Employee Work Config (Admin/HR)
 router.post("/config/employee-work-day", requireRole(["HR_ADMIN", "HR_STAFF"]), createOrUpdateEmployeeWorkConfig);
 router.get("/config/employee-work-day/:userId", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeWorkConfig);
-router.get("/config/employee-work-days", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeWorkConfigs);
 
 // Company Work Day (Admin Only)
 router.post("/config/company-work-day", requireRole(["HR_ADMIN"]), createOrUpdateCompanyWorkDay);
@@ -72,5 +71,10 @@ router.get("/config/locations", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenant
 router.post("/config/locations", requireRole(["HR_ADMIN"]), createTenantLocation);
 router.patch("/config/locations/:id", requireRole(["HR_ADMIN"]), updateTenantLocation);
 router.delete("/config/locations/:id", requireRole(["HR_ADMIN"]), deleteTenantLocation);
+
+
+
+// Attendance (Admin Only)
+router.post("/manual-create", requireRole(["HR_ADMIN"]), createAttendance);
 
 export default router;

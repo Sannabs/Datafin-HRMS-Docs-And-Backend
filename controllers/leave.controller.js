@@ -2862,7 +2862,7 @@ export const adjustLeaveBalance = async (req, res) => {
       message: "Leave balance adjusted successfully",
       data: {
         ...updatedEntitlement,
-        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+        availableBalance: Math.max(0, availableBalance),
         adjustment: {
           previousAdjustmentDays: oldAdjustmentDays,
           adjustmentAmount: adjustmentDays,

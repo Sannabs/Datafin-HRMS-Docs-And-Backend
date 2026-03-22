@@ -6,6 +6,7 @@ import { getLocalIP } from "../utils/network.utils.js";
 import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job.js";
 import { testRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers } from "../workers/payroll.worker.js";
+import { startAllLeaveAutomationJobs } from "../automations/leave-accrual.job.js";
 
 
 // BullMQ is optional during development
@@ -46,6 +47,8 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
   // Start automation jobs
   try {
     await startAllAutomationJobs();
+    await startAllLeaveAutomationJobs();
+
   } catch (error) {
     logger.error(`Failed to start automation jobs: ${error.message}`, {
       error: error.stack,

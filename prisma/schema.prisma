@@ -929,6 +929,7 @@ enum ClockMethod {
   WIFI
   QR_CODE
   PHOTO
+  MANUAL
 }
 
 enum AttendanceStatus {
