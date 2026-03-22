@@ -2248,7 +2248,216 @@ export const deleteTenantLocation = async (req, res) => {
 export const createAttendance = async (req, res) => {
   try {
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-    const { userId, locationId, clockInTime, clockOutTime } = req.body
+    const { userId, locationId, clockInTime, clockOutTime, createdAt } =
+      req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required",
+        message: "User ID is required",
+      });
+    }
+
+    if (!locationId) {
+      return res.status(400).json({
+        success: false,
+        error: "Location ID is required",
+        message: "Location ID is required",
+      });
+    }
+
+    if (!createdAt) {
+      return res.status(400).json({
+        success: false,
+        error: "createdAt is required",
+        message: "createdAt is required",
+      });
+    }
+
+    if (!clockInTime) {
+      return res.status(400).json({
+        success: false,
+        error: "Clock in time is required",
+        message: "Clock in time is required",
+      });
+    }
+
+    const anchor = new Date(createdAt);
+    if (Number.isNaN(anchor.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid createdAt",
+        message: "createdAt must be a valid date",
+      });
+    }
+    const y = anchor.getUTCFullYear();
+    const mo = anchor.getUTCMonth();
+    const day = anchor.getUTCDate();
+    const dayStart = new Date(Date.UTC(y, mo, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(y, mo, day, 23, 59, 59, 999));
+
+    const clockIn = new Date(clockInTime);
+    if (Number.isNaN(clockIn.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid clockInTime",
+        message: "clockInTime must be a valid date/time",
+      });
+    }
+
+    let clockOut = null;
+    if (clockOutTime) {
+      clockOut = new Date(clockOutTime);
+      if (Number.isNaN(clockOut.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid clockOutTime",
+          message: "clockOutTime must be a valid date/time",
+        });
+      }
+      if (clockOut <= clockIn) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid clock-out time",
+          message: "Clock-out time must be after clock-in time",
+        });
+      }
+    }
+
+    const clockInDeviceInfo = req.headers["user-agent"] || null;
+    const clockInIpAddress =
+      req.ip ||
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.connection?.remoteAddress ||
+      null;
+
+    const employee = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        shift: true,
+        tenant: true,
+      },
+    });
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Employee not found",
+        message: "Employee not found",
+      });
+    }
+
+    if (employee.tenantId !== tenantId) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Employee does not belong to this tenant",
+      });
+    }
+
+    const status = employee.shift
+      ? determineAttendanceStatus(
+          clockIn,
+          employee.shift,
+          employee.tenant.gracePeriod
+        )
+      : "ON_TIME";
+
+    let totalHours = null;
+    let overtimeHours = 0;
+    if (clockOut) {
+      if (employee.shift) {
+        const hours = calculateHours(clockIn, clockOut, employee.shift);
+        totalHours = hours.totalHours;
+        overtimeHours = hours.overtimeHours;
+      } else {
+        const totalMilliseconds = clockOut - clockIn;
+        totalHours =
+          Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
+      }
+    }
+
+    const notes = "Manually clocked in by admin";
+
+    const existing = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        tenantId,
+        clockInTime: { gte: dayStart, lte: dayEnd },
+      },
+      orderBy: { clockInTime: "asc" },
+    });
+
+    const payload = {
+      locationId,
+      clockInTime: clockIn,
+      clockOutTime: clockOut,
+      status,
+      clockInMethod: "MANUAL",
+      clockInDeviceInfo,
+      clockInIpAddress,
+      totalHours,
+      overtimeHours,
+      notes,
+    };
+
+    let attendance;
+    let message;
+
+    if (existing) {
+      attendance = await prisma.attendance.update({
+        where: { id: existing.id },
+        data: payload,
+      });
+      message = "Attendance updated successfully";
+    } else {
+      attendance = await prisma.attendance.create({
+        data: {
+          userId,
+          tenantId,
+          ...payload,
+        },
+      });
+      message = "Attendance created successfully";
+    }
+
+    await recordRecentActivity(
+      tenantId,
+      req.user.id,
+      "clock_in",
+      `${message} (${clockIn.toISOString()})`
+    );
+
+    res.status(200).json({
+      success: true,
+      message,
+      data: attendance,
+    });
+  } catch (error) {
+    logger.error(`Error creating attendance: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to save attendance",
+    });
+  }
+};
+
+export const adminClockInToday = async (req, res) => {
+  try {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const userId = req.params.userId;
+    const { locationId, clockInTime } = req.body;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -2282,6 +2491,22 @@ export const createAttendance = async (req, res) => {
       });
     }
 
+    const clockIn = new Date(clockInTime);
+    if (Number.isNaN(clockIn.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid clockInTime",
+        message: "clockInTime must be a valid date/time",
+      });
+    }
+
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const mo = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const dayStart = new Date(Date.UTC(y, mo, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(y, mo, day, 23, 59, 59, 999));
+
     const clockInDeviceInfo = req.headers["user-agent"] || null;
     const clockInIpAddress =
       req.ip ||
@@ -2290,17 +2515,13 @@ export const createAttendance = async (req, res) => {
       null;
 
     const employee = await prisma.user.findUnique({
-      where: {
-        id: userId,
-      },
+      where: { id: userId },
       include: {
         shift: true,
-        employeeWorkConfig: true,
-        tenant: {
-          include: { companyWorkDay: true }
-        },
-      }
-    })
+        tenant: true,
+      },
+    });
+
     if (!employee) {
       return res.status(404).json({
         success: false,
@@ -2309,41 +2530,210 @@ export const createAttendance = async (req, res) => {
       });
     }
 
-    const status = determineAttendanceStatus(clockInTime, employee.shift, employee.tenant.gracePeriod);
+    if (employee.tenantId !== tenantId) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Employee does not belong to this tenant",
+      });
+    }
+
+    const existing = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        tenantId,
+        clockInTime: { gte: dayStart, lte: dayEnd },
+      },
+      orderBy: { clockInTime: "asc" },
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        error: "Attendance already exists",
+        message: "This employee already has attendance recorded for today",
+      });
+    }
+
+    const status = employee.shift
+      ? determineAttendanceStatus(
+          clockIn,
+          employee.shift,
+          employee.tenant.gracePeriod
+        )
+      : "ON_TIME";
 
     const attendance = await prisma.attendance.create({
       data: {
         userId,
         tenantId,
         locationId,
-        clockInTime,
-        clockOutTime: clockOutTime ? clockOutTime : null,
+        clockInTime: clockIn,
+        clockOutTime: null,
         status,
         clockInMethod: "MANUAL",
         clockInDeviceInfo,
         clockInIpAddress,
-        notes: "Manually clocked in by admin",
-      }
-    })
+        totalHours: null,
+        overtimeHours: 0,
+        notes: "Manually clocked in by admin (today)",
+      },
+    });
 
+    await recordRecentActivity(
+      tenantId,
+      req.user.id,
+      "clock_in",
+      `Admin clock-in today for user ${userId} at ${clockIn.toISOString()}`
+    );
 
-    await recordRecentActivity(tenantId, req.user.id, "clock_in", `Clocked in at ${clockInTime}`);
-
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Attendance Created successfully",
+      message: "Attendance recorded for today",
       data: attendance,
-    })
-
+    });
   } catch (error) {
-    logger.error(`Error creating attendance: ${error.message}`, {
+    logger.error(`Error in adminClockInToday: ${error.message}`, {
       stack: error.stack,
     });
     return res.status(500).json({
       success: false,
       error: "Internal Server Error",
-      message: "Failed to create attendance",
+      message: "Failed to record attendance",
     });
   }
-}
+};
+
+export const adminClockOutToday = async (req, res) => {
+  try {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const userId = req.params.userId;
+    const { clockOutTime } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required",
+        message: "User ID is required",
+      });
+    }
+
+    if (!clockOutTime) {
+      return res.status(400).json({
+        success: false,
+        error: "Clock out time is required",
+        message: "Clock out time is required",
+      });
+    }
+
+    const outTime = new Date(clockOutTime);
+    if (Number.isNaN(outTime.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid clockOutTime",
+        message: "clockOutTime must be a valid date/time",
+      });
+    }
+
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const mo = now.getUTCMonth();
+    const day = now.getUTCDate();
+    const dayStart = new Date(Date.UTC(y, mo, day, 0, 0, 0, 0));
+    const dayEnd = new Date(Date.UTC(y, mo, day, 23, 59, 59, 999));
+
+    const attendance = await prisma.attendance.findFirst({
+      where: {
+        userId,
+        tenantId,
+        clockInTime: { gte: dayStart, lte: dayEnd },
+      },
+      orderBy: { clockInTime: "asc" },
+      include: {
+        user: {
+          include: {
+            shift: true,
+          },
+        },
+      },
+    });
+
+    if (!attendance) {
+      return res.status(404).json({
+        success: false,
+        error: "Attendance not found",
+        message: "No clock-in for this employee today; clock-in before clock-out",
+      });
+    }
+
+    if (attendance.clockOutTime) {
+      return res.status(400).json({
+        success: false,
+        error: "Already clocked out",
+        message: "This employee is already clocked out for today",
+      });
+    }
+
+    if (outTime <= attendance.clockInTime) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid clock-out time",
+        message: "Clock-out time must be after clock-in time",
+      });
+    }
+
+    let totalHours = null;
+    let overtimeHours = 0;
+    if (attendance.user.shift) {
+      const hours = calculateHours(
+        attendance.clockInTime,
+        outTime,
+        attendance.user.shift
+      );
+      totalHours = hours.totalHours;
+      overtimeHours = hours.overtimeHours;
+    } else {
+      const totalMilliseconds = outTime - attendance.clockInTime;
+      totalHours =
+        Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
+    }
+
+    const notes = attendance.notes
+      ? `${attendance.notes} | Manually clocked out by admin (today)`
+      : "Manually clocked out by admin (today)";
+
+    const updatedAttendance = await prisma.attendance.update({
+      where: { id: attendance.id },
+      data: {
+        clockOutTime: outTime,
+        clockOutMethod: "MANUAL",
+        totalHours,
+        overtimeHours,
+        notes,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Employee clocked out successfully",
+      data: updatedAttendance,
+    });
+  } catch (error) {
+    logger.error(`Error in adminClockOutToday: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to clock out employee",
+    });
+  }
+};
