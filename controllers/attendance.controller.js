@@ -919,14 +919,9 @@ export const getAttendanceHistory = async (req, res) => {
     // Filters
     const {
       status,
-      clockInMethod,
-      clockOutMethod,
+      method,
       userId,
-      startDate,
-      endDate,
       search,
-      sortBy,
-      sortOrder,
     } = req.query;
 
     // Build where clause
@@ -947,42 +942,17 @@ export const getAttendanceHistory = async (req, res) => {
       }
     }
 
-    // Filter by clock in method
-    if (clockInMethod) {
-      const validMethods = ["GPS", "WIFI", "QR CODE", "PHOTO"];
-      if (validMethods.includes(clockInMethod.toUpperCase())) {
-        where.clockInMethod = clockInMethod.toUpperCase();
+    if (method) {
+      const m = String(method).toUpperCase().replace(/\s+/g, "_");
+      const validMethods = ["GPS", "WIFI", "QR_CODE", "PHOTO", "MANUAL"];
+      if (validMethods.includes(m)) {
+        where.clockInMethod = m;
       }
     }
 
-    // Filter by clock out method
-    if (clockOutMethod) {
-      const validMethods = ["GPS", "WIFI", "QR CODE", "PHOTO"];
-      if (validMethods.includes(clockOutMethod.toUpperCase())) {
-        where.clockOutMethod = clockOutMethod.toUpperCase();
-      }
-    }
-
-    // Date range filtering
-    if (startDate || endDate) {
-      where.clockInTime = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        where.clockInTime.gte = start;
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        where.clockInTime.lte = end;
-      }
-    }
-
-    // Search functionality
     if (search) {
       const searchTerm = search.trim();
       where.OR = [
-        { status: { contains: searchTerm, mode: "insensitive" } },
         {
           user: {
             OR: [
@@ -1000,27 +970,13 @@ export const getAttendanceHistory = async (req, res) => {
       ];
     }
 
-    // Sorting
-    const validSortFields = [
-      "clockInTime",
-      "clockOutTime",
-      "status",
-      "createdAt",
-    ];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : "clockInTime";
-    const order = sortOrder?.toLowerCase() === "asc" ? "asc" : "desc";
 
-    const orderBy = {
-      [sortField]: order,
-    };
-
-    // Execute queries
     const [attendance, total] = await Promise.all([
       prisma.attendance.findMany({
         where,
         skip,
         take: limit,
-        orderBy,
+        orderBy: { createdAt: "desc" },
         include: {
           user: {
             select: {
@@ -2365,10 +2321,10 @@ export const createAttendance = async (req, res) => {
 
     const status = employee.shift
       ? determineAttendanceStatus(
-          clockIn,
-          employee.shift,
-          employee.tenant.gracePeriod
-        )
+        clockIn,
+        employee.shift,
+        employee.tenant.gracePeriod
+      )
       : "ON_TIME";
 
     let totalHours = null;
@@ -2557,10 +2513,10 @@ export const adminClockInToday = async (req, res) => {
 
     const status = employee.shift
       ? determineAttendanceStatus(
-          clockIn,
-          employee.shift,
-          employee.tenant.gracePeriod
-        )
+        clockIn,
+        employee.shift,
+        employee.tenant.gracePeriod
+      )
       : "ON_TIME";
 
     const attendance = await prisma.attendance.create({
@@ -2862,10 +2818,10 @@ export const adminUpdateAttendanceRecord = async (req, res) => {
     if (timesChanged) {
       status = shift
         ? determineAttendanceStatus(
-            nextClockIn,
-            shift,
-            tenantUser.gracePeriod
-          )
+          nextClockIn,
+          shift,
+          tenantUser.gracePeriod
+        )
         : "ON_TIME";
       if (nextClockOut) {
         if (shift) {
