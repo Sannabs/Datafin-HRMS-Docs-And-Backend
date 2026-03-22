@@ -28,6 +28,7 @@ import {
   createAttendance,
   adminClockInToday,
   adminClockOutToday,
+  adminUpdateAttendanceRecord,
 } from "../controllers/attendance.controller.js";
 
 const router = express.Router();
@@ -76,7 +77,7 @@ router.delete("/config/locations/:id", requireRole(["HR_ADMIN"]), deleteTenantLo
 
 
 
-// Attendance (Admin Only)
+// Manual attendance (admin)
 router.post("/manual-create", requireRole(["HR_ADMIN"]), createAttendance);
 router.post(
   "/manual-today/:userId/clock-in",
@@ -87,6 +88,11 @@ router.post(
   "/manual-today/:userId/clock-out",
   requireRole(["HR_ADMIN", "HR_STAFF"]),
   adminClockOutToday
+);
+router.patch(
+  "/manual/update/:attendanceId",
+  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  adminUpdateAttendanceRecord
 );
 
 export default router;

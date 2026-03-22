@@ -2737,3 +2737,185 @@ export const adminClockOutToday = async (req, res) => {
     });
   }
 };
+
+export const adminUpdateAttendanceRecord = async (req, res) => {
+  try {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const attendanceId = req.params.attendanceId;
+    const { clockInTime, clockOutTime, locationId } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!attendanceId) {
+      return res.status(400).json({
+        success: false,
+        error: "Attendance ID is required",
+        message: "Attendance ID is required",
+      });
+    }
+
+    const hasClockIn = clockInTime !== undefined;
+    const hasClockOut = clockOutTime !== undefined;
+    const hasLocation = locationId !== undefined;
+
+    if (!hasClockIn && !hasClockOut && !hasLocation) {
+      return res.status(400).json({
+        success: false,
+        error: "No fields to update",
+        message:
+          "Provide at least one of clockInTime, clockOutTime, or locationId",
+      });
+    }
+
+    const existing = await prisma.attendance.findFirst({
+      where: { id: attendanceId, tenantId },
+      include: {
+        user: {
+          include: {
+            shift: true,
+            tenant: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Attendance not found",
+        message:
+          "Attendance record not found or does not belong to this tenant",
+      });
+    }
+
+    let nextClockIn = existing.clockInTime;
+    if (hasClockIn) {
+      const parsed = new Date(clockInTime);
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid clockInTime",
+          message: "clockInTime must be a valid date/time",
+        });
+      }
+      nextClockIn = parsed;
+    }
+
+    let nextClockOut = existing.clockOutTime;
+    if (hasClockOut) {
+      if (clockOutTime === null || clockOutTime === "") {
+        nextClockOut = null;
+      } else {
+        const parsed = new Date(clockOutTime);
+        if (Number.isNaN(parsed.getTime())) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid clockOutTime",
+            message: "clockOutTime must be a valid date/time",
+          });
+        }
+        nextClockOut = parsed;
+      }
+    }
+
+    if (nextClockOut && nextClockOut <= nextClockIn) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid times",
+        message: "Clock-out time must be after clock-in time",
+      });
+    }
+
+    let nextLocationId = existing.locationId;
+    if (hasLocation) {
+      if (locationId === null || locationId === "" || locationId === "none") {
+        nextLocationId = null;
+      } else {
+        const loc = await prisma.location.findFirst({
+          where: { id: locationId, tenantId },
+        });
+        if (!loc) {
+          return res.status(400).json({
+            success: false,
+            error: "Invalid location",
+            message: "Location not found for this tenant",
+          });
+        }
+        nextLocationId = locationId;
+      }
+    }
+
+    const shift = existing.user.shift;
+    const tenantUser = existing.user.tenant;
+    const timesChanged = hasClockIn || hasClockOut;
+
+    let status = existing.status;
+    let totalHours = existing.totalHours;
+    let overtimeHours = existing.overtimeHours ?? 0;
+
+    if (timesChanged) {
+      status = shift
+        ? determineAttendanceStatus(
+            nextClockIn,
+            shift,
+            tenantUser.gracePeriod
+          )
+        : "ON_TIME";
+      if (nextClockOut) {
+        if (shift) {
+          const hours = calculateHours(nextClockIn, nextClockOut, shift);
+          totalHours = hours.totalHours;
+          overtimeHours = hours.overtimeHours;
+        } else {
+          const totalMilliseconds = nextClockOut - nextClockIn;
+          totalHours =
+            Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
+          overtimeHours = 0;
+        }
+      } else {
+        totalHours = null;
+        overtimeHours = 0;
+      }
+    }
+
+    const updatedAttendance = await prisma.attendance.update({
+      where: { id: attendanceId },
+      data: {
+        clockInTime: nextClockIn,
+        clockOutTime: nextClockOut,
+        locationId: nextLocationId,
+        status,
+        totalHours,
+        overtimeHours,
+      },
+    });
+
+    await recordRecentActivity(
+      tenantId,
+      req.user.id,
+      "attendance",
+      `Admin updated attendance record ${attendanceId}`
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Attendance record updated successfully",
+      data: updatedAttendance,
+    });
+  } catch (error) {
+    logger.error(`Error in adminUpdateAttendanceRecord: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update attendance record",
+    });
+  }
+};
