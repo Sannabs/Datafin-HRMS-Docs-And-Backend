@@ -260,7 +260,10 @@ export const getBatchJobRows = async (req, res) => {
     try {
         const tenantId = tenantIdFromReq(req);
         const { id } = req.params;
-        const job = await prisma.batchJob.findFirst({ where: { id, tenantId }, select: { id: true } });
+        const job = await prisma.batchJob.findFirst({
+            where: { id, tenantId },
+            select: { id: true, type: true },
+        });
         if (!job) {
             return res.status(404).json({ success: false, message: "Batch job not found" });
         }
@@ -291,6 +294,71 @@ export const getBatchJobRows = async (req, res) => {
             }),
             prisma.batchJobRow.count({ where }),
         ]);
+
+        const wantsUserEnrichment =
+            job.type === "ALLOWANCE_ALLOCATION" ||
+            job.type === "DEDUCTION_ALLOCATION" ||
+            job.type === "BULK_UPDATE" ||
+            job.type === "EMPLOYEE_CREATION"
+
+        if (wantsUserEnrichment && rows.length > 0) {
+            const userIdCandidates = new Set();
+
+            for (const r of rows) {
+                const payload = r.rawPayload && typeof r.rawPayload === "object" ? r.rawPayload : {};
+
+                // For allocation batches, we receive `userId` in rawPayload.
+                const allocationUserId =
+                    payload.userId ?? payload.userid ?? payload.user_id;
+
+                const fallbackUserId = r.resultEntityId ?? null;
+
+                if (job.type === "ALLOWANCE_ALLOCATION" || job.type === "DEDUCTION_ALLOCATION") {
+                    if (allocationUserId) userIdCandidates.add(String(allocationUserId));
+                } else {
+                    if (fallbackUserId) userIdCandidates.add(String(fallbackUserId));
+                }
+            }
+
+            const userIds = Array.from(userIdCandidates);
+            if (userIds.length > 0) {
+                const users = await prisma.user.findMany({
+                    where: {
+                        id: { in: userIds },
+                        tenantId,
+                        isDeleted: false,
+                    },
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        image: true,
+                        department: { select: { name: true } },
+                    },
+                });
+
+                const userById = new Map(users.map((u) => [u.id, u]));
+
+                for (const r of rows) {
+                    const payload = r.rawPayload && typeof r.rawPayload === "object" ? r.rawPayload : {};
+                    const lookupId =
+                        job.type === "ALLOWANCE_ALLOCATION" || job.type === "DEDUCTION_ALLOCATION"
+                            ? payload.userId ?? payload.userid ?? payload.user_id
+                            : r.resultEntityId ?? null;
+
+                    const u = lookupId ? userById.get(String(lookupId)) : undefined;
+                    if (!u) continue;
+
+                    r.rawPayload = {
+                        ...payload,
+                        name: payload.name ?? u.name ?? u.email,
+                        email: payload.email ?? u.email,
+                        department_name: payload.department_name ?? u.department?.name ?? "",
+                        image: payload.image ?? u.image ?? null,
+                    };
+                }
+            }
+        }
 
         return res.json({
             success: true,
