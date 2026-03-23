@@ -987,8 +987,17 @@ export const getAttendanceHistory = async (req, res) => {
             select: {
               id: true,
               name: true,
+              image: true,
               email: true,
               employeeId: true,
+              shift: {
+                select: {
+                  id: true,
+                  name: true,
+                  startTime: true,
+                  endTime: true,
+                },
+              },
             },
           },
           location: {
