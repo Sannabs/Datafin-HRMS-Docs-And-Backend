@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import { findDepartmentIdByName, findPositionIdByTitle, orgMapKey } from "./batch-org.service.js";
+import { parseFlexibleDate } from "../utils/date-parser.js";
 
 function pick(payload, ...keys) {
     for (const k of keys) {
@@ -60,6 +61,9 @@ function mapEmployeeCreationError(message, payload) {
     if (m.includes("salary period type")) {
         return { field: "salary_period_type", value: fieldValue(payload, "salary_period_type", "salaryPeriodType") };
     }
+    if (m === "Invalid date of birth") {
+        return { field: "date_of_birth", value: fieldValue(payload, "date_of_birth", "dateOfBirth") };
+    }
     if (m.includes("Only HR users")) {
         return { field: "authorization", value: "" };
     }
@@ -100,6 +104,9 @@ function mapInvitationError(message, payload) {
     if (m.includes("salary period type")) {
         return { field: "salary_period_type", value: fieldValue(payload, "salary_period_type", "salaryPeriodType") };
     }
+    if (m === "Invalid date of birth") {
+        return { field: "date_of_birth", value: fieldValue(payload, "date_of_birth", "dateOfBirth") };
+    }
     if (m.includes("already exists") || m.includes("pending invitation")) {
         return { field: "email", value: fieldValue(payload, "email", "Email") };
     }
@@ -121,6 +128,12 @@ function buildValidationMeta(field, message) {
         return {
             code: "INVALID_EMAIL_FORMAT",
             hint: "Use a valid email format like name@example.com.",
+        };
+    }
+    if (m.includes("date of birth")) {
+        return {
+            code: "INVALID_DATE_OF_BIRTH",
+            hint: "Use YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or month-name formats like Sep 2, 2024.",
         };
     }
     if (m.includes("already exists")) {
@@ -261,6 +274,7 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                 const employmentType = pick(payload, "employment_type", "employmentType");
                 const salaryPeriodType = pick(payload, "salary_period_type", "salaryPeriodType");
                 const baseSalary = pick(payload, "base_salary", "baseSalary");
+                const dateOfBirth = pick(payload, "date_of_birth", "dateOfBirth");
                 const departmentName = pick(payload, "department", "department_name", "departmentName");
                 const positionTitle = pick(payload, "position", "position_title", "positionTitle");
 
@@ -322,6 +336,18 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                         salaryPeriodType
                     );
                 }
+                if (dateOfBirth) {
+                    const dob = parseFlexibleDate(dateOfBirth);
+                    if (!dob) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "date_of_birth",
+                            "Invalid date of birth",
+                            dateOfBirth
+                        );
+                    }
+                }
 
                 await resolveDeptPosIds(
                     tenantId,
@@ -363,6 +389,7 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                 const employmentType = pick(payload, "employment_type", "employmentType");
                 const salaryPeriodType = pick(payload, "salary_period_type", "salaryPeriodType");
                 const baseSalary = pick(payload, "base_salary", "baseSalary");
+                const dateOfBirth = pick(payload, "date_of_birth", "dateOfBirth");
                 const departmentName = pick(payload, "department", "department_name", "departmentName");
                 const positionTitle = pick(payload, "position", "position_title", "positionTitle");
                 const { departmentId, positionId } = await resolveDeptPosIds(
@@ -461,6 +488,18 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                         salaryPeriodType
                     );
                 }
+                if (dateOfBirth) {
+                    const dob = parseFlexibleDate(dateOfBirth);
+                    if (!dob) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "date_of_birth",
+                            "Invalid date of birth",
+                            dateOfBirth
+                        );
+                    }
+                }
 
                 if (email) {
                     const [existingUser, pendingInvite] = await Promise.all([
@@ -547,6 +586,23 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                     if (!allowed.includes(st)) {
                         const message = "Invalid employment_status";
                         pushValidationError(rowErrors, rn, "employment_status", message, value);
+                    }
+                } else if (field === "hire_date" || field === "hiredate") {
+                    const hd = parseFlexibleDate(value);
+                    if (!hd) {
+                        const message = "Invalid hire_date";
+                        pushValidationError(rowErrors, rn, "hire_date", message, value);
+                    }
+                } else if (field === "date_of_birth" || field === "dateofbirth") {
+                    const dob = parseFlexibleDate(value);
+                    if (!dob) {
+                        const message = "Invalid date_of_birth";
+                        pushValidationError(rowErrors, rn, "date_of_birth", message, value);
+                    }
+                } else if (field === "name") {
+                    if (!value) {
+                        const message = "Name is required";
+                        pushValidationError(rowErrors, rn, "name", message, value);
                     }
                 } else if (
                     fieldRaw &&

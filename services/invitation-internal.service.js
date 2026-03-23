@@ -2,6 +2,7 @@ import crypto from "crypto";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { sendInvitationEmail } from "../views/sendInvitationEmail.js";
+import { parseFlexibleDate } from "../utils/date-parser.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
@@ -18,10 +19,13 @@ export async function validateInvitationPayload({ tenantId, senderRole, body }) 
         role,
         departmentId,
         positionId,
+        dateOfBirth,
+        hireDate,
         employmentStatus,
         employmentType,
         baseSalary,
         salaryPeriodType,
+        salaryEffectiveDate,
     } = body || {};
 
     if (!email) {
@@ -106,6 +110,24 @@ export async function validateInvitationPayload({ tenantId, senderRole, body }) 
             return { ok: false, message: "salary period type must be MONTHLY or ANNUAL" };
         }
     }
+    if (dateOfBirth != null && String(dateOfBirth).trim() !== "") {
+        const dob = parseFlexibleDate(dateOfBirth);
+        if (!dob) {
+            return { ok: false, message: "Invalid date of birth" };
+        }
+    }
+    if (hireDate != null && String(hireDate).trim() !== "") {
+        const hd = parseFlexibleDate(hireDate);
+        if (!hd) {
+            return { ok: false, message: "Invalid hire date" };
+        }
+    }
+    if (salaryEffectiveDate != null && String(salaryEffectiveDate).trim() !== "") {
+        const sd = parseFlexibleDate(salaryEffectiveDate);
+        if (!sd) {
+            return { ok: false, message: "Invalid salary effective date" };
+        }
+    }
 
     const existingUser = await prisma.user.findFirst({
         where: { email, tenantId, isDeleted: false },
@@ -142,6 +164,7 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
         role,
         departmentId,
         positionId,
+        dateOfBirth,
         hireDate,
         employmentStatus,
         employmentType,
@@ -171,8 +194,9 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
     const token = crypto.randomBytes(32).toString("base64url");
     const expiryDate = new Date(Date.now() + 1000 * 60 * 60 * 48);
 
-    const hireDateParsed = hireDate ? new Date(hireDate) : null;
-    const salaryEffectiveDateParsed = salaryEffectiveDate ? new Date(salaryEffectiveDate) : null;
+    const dateOfBirthParsed = dateOfBirth ? parseFlexibleDate(dateOfBirth) : null;
+    const hireDateParsed = hireDate ? parseFlexibleDate(hireDate) : null;
+    const salaryEffectiveDateParsed = salaryEffectiveDate ? parseFlexibleDate(salaryEffectiveDate) : null;
     const baseSalaryNum =
         baseSalary != null && baseSalary !== "" ? Number(baseSalary) : null;
     const salaryCurrencyVal =
@@ -190,6 +214,7 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
             positionId: positionId || null,
             token,
             expiresAt: expiryDate,
+            dateOfBirth: dateOfBirthParsed,
             hireDate: hireDateParsed,
             employmentStatus:
                 employmentStatus != null && employmentStatus !== "" ? employmentStatus : null,

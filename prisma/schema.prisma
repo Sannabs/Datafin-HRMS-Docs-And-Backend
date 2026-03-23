@@ -72,6 +72,7 @@ model Invitation {
   expiresAt           DateTime
   role                UserRole          @default(STAFF)
   // User fields (applied on accept)
+  dateOfBirth         DateTime?
   hireDate            DateTime?
   employmentStatus    EmployeeStatus?
   employmentType      EmploymentType?

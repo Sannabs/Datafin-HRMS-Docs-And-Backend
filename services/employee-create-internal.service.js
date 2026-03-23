@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
+import { parseFlexibleDate } from "../utils/date-parser.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
@@ -18,10 +19,13 @@ export async function validateEmployeeCreationPayload({ tenantId, actorRole, bod
         role,
         departmentId,
         positionId,
+        dateOfBirth,
         employmentStatus,
         employmentType,
+        hireDate,
         baseSalary,
         salaryPeriodType,
+        salaryEffectiveDate,
     } = body || {};
 
     const allowedRoles = ["HR_ADMIN", "HR_STAFF"];
@@ -102,6 +106,25 @@ export async function validateEmployeeCreationPayload({ tenantId, actorRole, bod
         }
     }
 
+    if (dateOfBirth != null && String(dateOfBirth).trim() !== "") {
+        const dob = parseFlexibleDate(dateOfBirth);
+        if (!dob) {
+            return { ok: false, message: "Invalid date of birth" };
+        }
+    }
+    if (hireDate != null && String(hireDate).trim() !== "") {
+        const hd = parseFlexibleDate(hireDate);
+        if (!hd) {
+            return { ok: false, message: "Invalid hire date" };
+        }
+    }
+    if (salaryEffectiveDate != null && String(salaryEffectiveDate).trim() !== "") {
+        const sd = parseFlexibleDate(salaryEffectiveDate);
+        if (!sd) {
+            return { ok: false, message: "Invalid salary effective date" };
+        }
+    }
+
     const existingUser = await prisma.user.findFirst({
         where: { email, tenantId, isDeleted: false },
     });
@@ -135,6 +158,7 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
         role,
         departmentId,
         positionId,
+        dateOfBirth,
         employmentStatus,
         employmentType,
         hireDate,
@@ -162,8 +186,9 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
             ? String(salaryCurrency).trim()
             : "USD";
 
-    const hireDateParsed = hireDate ? new Date(hireDate) : null;
-    const salaryEffectiveDateParsed = salaryEffectiveDate ? new Date(salaryEffectiveDate) : null;
+    const hireDateParsed = hireDate ? parseFlexibleDate(hireDate) : null;
+    const dateOfBirthParsed = dateOfBirth ? parseFlexibleDate(dateOfBirth) : null;
+    const salaryEffectiveDateParsed = salaryEffectiveDate ? parseFlexibleDate(salaryEffectiveDate) : null;
 
     const baseSalaryNum = Number(baseSalary);
 
@@ -192,6 +217,7 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
             employeeId: employeeIdStr,
             departmentId: departmentId || null,
             positionId: positionId || null,
+            dateOfBirth: dateOfBirthParsed,
             status: employmentStatus || "ACTIVE",
             employmentType: employmentType || "FULL_TIME",
             hireDate: hireDateParsed,

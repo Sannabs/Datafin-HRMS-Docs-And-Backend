@@ -8,6 +8,7 @@ import {
     upsertAllowanceLineOnStructure,
     upsertDeductionLineOnStructure,
 } from "./batch-salary-line.service.js";
+import { parseFlexibleDate } from "../utils/date-parser.js";
 
 function pick(row, ...keys) {
     for (const k of keys) {
@@ -106,6 +107,7 @@ export async function processBatchJobById(batchJobId) {
                             role: upperEnum(pick(payload, "role"), "STAFF"),
                             departmentId,
                             positionId,
+                            dateOfBirth: pick(payload, "date_of_birth", "dateOfBirth") || undefined,
                             employmentStatus: pick(payload, "employment_status", "employmentStatus") || undefined,
                             employmentType: pick(payload, "employment_type", "employmentType") || undefined,
                             hireDate: pick(payload, "hire_date", "hireDate") || undefined,
@@ -145,6 +147,7 @@ export async function processBatchJobById(batchJobId) {
                             role: upperEnum(pick(payload, "role"), "STAFF"),
                             departmentId,
                             positionId,
+                            dateOfBirth: pick(payload, "date_of_birth", "dateOfBirth") || undefined,
                             hireDate: pick(payload, "hire_date", "hireDate") || undefined,
                             employmentStatus: pick(payload, "employment_status", "employmentStatus") || undefined,
                             employmentType: pick(payload, "employment_type", "employmentType") || undefined,
@@ -270,6 +273,22 @@ export async function processBatchJobById(batchJobId) {
                         const data = {};
                         if (field === "phone") data.phone = value || null;
                         else if (field === "address") data.address = value || null;
+                        else if (field === "name") data.name = value || null;
+                        else if (field === "hire_date" || field === "hiredate") {
+                            const hd = parseFlexibleDate(value);
+                            if (!hd) {
+                                errMsg = "Invalid hire_date";
+                                break;
+                            }
+                            data.hireDate = hd;
+                        } else if (field === "date_of_birth" || field === "dateofbirth") {
+                            const dob = parseFlexibleDate(value);
+                            if (!dob) {
+                                errMsg = "Invalid date_of_birth";
+                                break;
+                            }
+                            data.dateOfBirth = dob;
+                        }
                         else if (field === "employment_type") {
                             const et = upperEnum(value, "");
                             const allowed = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
