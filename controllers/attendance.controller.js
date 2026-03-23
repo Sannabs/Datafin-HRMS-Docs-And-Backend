@@ -922,6 +922,7 @@ export const getAttendanceHistory = async (req, res) => {
       method,
       userId,
       search,
+      locationId,
     } = req.query;
 
     // Build where clause
@@ -948,6 +949,10 @@ export const getAttendanceHistory = async (req, res) => {
       if (validMethods.includes(m)) {
         where.clockInMethod = m;
       }
+    }
+
+    if (locationId) {
+      where.locationId = locationId;
     }
 
     if (search) {

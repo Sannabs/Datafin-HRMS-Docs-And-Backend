@@ -28,6 +28,7 @@ import leaveRoutes from "./routes/leave.route.js";
 import departmentRoutes from "./routes/department.route.js";
 import positionRoutes from "./routes/position.route.js";
 import tenantRoutes from "./routes/tenant.route.js";
+import shiftRoutes from "./routes/shift.route.js";
 dotenv.config();
 
 // BullMQ is optional during development
@@ -92,6 +93,7 @@ app.use("/api/recent-activities", recentActivitiesRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/positions", positionRoutes);
 app.use("/api/tenant", tenantRoutes);
+app.use("/api/shifts", shiftRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
 app.use("/api/super-admin", superAdminRoutes);
