@@ -25,15 +25,23 @@ export const listShifts = async (req, res) => {
       where.isActive = isActive === "true";
     }
 
-    const shifts = await prisma.shift.findMany({
+    const rows = await prisma.shift.findMany({
       where,
       orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      include: {
+        _count: { select: { users: true } },
+      },
     });
+
+    const data = rows.map(({ _count, ...shift }) => ({
+      ...shift,
+      assignedCount: _count.users,
+    }));
 
     return res.status(200).json({
       success: true,
-      data: shifts,
-      count: shifts.length,
+      data,
+      count: data.length,
     });
   } catch (error) {
     logger.error(`listShifts: ${error.message}`, { stack: error.stack });
@@ -193,13 +201,19 @@ export const deleteShift = async (req, res) => {
       });
     }
 
-    await prisma.$transaction([
-      prisma.user.updateMany({
-        where: { shiftId: id },
-        data: { shiftId: null },
-      }),
-      prisma.shift.delete({ where: { id } }),
-    ]);
+    const assigned = await prisma.user.count({
+      where: { shiftId: id },
+    });
+
+    if (assigned > 0) {
+      return res.status(409).json({
+        success: false,
+        error: "Conflict",
+        message: `Cannot delete: ${assigned} employee(s) are assigned to this shift. Reassign them first.`,
+      });
+    }
+
+    await prisma.shift.delete({ where: { id } });
 
     logger.info(`Deleted shift ${id}`);
     return res.status(200).json({
