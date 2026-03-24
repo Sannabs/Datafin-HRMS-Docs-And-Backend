@@ -859,13 +859,11 @@ export const getSessions = async (req, res) => {
             from,
             to,
             search,
-            page = 1,
-            limit = 20,
         } = req.query;
 
-        const pageNum = Math.max(1, parseInt(page));
-        const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-        const skip = (pageNum - 1) * limitNum;
+        const page = Math.max(1, parseInt(req.query.page || 1));
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || 10)));
+        const skip = (page - 1) * limit;
 
         const validStatuses = ["IN_PROGRESS", "COMPLETED", "INCOMPLETE", "MISSED"];
         if (status && !validStatuses.includes(status)) {
@@ -922,7 +920,7 @@ export const getSessions = async (req, res) => {
                 },
                 orderBy: { slotStart: "desc" },
                 skip,
-                take: limitNum,
+                take: limit,
             }),
             prisma.patrolSession.count({ where }),
         ]);
@@ -932,11 +930,11 @@ export const getSessions = async (req, res) => {
             data: sessions,
             pagination: {
                 total,
-                page: pageNum,
-                limit: limitNum,
-                hasNextPage: pageNum < totalPages,
-                hasPreviousPage: pageNum > 1,
-                totalPages: Math.ceil(total / limitNum),
+                page: page,
+                limit: limit,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+                totalPages: Math.ceil(total / limit),
             },
         });
     } catch (error) {
