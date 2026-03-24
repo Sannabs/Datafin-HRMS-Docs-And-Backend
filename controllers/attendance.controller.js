@@ -104,7 +104,7 @@ export const clockInGPS = async (req, res) => {
     const attendanceStatus = determineAttendanceStatus(
       now,
       employee.shift,
-      employee.tenant.gracePeriod
+      employee.tenant.gracePeriodMinutes ?? 5
     );
 
     // Handle photo upload if required or provided
@@ -242,7 +242,7 @@ export const clockInWiFi = async (req, res) => {
     const attendanceStatus = determineAttendanceStatus(
       now,
       employee.shift,
-      employee.tenant.gracePeriod
+      employee.tenant.gracePeriodMinutes ?? 5
     );
 
     // Handle photo upload if required or provided
@@ -408,7 +408,7 @@ export const clockInQRCode = async (req, res) => {
     const attendanceStatus = determineAttendanceStatus(
       now,
       employee.shift,
-      employee.tenant.gracePeriod
+      employee.tenant.gracePeriodMinutes ?? 5
     );
 
     // Handle photo upload if required or provided
@@ -2333,11 +2333,13 @@ export const createAttendance = async (req, res) => {
       });
     }
 
+    // Late/on-time/early uses clockIn only: shift start is parsed on the same
+    // calendar day as clockIn (see parseTime in attendance.util.js), not createdAt.
     const status = employee.shift
       ? determineAttendanceStatus(
         clockIn,
         employee.shift,
-        employee.tenant.gracePeriod
+        employee.tenant.gracePeriodMinutes ?? 5
       )
       : "ON_TIME";
 
@@ -2525,11 +2527,12 @@ export const adminClockInToday = async (req, res) => {
       });
     }
 
+    // Shift start anchored to clockIn's calendar day (parseTime in attendance.util.js).
     const status = employee.shift
       ? determineAttendanceStatus(
         clockIn,
         employee.shift,
-        employee.tenant.gracePeriod
+        employee.tenant.gracePeriodMinutes ?? 5
       )
       : "ON_TIME";
 
@@ -2830,11 +2833,12 @@ export const adminUpdateAttendanceRecord = async (req, res) => {
     let overtimeHours = existing.overtimeHours ?? 0;
 
     if (timesChanged) {
+      // Same rule as manual create: status from nextClockIn vs shift start on that clock-in day.
       status = shift
         ? determineAttendanceStatus(
           nextClockIn,
           shift,
-          tenantUser.gracePeriod
+          tenantUser.gracePeriodMinutes ?? 5
         )
         : "ON_TIME";
       if (nextClockOut) {

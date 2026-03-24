@@ -85,32 +85,44 @@ export const withInLocationRange = (
 };
 
 // Attendance Status determinant
-export const determineAttendanceStatus = (clockInTime, shift, gracePeriod) => {
-  const shiftStart = parseTime(shift.startTime);
+// gracePeriodMinutes: minutes after shift start still counted as on-time (from tenant)
+export const determineAttendanceStatus = (
+  clockInTime,
+  shift,
+  gracePeriodMinutes
+) => {
+  const gp =
+    gracePeriodMinutes == null || Number.isNaN(Number(gracePeriodMinutes))
+      ? 5
+      : Number(gracePeriodMinutes);
+  const shiftStart = parseTime(shift.startTime, clockInTime);
   const diffMinutes = (clockInTime - shiftStart) / 60000;
 
   if (diffMinutes < -15) {
     return "EARLY";
   }
 
-  if (diffMinutes <= gracePeriod) {
+  if (diffMinutes <= gp) {
     return "ON_TIME";
   }
 
   return "LATE";
 };
 
-// helper function to parse time string to Date object
-function parseTime(timeStr) {
+/**
+ * Parse "HH:mm" onto the calendar day of referenceDate (same instant's local date).
+ * Used so shift start/end align with the clock-in/out day, not "today" on the server.
+ */
+export function parseTime(timeStr, referenceDate = new Date()) {
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const now = new Date();
-  now.setHours(hours, minutes, 0, 0);
-  return now;
+  const d = new Date(referenceDate);
+  d.setHours(hours, minutes, 0, 0);
+  return d;
 }
 
 // function to determine if the employee is within the clock-in window
 export const ClockInWindow = (shift, earlyClockInMinutes, currentTime) => {
-  const shiftStart = parseTime(shift.startTime);
+  const shiftStart = parseTime(shift.startTime, currentTime);
   const earliestAllowed = shiftStart - earlyClockInMinutes * 60000;
 
   if (currentTime < earliestAllowed) {
@@ -227,9 +239,9 @@ export const calculateHours = (clockInTime, clockOutTime, shift) => {
   const totalMilliseconds = clockOutTime - clockInTime;
   const totalHours = totalMilliseconds / (1000 * 60 * 60); // Convert to hours
 
-  // Parse shift times
-  const shiftStart = parseTime(shift.startTime);
-  const shiftEnd = parseTime(shift.endTime);
+  // Parse shift times on the same calendar day as clock-in
+  const shiftStart = parseTime(shift.startTime, clockInTime);
+  const shiftEnd = parseTime(shift.endTime, clockInTime);
 
   // Handle night shift (crosses midnight)
   // If endTime < startTime, shift crosses midnight
@@ -282,8 +294,8 @@ export const calculateHours = (clockInTime, clockOutTime, shift) => {
  * @returns {Date} Shift end time as Date
  */
 export const getShiftEndTime = (shift, clockInDate) => {
-  const shiftStart = parseTime(shift.startTime);
-  const shiftEnd = parseTime(shift.endTime);
+  const shiftStart = parseTime(shift.startTime, clockInDate);
+  const shiftEnd = parseTime(shift.endTime, clockInDate);
 
   // Handle night shift (crosses midnight)
   if (shiftEnd < shiftStart) {
