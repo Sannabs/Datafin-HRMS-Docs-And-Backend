@@ -16,6 +16,7 @@ import {
     updateSchedule,
     deleteSchedule,
     getSessions,
+    setupSite,
 } from "../controllers/patrol.controller.js";
 
 const router = express.Router();
@@ -32,6 +33,9 @@ router.get(
     requireRole(["HR_ADMIN", "HR_STAFF"]),
     getSites
 );
+
+// Setup (create site + checkpoints in one go)
+router.post("/sites/setup", requireRole(["HR_ADMIN", "HR_STAFF"]), setupSite);
 router.patch("/sites/:siteId", requireRole(["HR_ADMIN", "HR_STAFF"]), updateSite);
 router.delete("/sites/:siteId", requireRole(["HR_ADMIN", "HR_STAFF"]), deleteSite);
 

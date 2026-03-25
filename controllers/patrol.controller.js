@@ -268,21 +268,40 @@ export const createSite = async (req, res) => {
 export const getSites = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const page = parseInt(req.query.page || 1);
+        const limit = parseInt(req.query.limit || 10);
+        const skip = (page - 1) * limit;
 
-        const sites = await prisma.patrolSite.findMany({
-            where: { tenantId, deletedAt: null },
+        const where = {tenantId, deletedAt: null}
+
+        const [sites, total] = await Promise.all([
+            prisma.patrolSite.findMany({
+            where,
             include: {
                 _count: { select: { checkpoints: true, schedules: true } },
             },
             orderBy: { createdAt: "desc" },
-        });
+            skip,
+            take: limit,
+        }),
+        prisma.patrolSite.count({ where }),
+    ]);
+
+        const totalPages = Math.ceil(total / limit);
 
         logger.info(`Retrieved ${sites.length} patrol sites for tenant ${tenantId}`);
 
         return res.status(200).json({
             success: true,
             data: sites,
-            count: sites.length,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+            },
         });
     } catch (error) {
         logger.error(`Error fetching patrol sites: ${error.message}`, { error: error.stack });
@@ -470,28 +489,35 @@ export const getCheckpoints = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { siteId } = req.params;
+        const page = parseInt(req.query.page || 1);
+        const limit = parseInt(req.query.limit || 10);
+        const skip = (page - 1) * limit;
 
-        const site = await prisma.patrolSite.findFirst({
-            where: { id: siteId, tenantId, deletedAt: null },
-        });
+        const where = { patrolSiteId: siteId, isActive: true, deletedAt: null };
 
-        if (!site) {
-            return res.status(404).json({
-                success: false,
-                error: "Not Found",
-                message: "Patrol site not found",
-            });
-        }
+        const [checkpoints, total] = await Promise.all([
+            prisma.patrolCheckpoint.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip,
+            take: limit,
+        }),
+        prisma.patrolCheckpoint.count({ where }),
+    ]);
 
-        const checkpoints = await prisma.patrolCheckpoint.findMany({
-            where: { patrolSiteId: siteId, isActive: true },
-            orderBy: { createdAt: "asc" },
-        });
+        const totalPages = Math.ceil(total / limit);
 
         return res.status(200).json({
             success: true,
             data: checkpoints,
-            count: checkpoints.length,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+            },
         });
     } catch (error) {
         logger.error(`Error fetching checkpoints: ${error.message}`, { error: error.stack });
@@ -699,27 +725,43 @@ export const createSchedule = async (req, res) => {
 export const getSchedules = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const { siteId, userId } = req.query;
+        const page = parseInt(req.query.page || 1);
+        const limit = parseInt(req.query.limit || 10);
+        const skip = (page - 1) * limit;
 
-        const schedules = await prisma.patrolSchedule.findMany({
-            where: {
-                tenantId,
-                deletedAt: null,
-                ...(siteId && { patrolSiteId: siteId }),
-                ...(userId && { assignedUserId: userId }),
-            },
+        const where = {
+            tenantId,
+            deletedAt: null,
+        };
+
+        const [schedules, total] = await Promise.all([
+            prisma.patrolSchedule.findMany({
+            where,
             include: {
                 patrolSite: { select: { id: true, name: true } },
                 assignedUser: { select: { id: true, name: true, employeeId: true } },
                 _count: { select: { sessions: true } },
             },
             orderBy: { createdAt: "desc" },
-        });
+            skip,
+            take: limit,
+        }),
+        prisma.patrolSchedule.count({ where }),
+    ]);
+
+        const totalPages = Math.ceil(total / limit);
 
         return res.status(200).json({
             success: true,
             data: schedules,
-            count: schedules.length,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+            },
         });
     } catch (error) {
         logger.error(`Error fetching patrol schedules: ${error.message}`, { error: error.stack });
@@ -947,6 +989,98 @@ export const getSessions = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch patrol sessions",
+        });
+    }
+};
+
+
+// Creates site + checkpoints in one transaction
+export const setupSite = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const actorId = req.user.id;
+        const { name, description, checkpoints } = req.body;
+
+        if (!name || typeof name !== "string" || !name.trim()) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Site name is required",
+            });
+        }
+
+        if (!checkpoints || !Array.isArray(checkpoints) || checkpoints.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "At least one checkpoint is required",
+            });
+        }
+
+        // Validate checkpoint names
+        const invalidCheckpoint = checkpoints.find(
+            (c) => !c.name || typeof c.name !== "string" || !c.name.trim()
+        );
+        if (invalidCheckpoint) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "All checkpoints must have a valid name",
+            });
+        }
+
+        const site = await prisma.$transaction(async (tx) => {
+            const newSite = await tx.patrolSite.create({
+                data: {
+                    tenantId,
+                    name: name.trim(),
+                    description: description ?? null,
+                },
+            });
+
+            await tx.patrolCheckpoint.createMany({
+                data: checkpoints.map((c) => ({
+                    patrolSiteId: newSite.id,
+                    name: c.name.trim(),
+                    description: c.description ?? null,
+                    // token auto-generated per record by DB default
+                })),
+            });
+
+            return tx.patrolSite.findUnique({
+                where: { id: newSite.id },
+                include: {
+                    checkpoints: { orderBy: { createdAt: "asc" } },
+                    _count: { select: { checkpoints: true, schedules: true } },
+                },
+            });
+        });
+
+        logger.info(`Setup patrol site ${site.id} with ${checkpoints.length} checkpoints`);
+        await addLog(actorId, tenantId, "CREATE", "PatrolSite", site.id, {
+            name: site.name,
+            checkpointsCreated: checkpoints.length,
+        }, req);
+
+        return res.status(201).json({
+            success: true,
+            data: site,
+            message: `Site created with ${checkpoints.length} checkpoint(s)`,
+        });
+    } catch (error) {
+        if (error.code === "P2002") {
+            return res.status(409).json({
+                success: false,
+                error: "Conflict",
+                message: "A patrol site with this name already exists",
+            });
+        }
+
+        logger.error(`Error setting up patrol site: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to setup patrol site",
         });
     }
 };
