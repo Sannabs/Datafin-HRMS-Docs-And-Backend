@@ -29,9 +29,9 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
   // Test database connection
   try {
     await prisma.$connect();
-    logger.info("✅ Database connected successfully and ready to accept queries");
+    logger.info("Database connected successfully and ready to accept queries");
   } catch (error) {
-    logger.error(`❌ Database connection failed: ${error.message}`);
+    logger.error(`Database connection failed: ${error.message}`);
     logger.error("Server will continue but database operations may fail");
   }
 
