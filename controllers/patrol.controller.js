@@ -925,6 +925,8 @@ export const getSessions = async (req, res) => {
             prisma.patrolSession.count({ where }),
         ]);
 
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+
         return res.status(200).json({
             success: true,
             data: sessions,
@@ -934,7 +936,7 @@ export const getSessions = async (req, res) => {
                 limit: limit,
                 hasNextPage: page < totalPages,
                 hasPreviousPage: page > 1,
-                totalPages: Math.ceil(total / limit),
+                totalPages,
             },
         });
     } catch (error) {
