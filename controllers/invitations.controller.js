@@ -4,6 +4,7 @@ import logger from "../utils/logger.js";
 import { hashPassword } from "better-auth/crypto";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { sendInvitationEmail } from "../views/sendInvitationEmail.js";
+import { parseFlexibleDate } from "../utils/date-parser.js";
 
 /**
  * Send an invitation to a user
@@ -19,6 +20,7 @@ export const sendInvitation = async (req, res, next) => {
       role,
       departmentId,
       positionId,
+      dateOfBirth,
       hireDate,
       employmentStatus,
       employmentType,
@@ -175,6 +177,33 @@ export const sendInvitation = async (req, res, next) => {
       salaryPeriodType != null && validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
         ? String(salaryPeriodType).toUpperCase()
         : "MONTHLY";
+    if (dateOfBirth != null && String(dateOfBirth).trim() !== "") {
+      const dob = parseFlexibleDate(dateOfBirth);
+      if (!dob) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date of birth",
+        });
+      }
+    }
+    if (hireDate != null && String(hireDate).trim() !== "") {
+      const hd = parseFlexibleDate(hireDate);
+      if (!hd) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid hire date",
+        });
+      }
+    }
+    if (salaryEffectiveDate != null && String(salaryEffectiveDate).trim() !== "") {
+      const sd = parseFlexibleDate(salaryEffectiveDate);
+      if (!sd) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid salary effective date",
+        });
+      }
+    }
 
     // Check if user already exists in this tenant
     const existingUser = await prisma.user.findFirst({
@@ -215,8 +244,9 @@ export const sendInvitation = async (req, res, next) => {
     }
 
     // Parse optional dates and numbers
-    const hireDateParsed = hireDate ? new Date(hireDate) : null;
-    const salaryEffectiveDateParsed = salaryEffectiveDate ? new Date(salaryEffectiveDate) : null;
+    const dateOfBirthParsed = dateOfBirth ? parseFlexibleDate(dateOfBirth) : null;
+    const hireDateParsed = hireDate ? parseFlexibleDate(hireDate) : null;
+    const salaryEffectiveDateParsed = salaryEffectiveDate ? parseFlexibleDate(salaryEffectiveDate) : null;
     const baseSalaryNum =
       baseSalary != null && baseSalary !== "" ? Number(baseSalary) : null;
     const salaryCurrencyVal =
@@ -235,6 +265,7 @@ export const sendInvitation = async (req, res, next) => {
         positionId: positionId || null,
         token,
         expiresAt: expiryDate,
+        dateOfBirth: dateOfBirthParsed,
         hireDate: hireDateParsed,
         employmentStatus:
           employmentStatus != null && employmentStatus !== ""
@@ -479,6 +510,7 @@ export const acceptInvitation = async (req, res, next) => {
           employeeId,
           departmentId: invitation.departmentId || null,
           positionId: invitation.positionId || null,
+          dateOfBirth: invitation.dateOfBirth ?? null,
           status: invitation.employmentStatus ?? "ACTIVE",
           employmentType: invitation.employmentType ?? "FULL_TIME",
           hireDate: invitation.hireDate ?? null,

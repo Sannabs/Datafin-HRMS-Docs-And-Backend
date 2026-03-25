@@ -1,5 +1,9 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import {
+    mapLatestAllowanceLineByUser,
+    mapLatestDeductionLineByUser,
+} from "../services/batch-salary-line.service.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import { validateFormula } from "../services/formula-evaluator.service.js";
@@ -2065,6 +2069,54 @@ export const removeDeductionFromStructure = async (req, res) => {
             error: "Internal Server Error",
             message: "Failed to remove deduction",
         });
+    }
+};
+
+/**
+ * For bulk allowance/deduction UI: who already has this type on their latest salary structure.
+ * Query: exactly one of allowanceTypeId | deductionTypeId
+ */
+export const getLineCoverageForBulkAllocation = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        if (!tenantId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const allowanceTypeId = String(req.query.allowanceTypeId || "").trim();
+        const deductionTypeId = String(req.query.deductionTypeId || "").trim();
+
+        if ((allowanceTypeId && deductionTypeId) || (!allowanceTypeId && !deductionTypeId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Provide exactly one of allowanceTypeId or deductionTypeId",
+            });
+        }
+
+        if (allowanceTypeId) {
+            const t = await prisma.allowanceType.findFirst({
+                where: { id: allowanceTypeId, tenantId, deletedAt: null },
+                select: { id: true },
+            });
+            if (!t) {
+                return res.status(404).json({ success: false, message: "Allowance type not found" });
+            }
+            const byUserId = await mapLatestAllowanceLineByUser(tenantId, allowanceTypeId);
+            return res.json({ success: true, data: { byUserId } });
+        }
+
+        const t = await prisma.deductionType.findFirst({
+            where: { id: deductionTypeId, tenantId, deletedAt: null },
+            select: { id: true },
+        });
+        if (!t) {
+            return res.status(404).json({ success: false, message: "Deduction type not found" });
+        }
+        const byUserId = await mapLatestDeductionLineByUser(tenantId, deductionTypeId);
+        return res.json({ success: true, data: { byUserId } });
+    } catch (error) {
+        logger.error(`getLineCoverageForBulkAllocation: ${error.message}`, { stack: error.stack });
+        return res.status(500).json({ success: false, message: "Failed to load line coverage" });
     }
 };
 

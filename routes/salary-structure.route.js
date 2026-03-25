@@ -14,6 +14,7 @@ import {
     removeAllowanceFromStructure,
     addDeductionToStructure,
     removeDeductionFromStructure,
+    getLineCoverageForBulkAllocation,
 } from "../controllers/salary-structure.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -27,6 +28,11 @@ router.get("/me/salary-structure", getMySalaryStructure);
 router.get("/me/salary-structures", getMySalaryStructures);
 
 // HR view routes (HR can view any employee's salary structure)
+router.get(
+    "/line-coverage",
+    requireRole(["HR_ADMIN", "HR_STAFF", "SUPER_ADMIN"]),
+    getLineCoverageForBulkAllocation
+);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getAllSalaryStructures);
 router.get("/employees/:id/salary-structure", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructure);
 router.get("/employees/:id/salary-structures", requireRole(["HR_ADMIN", "HR_STAFF"]), getEmployeeSalaryStructures);

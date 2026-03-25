@@ -15,6 +15,7 @@ import {
     addEmployeePayrollJobs,
 } from "../queues/payroll.queue.js";
 import { validateStatusTransition } from "../utils/payroll-run.utils.js";
+import { startBatchWorker, stopBatchWorker } from "./batch.worker.js";
 
 // Worker configuration
 const WORKER_CONCURRENCY = parseInt(process.env.PAYROLL_WORKER_CONCURRENCY, 10) || 5;
@@ -301,7 +302,8 @@ export const startEmployeeWorker = () => {
 export const startAllWorkers = () => {
     startPayrollWorker();
     startEmployeeWorker();
-    logger.info("All payroll workers started");
+    startBatchWorker();
+    logger.info("All payroll and batch workers started");
 };
 
 /**
@@ -320,8 +322,10 @@ export const stopAllWorkers = async () => {
         employeeWorker = null;
     }
 
+    promises.push(stopBatchWorker());
+
     await Promise.all(promises);
-    logger.info("All payroll workers stopped");
+    logger.info("All payroll and batch workers stopped");
 };
 
 export default {
