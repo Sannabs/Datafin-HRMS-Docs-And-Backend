@@ -11,8 +11,8 @@ import {
     parseEmployeeId,
     validateEmployeeIdDigits,
     isEmployeeIdUnique,
-    generateEmployeeId,
 } from "../utils/generateEmployeeId.js";
+import { createEmployeeInternal } from "../services/employee-create-internal.service.js";
 
 // get all employees
 export const getAllEmployees = async (req, res) => {
@@ -93,7 +93,6 @@ export const createEmployee = async (req, res) => {
             });
         }
 
-        // Only HR roles (or SUPER_ADMIN impersonating tenant) can create employees manually
         const allowedRoles = ["HR_ADMIN", "HR_STAFF"];
         const canCreate =
             allowedRoles.includes(actorRole) ||
@@ -106,250 +105,28 @@ export const createEmployee = async (req, res) => {
             });
         }
 
-        const {
-            name,
-            email,
-            role,
-            departmentId,
-            positionId,
-            employmentStatus,
-            employmentType,
-            hireDate,
-            baseSalary,
-            salaryPeriodType,
-            salaryEffectiveDate,
-            salaryCurrency,
-        } = req.body || {};
-
-        if (!name || typeof name !== "string" || !name.trim()) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Name is required",
-            });
-        }
-
-        if (!email || typeof email !== "string" || !email.trim()) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Email is required",
-            });
-        }
-
-        // Email format validation (same as invitations.controller)
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Invalid email format",
-            });
-        }
-
-        const validRoles = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
-        if (role && !validRoles.includes(role)) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Invalid role. Must be one of: HR_ADMIN, HR_STAFF, STAFF, DEPARTMENT_ADMIN",
-            });
-        }
-
-        // Validate department if provided
-        let department = null;
-        if (departmentId) {
-            department = await prisma.department.findFirst({
-                where: {
-                    id: departmentId,
-                    tenantId,
-                    deletedAt: null,
-                },
-            });
-
-            if (!department) {
-                return res.status(404).json({
-                    success: false,
-                    error: "Not Found",
-                    message: "Department not found or does not belong to this tenant",
-                });
-            }
-        }
-
-        // Validate position if provided
-        if (positionId) {
-            const position = await prisma.position.findFirst({
-                where: {
-                    id: positionId,
-                    tenantId,
-                    deletedAt: null,
-                },
-            });
-
-            if (!position) {
-                return res.status(404).json({
-                    success: false,
-                    error: "Not Found",
-                    message: "Position not found or does not belong to this tenant",
-                });
-            }
-        }
-
-        const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
-        const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
-
-        if (employmentStatus != null && employmentStatus !== "") {
-            if (!VALID_EMPLOYMENT_STATUSES.includes(employmentStatus)) {
-                return res.status(400).json({
-                    success: false,
-                    error: "Bad Request",
-                    message: `Invalid employment status. Must be one of: ${VALID_EMPLOYMENT_STATUSES.join(", ")}`,
-                });
-            }
-        }
-
-        if (employmentType != null && employmentType !== "") {
-            if (!VALID_EMPLOYMENT_TYPES.includes(employmentType)) {
-                return res.status(400).json({
-                    success: false,
-                    error: "Bad Request",
-                    message: `Invalid employment type. Must be one of: ${VALID_EMPLOYMENT_TYPES.join(", ")}`,
-                });
-            }
-        }
-
-        // Validate and parse base salary / period
-        if (baseSalary == null || baseSalary === "") {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Base salary is required",
-            });
-        }
-        const baseSalaryNum = Number(baseSalary);
-        if (Number.isNaN(baseSalaryNum) || baseSalaryNum <= 0) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Base salary must be a positive number",
-            });
-        }
-
-        const validPeriodTypes = ["MONTHLY", "ANNUAL"];
-        const salaryPeriodTypeVal =
-            salaryPeriodType != null && validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
-                ? String(salaryPeriodType).toUpperCase()
-                : "MONTHLY";
-
-        const salaryCurrencyVal =
-            salaryCurrency != null && String(salaryCurrency).trim() !== ""
-                ? String(salaryCurrency).trim()
-                : "USD";
-
-        const hireDateParsed = hireDate ? new Date(hireDate) : null;
-        const salaryEffectiveDateParsed = salaryEffectiveDate ? new Date(salaryEffectiveDate) : null;
-
-        // Check if user already exists in this tenant
-        const existingUser = await prisma.user.findFirst({
-            where: {
-                email,
-                tenantId,
-                isDeleted: false,
-            },
+        const result = await createEmployeeInternal({
+            tenantId,
+            actorRole,
+            body: req.body,
         });
 
-        if (existingUser) {
-            return res.status(409).json({
+        if (!result.ok) {
+            return res.status(result.statusCode).json({
                 success: false,
-                error: "Conflict",
-                message: "User with this email already exists in this tenant",
+                error:
+                    result.statusCode === 409
+                        ? "Conflict"
+                        : result.statusCode === 404
+                          ? "Not Found"
+                          : "Bad Request",
+                message: result.message,
             });
         }
-
-        // Load tenant (for employeeId generation)
-        const tenant = await prisma.tenant.findUnique({
-            where: { id: tenantId },
-            select: { id: true, name: true, code: true },
-        });
-
-        if (!tenant) {
-            return res.status(400).json({
-                success: false,
-                error: "Bad Request",
-                message: "Tenant not found",
-            });
-        }
-
-        const employeeId = await generateEmployeeId(tenantId, tenant, department);
-
-        // Create user account (no invitation, no password yet; payroll-only)
-        const newUser = await prisma.user.create({
-            data: {
-                tenantId,
-                email,
-                password: null,
-                name: name.trim(),
-                emailVerified: false,
-                role: role || "STAFF",
-                employeeId,
-                departmentId: departmentId || null,
-                positionId: positionId || null,
-                status: employmentStatus || "ACTIVE",
-                employmentType: employmentType || "FULL_TIME",
-                hireDate: hireDateParsed,
-            },
-            include: {
-                department: {
-                    select: {
-                        id: true,
-                        name: true,
-                    },
-                },
-                position: {
-                    select: {
-                        id: true,
-                        title: true,
-                    },
-                },
-                tenant: {
-                    select: {
-                        id: true,
-                        name: true,
-                        code: true,
-                    },
-                },
-            },
-        });
-
-        // Create salary structure for this employee
-        try {
-            const effectiveDate = salaryEffectiveDateParsed || hireDateParsed || new Date();
-            await prisma.salaryStructure.create({
-                data: {
-                    tenantId,
-                    userId: newUser.id,
-                    baseSalary: baseSalaryNum,
-                    grossSalary: baseSalaryNum,
-                    salaryPeriodType: salaryPeriodTypeVal,
-                    effectiveDate: new Date(effectiveDate),
-                    currency: salaryCurrencyVal,
-                },
-            });
-        } catch (salaryError) {
-            logger.error(
-                `Failed to create salary structure for employee ${newUser.id}: ${salaryError.message}`,
-                { error: salaryError.stack }
-            );
-            // Do not fail employee creation; HR can add salary structure later
-        }
-
-        const { password, ...sanitizedEmployee } = newUser;
-
-        logger.info(`Created employee ${sanitizedEmployee.id} (${sanitizedEmployee.email}) for tenant ${tenantId}`);
 
         return res.status(201).json({
             success: true,
-            data: sanitizedEmployee,
+            data: result.user,
             message: "Employee created successfully",
         });
     } catch (error) {

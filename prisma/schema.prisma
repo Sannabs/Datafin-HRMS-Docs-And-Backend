@@ -72,6 +72,7 @@ model Invitation {
   expiresAt           DateTime
   role                UserRole          @default(STAFF)
   // User fields (applied on accept)
+  dateOfBirth         DateTime?
   hireDate            DateTime?
   employmentStatus    EmployeeStatus?
   employmentType      EmploymentType?
@@ -190,6 +191,28 @@ enum LeaveRequestStatus {
   CANCELLED // Cancelled by employee
 }
 
+enum BatchJobType {
+  EMPLOYEE_CREATION
+  EMPLOYEE_INVITATION
+  ALLOWANCE_ALLOCATION
+  DEDUCTION_ALLOCATION
+  BULK_UPDATE
+}
+
+enum BatchJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BatchJobRowStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
 // ------------------------------------------------------------
 // Authentication & Employee Information Management
 // ------------------------------------------------------------
@@ -258,6 +281,7 @@ model Tenant {
   leaveTypes         LeaveType[]
   yearlyEntitlements YearlyEntitlement[]
   leaveRequests      LeaveRequest[]
+  batchJobs          BatchJob[]
 
   @@index([phone])
   @@index([email])
@@ -386,6 +410,7 @@ model User {
   managedLeaveRequests  LeaveRequest[]      @relation("LeaveManager")
   hrLeaveRequests       LeaveRequest[]      @relation("LeaveHR")
   rejectedLeaveRequests LeaveRequest[]      @relation("LeaveRejecter")
+  createdBatchJobs      BatchJob[]          @relation("BatchJobCreator")
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -1176,4 +1201,51 @@ model LeaveRequest {
   @@index([managerId, status])
   @@index([status])
   @@index([endDate]) // For leave-ending notifications
+}
+
+model BatchJob {
+  id                 String         @id @default(uuid())
+  tenantId           String
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdByUserId    String
+  createdByUser      User           @relation("BatchJobCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  type               BatchJobType
+  status             BatchJobStatus @default(PENDING)
+  batchCode          String
+  originalFilename   String?
+  fileSizeBytes      Int?
+  inputJson          Json?
+  failureReason      String?
+  totalRows          Int            @default(0)
+  processedCount     Int            @default(0)
+  successCount       Int            @default(0)
+  failedCount        Int            @default(0)
+  processStartedAt   DateTime?
+  processCompletedAt DateTime?
+  queueJobId         String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  rows BatchJobRow[]
+
+  @@unique([tenantId, batchCode])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+model BatchJobRow {
+  id               String            @id @default(uuid())
+  batchJobId       String
+  batchJob         BatchJob          @relation(fields: [batchJobId], references: [id], onDelete: Cascade)
+  rowNumber        Int
+  status           BatchJobRowStatus @default(PENDING)
+  rawPayload       Json?
+  errorMessage     String?
+  errorField       String?
+  resultEntityId   String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([batchJobId, rowNumber])
+  @@index([batchJobId, status])
 }
