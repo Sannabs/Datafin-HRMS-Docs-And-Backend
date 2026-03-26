@@ -10,6 +10,7 @@ import {
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
+import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
 // Clock-In Controllers
 export const clockInGPS = async (req, res) => {
@@ -1416,6 +1417,23 @@ export const manualClockOut = async (req, res) => {
       },
     });
 
+    await addLog(
+      req.user.id,
+      tenantId,
+      "UPDATE",
+      "Attendance",
+      updatedAttendance.id,
+      {
+        employeeUserId: attendance.userId,
+        clockOutTime: outTime.toISOString(),
+        totalHours,
+        overtimeHours,
+        reason: normalizedReason,
+        message: "Manual clock-out by admin",
+      },
+      req
+    );
+
     res.status(200).json({
       success: true,
       message: "Employee clocked out successfully",
@@ -2407,12 +2425,44 @@ export const createAttendance = async (req, res) => {
       message = "Attendance created successfully";
     }
 
-    await recordRecentActivity(
-      tenantId,
-      req.user.id,
-      "clock_in",
-      `${message} (${clockIn.toISOString()})`
-    );
+    const afterSnapshot = {
+      clockInTime: attendance.clockInTime,
+      clockOutTime: attendance.clockOutTime,
+      locationId: attendance.locationId,
+      status: attendance.status,
+      totalHours: attendance.totalHours,
+      overtimeHours: attendance.overtimeHours,
+    };
+    if (existing) {
+      const beforeSnapshot = {
+        clockInTime: existing.clockInTime,
+        clockOutTime: existing.clockOutTime,
+        locationId: existing.locationId,
+        status: existing.status,
+        totalHours: existing.totalHours,
+        overtimeHours: existing.overtimeHours,
+      };
+      const changes = getChangesDiff(beforeSnapshot, afterSnapshot);
+      await addLog(
+        req.user.id,
+        tenantId,
+        "UPDATE",
+        "Attendance",
+        attendance.id,
+        changes || { message, employeeUserId: userId },
+        req
+      );
+    } else {
+      await addLog(
+        req.user.id,
+        tenantId,
+        "CREATE",
+        "Attendance",
+        attendance.id,
+        { ...afterSnapshot, employeeUserId: userId, message },
+        req
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -2565,11 +2615,20 @@ export const adminClockInToday = async (req, res) => {
       },
     });
 
-    await recordRecentActivity(
-      tenantId,
+    await addLog(
       req.user.id,
-      "clock_in",
-      `Admin clock-in today for user ${userId} at ${clockIn.toISOString()}`
+      tenantId,
+      "CREATE",
+      "Attendance",
+      attendance.id,
+      {
+        employeeUserId: userId,
+        clockInTime: attendance.clockInTime,
+        locationId: attendance.locationId,
+        reason: normalizedReason,
+        message: "Admin clock-in today for employee",
+      },
+      req
     );
 
     return res.status(200).json({
@@ -2710,6 +2769,23 @@ export const adminClockOutToday = async (req, res) => {
         notes,
       },
     });
+
+    await addLog(
+      req.user.id,
+      tenantId,
+      "UPDATE",
+      "Attendance",
+      updatedAttendance.id,
+      {
+        employeeUserId: userId,
+        clockOutTime: outTime.toISOString(),
+        totalHours,
+        overtimeHours,
+        reason: normalizedReason,
+        message: "Admin clock-out today for employee",
+      },
+      req
+    );
 
     return res.status(200).json({
       success: true,
@@ -2875,6 +2951,15 @@ export const adminUpdateAttendanceRecord = async (req, res) => {
       }
     }
 
+    const beforeSnapshot = {
+      clockInTime: existing.clockInTime,
+      clockOutTime: existing.clockOutTime,
+      locationId: existing.locationId,
+      status: existing.status,
+      totalHours: existing.totalHours,
+      overtimeHours: existing.overtimeHours,
+    };
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceId },
       data: {
@@ -2887,11 +2972,26 @@ export const adminUpdateAttendanceRecord = async (req, res) => {
       },
     });
 
-    await recordRecentActivity(
-      tenantId,
+    const afterSnapshot = {
+      clockInTime: updatedAttendance.clockInTime,
+      clockOutTime: updatedAttendance.clockOutTime,
+      locationId: updatedAttendance.locationId,
+      status: updatedAttendance.status,
+      totalHours: updatedAttendance.totalHours,
+      overtimeHours: updatedAttendance.overtimeHours,
+    };
+    const changes = getChangesDiff(beforeSnapshot, afterSnapshot);
+    await addLog(
       req.user.id,
-      "attendance",
-      `Admin updated attendance record ${attendanceId}`
+      tenantId,
+      "UPDATE",
+      "Attendance",
+      attendanceId,
+      changes || {
+        message: "Admin updated attendance record",
+        employeeUserId: existing.userId,
+      },
+      req
     );
 
     return res.status(200).json({
