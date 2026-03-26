@@ -299,7 +299,7 @@ export async function processBatchJobById(batchJobId) {
                             data.employmentType = et;
                         } else if (field === "employment_status" || field === "status") {
                             const st = upperEnum(value, "");
-                            const allowed = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
+                            const allowed = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
                             if (!allowed.includes(st)) {
                                 errMsg = "Invalid employment_status";
                                 break;

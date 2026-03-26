@@ -2,6 +2,7 @@ import express from "express";
 import {
     getAllEmployees,
     getEmployeeById,
+    exportEmployees,
     createEmployee,
     updateEmployee,
     updateEmployeeIdDigits,
@@ -23,6 +24,7 @@ const router = express.Router();
 router.use(requireAuth);
 
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllEmployees);
+router.get("/export", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), exportEmployees);
 router.post(
     "/",
     requireRole(["HR_ADMIN", "HR_STAFF"]),

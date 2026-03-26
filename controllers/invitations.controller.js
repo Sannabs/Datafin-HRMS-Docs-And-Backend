@@ -10,7 +10,7 @@ import { parseFlexibleDate } from "../utils/date-parser.js";
  * Send an invitation to a user
  * Only HR_ADMIN can send invitations
  */
-const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
+const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
 const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
 
 export const sendInvitation = async (req, res, next) => {
@@ -348,6 +348,163 @@ export const sendInvitation = async (req, res, next) => {
   }
 };
 
+export const sendSetupInvitation = async (req, res, next) => {
+  try {
+    const { employeeId } = req.params;
+    const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
+    const senderId = req.user?.id;
+    const senderRole = req.user?.role;
+
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee ID is required",
+      });
+    }
+
+    if (!tenantId || !senderId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    const canSend =
+      senderRole === "HR_ADMIN" ||
+      senderRole === "HR_STAFF" ||
+      (senderRole === "SUPER_ADMIN" && req.effectiveTenantId);
+    if (!canSend) {
+      return res.status(403).json({
+        success: false,
+        message: "Only HR users can send invitations",
+      });
+    }
+
+    const employee = await prisma.user.findFirst({
+      where: {
+        id: employeeId,
+        tenantId,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        role: true,
+        departmentId: true,
+        positionId: true,
+        dateOfBirth: true,
+        hireDate: true,
+        status: true,
+        employmentType: true,
+        tenantId: true,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    if (!employee.email) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee does not have an email address",
+      });
+    }
+
+    if (employee.password != null) {
+      return res.status(409).json({
+        success: false,
+        message: "Employee already has login credentials",
+      });
+    }
+
+    const pendingInvite = await prisma.invitation.findFirst({
+      where: {
+        email: employee.email,
+        tenantId,
+        status: "PENDING",
+        expiresAt: {
+          gte: new Date(),
+        },
+      },
+    });
+
+    if (pendingInvite) {
+      return res.status(409).json({
+        success: false,
+        message: "A pending invitation already exists for this employee",
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const expiryDate = new Date(Date.now() + 1000 * 60 * 60 * 48);
+
+    const newInvitation = await prisma.invitation.create({
+      data: {
+        senderId,
+        tenantId,
+        email: employee.email,
+        role: employee.role ?? "STAFF",
+        departmentId: employee.departmentId || null,
+        positionId: employee.positionId || null,
+        token,
+        expiresAt: expiryDate,
+        dateOfBirth: employee.dateOfBirth ?? null,
+        hireDate: employee.hireDate ?? null,
+        employmentStatus: employee.status ?? null,
+        employmentType: employee.employmentType ?? null,
+      },
+      include: {
+        tenant: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    const clientUrl = process.env.NODE_ENV === "development"
+      ? "http://localhost:3000"
+      : process.env.CLIENT_URL;
+    const acceptLink = `${clientUrl}/accept-invite/${newInvitation.token}`;
+    const tenantName = newInvitation.tenant?.name || "your organization";
+
+    try {
+      await sendInvitationEmail({
+        to: newInvitation.email,
+        acceptLink,
+        tenantName,
+        expiresAt: newInvitation.expiresAt,
+      });
+    } catch (emailError) {
+      logger.error(
+        `Setup invitation created but failed to send invitation email to ${newInvitation.email}: ${emailError.message}`,
+        { stack: emailError.stack }
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Invitation sent successfully",
+      data: {
+        invitationId: newInvitation.id,
+        email: newInvitation.email,
+        expiresAt: newInvitation.expiresAt,
+        token: newInvitation.token,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error in sendSetupInvitation controller: ${error.message}`, {
+      stack: error.stack,
+    });
+    next(error);
+  }
+};
+
 export const acceptInvitation = async (req, res, next) => {
   try {
     const { token } = req.params;
@@ -440,15 +597,40 @@ export const acceptInvitation = async (req, res, next) => {
     });
 
     if (existingUser) {
-      // Update invitation status since user already exists
-      await prisma.invitation.update({
-        where: { id: invitation.id },
-        data: { status: "ACCEPTED" },
+      const hashedPassword = await hashPassword(password);
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: existingUser.id },
+          data: {
+            password: hashedPassword,
+            emailVerified: true,
+            name: name?.trim() || existingUser.name,
+          },
+        });
+
+        await tx.invitation.update({
+          where: { id: invitation.id },
+          data: { status: "ACCEPTED" },
+        });
       });
 
-      return res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
+      return res.status(200).json({
+        success: true,
+        message: "Account setup completed successfully. You can sign in now.",
+        data: {
+          user: {
+            id: existingUser.id,
+            email: existingUser.email,
+            role: existingUser.role,
+          },
+          tenant: {
+            id: invitation.tenant.id,
+            name: invitation.tenant.name,
+            code: invitation.tenant.code,
+          },
+          department: invitation.department,
+          position: invitation.position,
+        },
       });
     }
 

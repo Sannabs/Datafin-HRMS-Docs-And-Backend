@@ -169,7 +169,7 @@ function buildValidationMeta(field, message) {
     if (m.includes("employment status")) {
         return {
             code: "INVALID_EMPLOYMENT_STATUS",
-            hint: "Use one of: ACTIVE, INACTIVE, TERMINATED, RESIGNED, ON_LEAVE.",
+            hint: "Use one of: ACTIVE, INACTIVE, ON_LEAVE.",
         };
     }
     if (m.includes("salary period type")) {
@@ -198,7 +198,7 @@ function buildValidationMeta(field, message) {
 }
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
+const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
 const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
 const VALID_ROLES = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
 const VALID_SALARY_PERIOD_TYPES = ["MONTHLY", "ANNUAL"];
@@ -582,7 +582,7 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                     }
                 } else if (field === "employment_status" || field === "status") {
                     const st = upperEnum(value, "");
-                    const allowed = ["INACTIVE", "ACTIVE", "TERMINATED", "RESIGNED", "ON_LEAVE"];
+                    const allowed = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
                     if (!allowed.includes(st)) {
                         const message = "Invalid employment_status";
                         pushValidationError(rowErrors, rn, "employment_status", message, value);

@@ -13,11 +13,25 @@ import {
     isEmployeeIdUnique,
 } from "../utils/generateEmployeeId.js";
 import { createEmployeeInternal } from "../services/employee-create-internal.service.js";
+import { escapeCsv, formatDateForCsv } from "../utils/csv.utils.js";
 
 // get all employees
 export const getAllEmployees = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const {
+            sortBy = "createdAt",
+            sortOrder = "desc",
+            search,
+            departmentId,
+            status,
+            page = 1,
+            limit = 10,
+        } = req.query;
+        const normalizedOrder = String(sortOrder).toLowerCase() === "asc" ? "asc" : "desc";
+        const currentPage = Math.max(1, parseInt(page, 10) || 1);
+        const perPage = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+        const skip = (currentPage - 1) * perPage;
 
         // tenant scope
         const where = {
@@ -25,47 +39,121 @@ export const getAllEmployees = async (req, res) => {
             ...(tenantId && { tenantId }),
         };
 
-        // Fetch all employees with related data
-        const employees = await prisma.user.findMany({
-            where,
-            include: {
-                department: {
-                    select: {
-                        id: true,
-                        name: true,
+        if (departmentId) {
+            where.departmentId = String(departmentId);
+        }
+
+        if (status) {
+            const normalizedStatus = String(status).toUpperCase();
+            if (["ACTIVE", "INACTIVE", "ON_LEAVE"].includes(normalizedStatus)) {
+                where.status = normalizedStatus;
+            }
+        }
+
+        if (search && String(search).trim()) {
+            const searchTerm = String(search).trim();
+            where.AND = [
+                ...(where.AND || []),
+                {
+                    OR: [
+                        { name: { contains: searchTerm, mode: "insensitive" } },
+                        { email: { contains: searchTerm, mode: "insensitive" } },
+                    ],
+                },
+            ];
+        }
+
+        let orderBy = [{ createdAt: "desc" }];
+        if (sortBy === "name") {
+            orderBy = [{ name: normalizedOrder }, { createdAt: "desc" }];
+        } else if (sortBy === "department") {
+            orderBy = [{ department: { name: normalizedOrder } }, { createdAt: "desc" }];
+        } else if (sortBy === "hireDate") {
+            orderBy = [{ hireDate: normalizedOrder }, { createdAt: "desc" }];
+        } else if (sortBy === "createdAt") {
+            orderBy = [{ createdAt: normalizedOrder }];
+        }
+
+        const [employees, total] = await Promise.all([
+            prisma.user.findMany({
+                where,
+                include: {
+                    department: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                    position: {
+                        select: {
+                            id: true,
+                            title: true,
+                        },
+                    },
+                    tenant: {
+                        select: {
+                            id: true,
+                            name: true,
+                            code: true,
+                        },
                     },
                 },
-                position: {
-                    select: {
-                        id: true,
-                        title: true,
+                orderBy,
+                skip,
+                take: perPage,
+            }),
+            prisma.user.count({ where }),
+        ]);
+
+        const employeeIds = employees.map((employee) => employee.id);
+        const now = new Date();
+        const dayStart = new Date(now);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(now);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const openAttendancesToday = employeeIds.length
+            ? await prisma.attendance.findMany({
+                where: {
+                    ...(tenantId && { tenantId }),
+                    userId: { in: employeeIds },
+                    clockInTime: {
+                        gte: dayStart,
+                        lte: dayEnd,
                     },
+                    clockOutTime: null,
                 },
-                tenant: {
-                    select: {
-                        id: true,
-                        name: true,
-                        code: true,
-                    },
+                select: {
+                    userId: true,
                 },
-            },
-            orderBy: {
-                createdAt: "desc",
-            },
-        });
+            })
+            : [];
+
+        const clockedInTodaySet = new Set(openAttendancesToday.map((attendance) => attendance.userId));
 
         // Remove sensitive information (password) from response
         const sanitizedEmployees = employees.map((employee) => {
             const { password, ...employeeWithoutPassword } = employee;
-            return employeeWithoutPassword;
+            return {
+                ...employeeWithoutPassword,
+                setupInviteEligible: password == null,
+                isClockedInToday: clockedInTodaySet.has(employee.id),
+            };
         });
 
         logger.info(`Retrieved ${sanitizedEmployees.length} employees`);
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
 
         return res.status(200).json({
             success: true,
             data: sanitizedEmployees,
             count: sanitizedEmployees.length,
+            pagination: {
+                page: currentPage,
+                limit: perPage,
+                total,
+                totalPages,
+            },
         });
     } catch (error) {
         logger.error(`Error fetching employees: ${error.message}`, {
@@ -76,6 +164,74 @@ export const getAllEmployees = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch employees",
+        });
+    }
+};
+
+export const exportEmployees = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const { sortBy = "createdAt", sortOrder = "desc", ids } = req.query;
+        const normalizedOrder = String(sortOrder).toLowerCase() === "asc" ? "asc" : "desc";
+
+        const where = {
+            isDeleted: false,
+            ...(tenantId && { tenantId }),
+        };
+
+        if (ids && String(ids).trim()) {
+            const idList = String(ids)
+                .split(",")
+                .map((id) => id.trim())
+                .filter(Boolean);
+            if (idList.length > 0) where.id = { in: idList };
+        }
+
+        let orderBy = [{ createdAt: "desc" }];
+        if (sortBy === "name") {
+            orderBy = [{ name: normalizedOrder }, { createdAt: "desc" }];
+        } else if (sortBy === "department") {
+            orderBy = [{ department: { name: normalizedOrder } }, { createdAt: "desc" }];
+        } else if (sortBy === "hireDate") {
+            orderBy = [{ hireDate: normalizedOrder }, { createdAt: "desc" }];
+        } else if (sortBy === "createdAt") {
+            orderBy = [{ createdAt: normalizedOrder }];
+        }
+
+        const employees = await prisma.user.findMany({
+            where,
+            include: {
+                department: { select: { name: true } },
+                position: { select: { title: true } },
+            },
+            orderBy,
+        });
+
+        const headers = ["Employee", "Employee ID", "Date Joined", "Department", "Role", "Email", "Status"];
+        const rows = employees.map((employee) => [
+            escapeCsv(employee.name),
+            escapeCsv(employee.employeeId),
+            escapeCsv(formatDateForCsv(employee.hireDate ?? employee.createdAt)),
+            escapeCsv(employee.department?.name ?? ""),
+            escapeCsv(employee.position?.title ?? ""),
+            escapeCsv(employee.email ?? ""),
+            escapeCsv(employee.status ?? ""),
+        ]);
+        const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+
+        const filename = `employees-${new Date().toISOString().slice(0, 10)}.csv`;
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.status(200).send(csv);
+    } catch (error) {
+        logger.error(`Error exporting employees: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to export employees",
         });
     }
 };
@@ -693,15 +849,34 @@ export const updateEmployeeIdDigits = async (req, res) => {
 // terminate employee
 export const terminateEmployee = async (req, res) => {
     try {
-        const { id } = req.user;
+        const targetEmployeeId = req.params.id;
+        const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const actorId = id;
+        const { reason } = req.body ?? {};
+        const normalizedReason = String(reason ?? "").toUpperCase();
+        const validTerminationReasons = ["FIRED", "RESIGNED"];
+        
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee ID is required",
+            });
+        }
 
-        if (!id) {
+        if (!actorId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
                 message: "User not authenticated",
+            });
+        }
+
+        if (!validTerminationReasons.includes(normalizedReason)) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Termination reason is required and must be FIRED or RESIGNED",
             });
         }
 
@@ -716,14 +891,14 @@ export const terminateEmployee = async (req, res) => {
         // Check if employee exists and belongs to the same tenant
         const employee = await prisma.user.findFirst({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
                 isDeleted: false,
             },
         });
 
         if (!employee) {
-            logger.warn(`Employee not found for termination with ID: ${id}`);
+            logger.warn(`Employee not found for termination with ID: ${targetEmployeeId}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -731,23 +906,24 @@ export const terminateEmployee = async (req, res) => {
             });
         }
 
-        // Check if employee is already terminated
-        if (employee.status === "TERMINATED") {
+        // Check if employee is already inactive
+        if (employee.status === "INACTIVE") {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "Employee is already terminated",
+                message: "Employee is already inactive",
             });
         }
 
-        // Terminate employee (set status to TERMINATED)
+        // Terminate employee (set status to INACTIVE)
         const terminatedEmployee = await prisma.user.update({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
             },
             data: {
-                status: "TERMINATED",
+                status: "INACTIVE",
+                terminationReason: normalizedReason,
             },
             include: {
                 department: {
@@ -775,9 +951,9 @@ export const terminateEmployee = async (req, res) => {
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = terminatedEmployee;
 
-        logger.info(`Terminated employee with ID: ${id}`);
+        logger.info(`Terminated employee with ID: ${targetEmployeeId}`);
         const changes = getChangesDiff(employee, terminatedEmployee);
-        await addLog(actorId, tenantId, "TERMINATE", "Employee", id, changes, req);
+        await addLog(actorId, tenantId, "TERMINATE", "Employee", targetEmployeeId, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -810,11 +986,19 @@ export const terminateEmployee = async (req, res) => {
 // reactivate employee
 export const reactivateEmployee = async (req, res) => {
     try {
-        const { id } = req.user;
+        const targetEmployeeId = req.params.id;
+        const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const actorId = id;
+        
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee ID is required",
+            });
+        }
 
-        if (!id) {
+        if (!actorId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
@@ -833,14 +1017,14 @@ export const reactivateEmployee = async (req, res) => {
         // Check if employee exists and belongs to the same tenant
         const employee = await prisma.user.findFirst({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
                 isDeleted: false,
             },
         });
 
         if (!employee) {
-            logger.warn(`Employee not found for reactivation with ID: ${id}`);
+            logger.warn(`Employee not found for reactivation with ID: ${targetEmployeeId}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -860,11 +1044,12 @@ export const reactivateEmployee = async (req, res) => {
         // Reactivate employee (set status to ACTIVE)
         const reactivatedEmployee = await prisma.user.update({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
             },
             data: {
                 status: "ACTIVE",
+                terminationReason: null,
             },
             include: {
                 department: {
@@ -892,9 +1077,9 @@ export const reactivateEmployee = async (req, res) => {
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = reactivatedEmployee;
 
-        logger.info(`Reactivated employee with ID: ${id}`);
+        logger.info(`Reactivated employee with ID: ${targetEmployeeId}`);
         const changes = getChangesDiff(employee, reactivatedEmployee);
-        await addLog(actorId, tenantId, "REACTIVATE", "Employee", id, changes, req);
+        await addLog(actorId, tenantId, "REACTIVATE", "Employee", targetEmployeeId, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -927,11 +1112,19 @@ export const reactivateEmployee = async (req, res) => {
 // archive employee
 export const archiveEmployee = async (req, res) => {
     try {
-        const { id } = req.user;
+        const targetEmployeeId = req.params.id;
+        const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const actorId = id;
+        
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee ID is required",
+            });
+        }
 
-        if (!id) {
+        if (!actorId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
@@ -950,14 +1143,14 @@ export const archiveEmployee = async (req, res) => {
         // Check if employee exists and belongs to the same tenant
         const employee = await prisma.user.findFirst({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
                 isDeleted: false,
             },
         });
 
         if (!employee) {
-            logger.warn(`Employee not found for archiving with ID: ${id}`);
+            logger.warn(`Employee not found for archiving with ID: ${targetEmployeeId}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -977,7 +1170,7 @@ export const archiveEmployee = async (req, res) => {
         // Archive employee (soft delete - set isDeleted to true and deletedAt timestamp)
         const archivedEmployee = await prisma.user.update({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
             },
             data: {
@@ -1010,9 +1203,9 @@ export const archiveEmployee = async (req, res) => {
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = archivedEmployee;
 
-        logger.info(`Archived employee with ID: ${id}`);
+        logger.info(`Archived employee with ID: ${targetEmployeeId}`);
         const changes = getChangesDiff(employee, archivedEmployee);
-        await addLog(actorId, tenantId, "ARCHIVE", "Employee", id, changes, req);
+        await addLog(actorId, tenantId, "ARCHIVE", "Employee", targetEmployeeId, changes, req);
 
         return res.status(200).json({
             success: true,
@@ -1045,11 +1238,19 @@ export const archiveEmployee = async (req, res) => {
 // restore employee (unarchive)
 export const restoreEmployee = async (req, res) => {
     try {
-        const { id } = req.user;
+        const targetEmployeeId = req.params.id;
+        const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const actorId = id;
+        
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee ID is required",
+            });
+        }
 
-        if (!id) {
+        if (!actorId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
@@ -1068,13 +1269,13 @@ export const restoreEmployee = async (req, res) => {
         // Check if employee exists and belongs to the same tenant (including archived ones)
         const employee = await prisma.user.findFirst({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
             },
         });
 
         if (!employee) {
-            logger.warn(`Employee not found for restoration with ID: ${id}`);
+            logger.warn(`Employee not found for restoration with ID: ${targetEmployeeId}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -1094,7 +1295,7 @@ export const restoreEmployee = async (req, res) => {
         // Restore employee (unarchive - set isDeleted to false and clear deletedAt)
         const restoredEmployee = await prisma.user.update({
             where: {
-                id,
+                id: targetEmployeeId,
                 tenantId,
             },
             data: {
@@ -1130,9 +1331,9 @@ export const restoreEmployee = async (req, res) => {
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = restoredEmployee;
 
-        logger.info(`Restored employee with ID: ${id}`);
+        logger.info(`Restored employee with ID: ${targetEmployeeId}`);
         const changes = getChangesDiff(employee, restoredEmployee);
-        await addLog(actorId, tenantId, "RESTORE", "Employee", id, changes, req);
+        await addLog(actorId, tenantId, "RESTORE", "Employee", targetEmployeeId, changes, req);
 
         return res.status(200).json({
             success: true,

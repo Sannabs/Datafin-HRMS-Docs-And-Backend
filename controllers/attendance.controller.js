@@ -1318,7 +1318,7 @@ export const lateReason = async (req, res) => {
 // Manual Clock-Out (Admin Only)
 export const manualClockOut = async (req, res) => {
   const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-  const { clockOutTime } = req.body;
+  const { clockOutTime, reason } = req.body;
 
   const attendanceId = req.params.attendanceId;
 
@@ -1397,6 +1397,12 @@ export const manualClockOut = async (req, res) => {
         Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
     }
 
+    const normalizedReason =
+      typeof reason === "string" && reason.trim() ? reason.trim() : null;
+    const manualNote = normalizedReason
+      ? `Manually clocked out by admin (${normalizedReason})`
+      : "Manually clocked out by admin";
+
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendanceId },
       data: {
@@ -1405,8 +1411,8 @@ export const manualClockOut = async (req, res) => {
         totalHours,
         overtimeHours,
         notes: attendance.notes
-          ? `${attendance.notes} | Manually clocked out by admin`
-          : "Manually clocked out by admin",
+          ? `${attendance.notes} | ${manualNote}`
+          : manualNote,
       },
     });
 
@@ -2429,7 +2435,7 @@ export const adminClockInToday = async (req, res) => {
   try {
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.params.userId;
-    const { locationId, clockInTime } = req.body;
+    const { locationId, clockInTime, reason } = req.body;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -2536,6 +2542,12 @@ export const adminClockInToday = async (req, res) => {
       )
       : "ON_TIME";
 
+    const normalizedReason =
+      typeof reason === "string" && reason.trim() ? reason.trim() : null;
+    const manualClockInNote = normalizedReason
+      ? `Manually clocked in by admin (today) - ${normalizedReason}`
+      : "Manually clocked in by admin (today)";
+
     const attendance = await prisma.attendance.create({
       data: {
         userId,
@@ -2549,7 +2561,7 @@ export const adminClockInToday = async (req, res) => {
         clockInIpAddress,
         totalHours: null,
         overtimeHours: 0,
-        notes: "Manually clocked in by admin (today)",
+        notes: manualClockInNote,
       },
     });
 
@@ -2581,7 +2593,7 @@ export const adminClockOutToday = async (req, res) => {
   try {
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const userId = req.params.userId;
-    const { clockOutTime } = req.body;
+    const { clockOutTime, reason } = req.body;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -2679,9 +2691,14 @@ export const adminClockOutToday = async (req, res) => {
         Math.round((totalMilliseconds / (1000 * 60 * 60)) * 100) / 100;
     }
 
-    const notes = attendance.notes
-      ? `${attendance.notes} | Manually clocked out by admin (today)`
+    const normalizedReason =
+      typeof reason === "string" && reason.trim() ? reason.trim() : null;
+    const manualClockOutNote = normalizedReason
+      ? `Manually clocked out by admin (today) - ${normalizedReason}`
       : "Manually clocked out by admin (today)";
+    const notes = attendance.notes
+      ? `${attendance.notes} | ${manualClockOutNote}`
+      : manualClockOutNote;
 
     const updatedAttendance = await prisma.attendance.update({
       where: { id: attendance.id },

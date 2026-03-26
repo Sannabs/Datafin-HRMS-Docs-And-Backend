@@ -26,9 +26,12 @@ enum TenantStatus {
 enum EmployeeStatus {
   INACTIVE
   ACTIVE
-  TERMINATED
-  RESIGNED
   ON_LEAVE
+}
+
+enum TerminationReason {
+  FIRED
+  RESIGNED
 }
 
 enum EmploymentType {
@@ -388,6 +391,7 @@ model User {
   emergencyContactPhone          String?
   emergencyContactPhoneSecondary String?
   status                         EmployeeStatus? @default(ACTIVE)
+  terminationReason              TerminationReason?
   employmentType                 EmploymentType? @default(FULL_TIME)
   workLocation                   WorkLocation?
 
