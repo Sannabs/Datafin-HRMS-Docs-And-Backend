@@ -922,14 +922,14 @@ model Attendance {
   userId     String
   locationId String?
 
-  clockInTime   DateTime
-  clockOutTime  DateTime?
+  clockInTime   DateTime?
+  clockOutTime  DateTime? 
   totalHours    Float?
   overtimeHours Float?    @default(0)
 
   status AttendanceStatus @default(ON_TIME)
 
-  clockInMethod     ClockMethod
+  clockInMethod     ClockMethod?
   clockInPhotoUrl   String?
   clockInDeviceInfo String?
   clockInIpAddress  String?

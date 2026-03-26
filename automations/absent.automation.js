@@ -92,8 +92,7 @@ cron.schedule("*/30 * * * *", async () => {
 
         markedAbsent++;
         logger.info(
-          `[Absent Automation] Marked employee ${employee.id} (${
-            employee.name || employee.email
+          `[Absent Automation] Marked employee ${employee.id} (${employee.name || employee.email
           }) as absent for shift ${employee.shift.name}`
         );
       } catch (error) {
