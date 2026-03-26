@@ -64,13 +64,26 @@ cron.schedule("*/30 * * * *", async () => {
 
         const window = getShiftAttendanceWindow(employee.shift, now);
 
+        // Any real clock-in in the window, or an automated ABSENT already recorded for this shift window
         const attendance = await prisma.attendance.findFirst({
           where: {
             userId: employee.id,
-            clockInTime: {
-              gte: window.start,
-              lte: window.end,
-            },
+            OR: [
+              {
+                clockInTime: {
+                  gte: window.start,
+                  lte: window.end,
+                },
+              },
+              {
+                status: "ABSENT",
+                clockInTime: null,
+                createdAt: {
+                  gte: window.start,
+                  lte: now,
+                },
+              },
+            ],
           },
         });
 
@@ -83,9 +96,7 @@ cron.schedule("*/30 * * * *", async () => {
           data: {
             userId: employee.id,
             tenantId: employee.tenantId,
-            clockInTime: now,
             status: "ABSENT",
-            clockInMethod: "GPS",
             notes: `Marked absent - ${employee.shift.name} (${employee.shift.startTime}-${employee.shift.endTime})`,
           },
         });
