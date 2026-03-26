@@ -17,6 +17,7 @@ router.get(
   requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
   listShifts
 );
+// router.get("/:employeeId", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getEmployeeShift);
 router.post("/", requireRole(["HR_ADMIN"]), createShift);
 router.patch("/:id", requireRole(["HR_ADMIN"]), updateShift);
 router.delete("/:id", requireRole(["HR_ADMIN"]), deleteShift);
