@@ -493,7 +493,11 @@ export const getCheckpoints = async (req, res) => {
         const limit = parseInt(req.query.limit || 10);
         const skip = (page - 1) * limit;
 
-        const where = { patrolSiteId: siteId, isActive: true, deletedAt: null };
+        // PatrolCheckpoint has no deletedAt — soft-delete is isActive: false
+        const where = {
+            patrolSiteId: siteId,
+            patrolSite: { tenantId, deletedAt: null },
+        };
 
         const [checkpoints, total] = await Promise.all([
             prisma.patrolCheckpoint.findMany({
