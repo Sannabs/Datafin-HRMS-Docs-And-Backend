@@ -25,6 +25,7 @@ import notificationRoutes from "./routes/notification.route.js";
 import recentActivitiesRoutes from "./routes/recent-activities.route.js";
 import attendanceRoutes from "./routes/attendance.route.js";
 import leaveRoutes from "./routes/leave.route.js";
+import patrolRoutes from "./routes/patrol.route.js";
 import departmentRoutes from "./routes/department.route.js";
 import positionRoutes from "./routes/position.route.js";
 import tenantRoutes from "./routes/tenant.route.js";
@@ -98,6 +99,7 @@ app.use("/api/shifts", shiftRoutes);
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
 app.use("/api/batch-jobs", batchJobRoutes);
+app.use("/api/patrol", patrolRoutes);
 app.use("/api/super-admin", superAdminRoutes);
 
 // Health check endpoint

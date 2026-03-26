@@ -7,7 +7,12 @@ import { startAllAutomationJobs } from "../automations/pay-period-auto-close.job
 import { testRedisConnection } from "../config/redis.config.js";
 import { startAllWorkers } from "../workers/payroll.worker.js";
 import { startAllLeaveAutomationJobs } from "../automations/leave-accrual.job.js";
-
+import {
+  registerPatrolCrons,
+  generateUpcomingSessions,
+  closeExpiredSessions,
+} from "../automations/patrol.cron.js";
+import "../automations/absent.automation.js";
 
 // BullMQ is optional during development
 // Set ENABLE_BULLMQ_QUEUE=true in .env to enable queue-based processing
@@ -24,9 +29,9 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
   // Test database connection
   try {
     await prisma.$connect();
-    logger.info("✅ Database connected successfully and ready to accept queries");
+    logger.info("Database connected successfully and ready to accept queries");
   } catch (error) {
-    logger.error(`❌ Database connection failed: ${error.message}`);
+    logger.error(`Database connection failed: ${error.message}`);
     logger.error("Server will continue but database operations may fail");
   }
 
@@ -49,6 +54,8 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
     await startAllAutomationJobs();
     await startAllLeaveAutomationJobs();
 
+    registerPatrolCrons();
+    await Promise.all([generateUpcomingSessions(), closeExpiredSessions()]);
   } catch (error) {
     logger.error(`Failed to start automation jobs: ${error.message}`, {
       error: error.stack,

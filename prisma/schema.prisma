@@ -284,6 +284,8 @@ model Tenant {
   leaveTypes         LeaveType[]
   yearlyEntitlements YearlyEntitlement[]
   leaveRequests      LeaveRequest[]
+  patrolSites        PatrolSite[]
+  patrolSchedules    PatrolSchedule[]
   batchJobs          BatchJob[]
 
   @@index([phone])
@@ -414,6 +416,9 @@ model User {
   managedLeaveRequests  LeaveRequest[]      @relation("LeaveManager")
   hrLeaveRequests       LeaveRequest[]      @relation("LeaveHR")
   rejectedLeaveRequests LeaveRequest[]      @relation("LeaveRejecter")
+  patrolAssignments     PatrolSchedule[]    @relation("PatrolAssignee")
+  patrolSessions        PatrolSession[]     @relation("PatrolSessionUser")
+  patrolScanEvents      PatrolScanEvent[]   @relation("PatrolScanner")
   createdBatchJobs      BatchJob[]          @relation("BatchJobCreator")
 
   @@unique([tenantId, email])
@@ -877,6 +882,7 @@ enum NotificationType {
   PERFORMANCE
   ACTIVITIES
   OTHER
+  PATROL
 }
 
 // Recent activity feed (home screen, max 10 per request)
@@ -920,14 +926,14 @@ model Attendance {
   userId     String
   locationId String?
 
-  clockInTime   DateTime
-  clockOutTime  DateTime?
+  clockInTime   DateTime?
+  clockOutTime  DateTime? 
   totalHours    Float?
   overtimeHours Float?    @default(0)
 
   status AttendanceStatus @default(ON_TIME)
 
-  clockInMethod     ClockMethod
+  clockInMethod     ClockMethod?
   clockInPhotoUrl   String?
   clockInDeviceInfo String?
   clockInIpAddress  String?
@@ -1252,4 +1258,142 @@ model BatchJobRow {
 
   @@index([batchJobId, rowNumber])
   @@index([batchJobId, status])
+}
+
+// ================================================
+// PATROLS
+// ================================================
+
+enum PatrolSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  INCOMPLETE // slot window closed, not all checkpoints hit
+  MISSED // guard never scanned anything
+}
+
+model PatrolSite {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  checkpoints PatrolCheckpoint[]
+  schedules   PatrolSchedule[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
+model PatrolCheckpoint {
+  id           String     @id @default(uuid())
+  patrolSiteId String
+  patrolSite   PatrolSite @relation(fields: [patrolSiteId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  // Static token — encoded in printed QR code, never changes
+  token       String   @unique @default(uuid())
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scanEvents PatrolScanEvent[]
+
+  @@index([patrolSiteId])
+  @@index([token]) // critical — scan endpoint resolves by token
+}
+
+model PatrolSchedule {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patrolSiteId String
+  patrolSite   PatrolSite @relation(fields: [patrolSiteId], references: [id], onDelete: Cascade)
+
+  assignedUserId String
+  assignedUser   User   @relation("PatrolAssignee", fields: [assignedUserId], references: [id], onDelete: Cascade)
+
+  name            String // e.g. "Night Perimeter Round"
+  intervalHours   Int    @default(2) // generate a new session every N hours
+  windowStartTime String @default("08:00") // "HH:MM" — when first slot begins
+  windowEndTime   String @default("20:00") // "HH:MM" — when slots stop
+
+  // Compliance rule
+  requireAllPoints Boolean @default(true) // false = guard only needs minCheckpoints
+  minCheckpoints   Int? // only relevant if requireAllPoints = false
+
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  sessions PatrolSession[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@index([assignedUserId])
+  @@index([patrolSiteId])
+}
+
+model PatrolSession {
+  id               String         @id @default(uuid())
+  patrolScheduleId String
+  patrolSchedule   PatrolSchedule @relation(fields: [patrolScheduleId], references: [id], onDelete: Cascade)
+
+  assignedUserId String
+  assignedUser   User   @relation("PatrolSessionUser", fields: [assignedUserId], references: [id], onDelete: Cascade)
+
+  // The time window this session covers (e.g. 08:00–10:00)
+  slotStart DateTime
+  slotEnd   DateTime
+
+  status           PatrolSessionStatus @default(IN_PROGRESS)
+  // Denormalized counters — avoids aggregation on every list query
+  checkpointsHit   Int                 @default(0)
+  checkpointsTotal Int                 @default(0)
+
+  startedAt   DateTime? // set on first scan
+  completedAt DateTime? // set when checkpointsHit >= required
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scanEvents PatrolScanEvent[]
+
+  @@unique([patrolScheduleId, slotStart]) // one session per schedule per slot
+  @@index([patrolScheduleId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([slotStart, slotEnd])
+  @@index([assignedUserId, slotStart])
+}
+
+model PatrolScanEvent {
+  id              String        @id @default(uuid())
+  patrolSessionId String
+  patrolSession   PatrolSession @relation(fields: [patrolSessionId], references: [id], onDelete: Cascade)
+
+  checkpointId String
+  checkpoint   PatrolCheckpoint @relation(fields: [checkpointId], references: [id], onDelete: Cascade)
+
+  scannedByUserId String
+  scannedByUser   User   @relation("PatrolScanner", fields: [scannedByUserId], references: [id], onDelete: Cascade)
+
+  scannedAt  DateTime @default(now())
+  deviceInfo String?
+  ipAddress  String?
+
+  // Prevent duplicate scans of same checkpoint in same session
+  @@unique([patrolSessionId, checkpointId])
+  @@index([patrolSessionId])
+  @@index([checkpointId])
+  @@index([scannedByUserId])
+  @@index([scannedAt])
 }
