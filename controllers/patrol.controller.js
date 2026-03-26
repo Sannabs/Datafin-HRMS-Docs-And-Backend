@@ -929,11 +929,21 @@ export const getSessions = async (req, res) => {
             ...(status && { status }),
             ...(from && { slotStart: { gte: new Date(from) } }),
             ...(to && { slotEnd: { lte: new Date(to) } }),
-            // Search by employee name or site name
+            // Search: guard name / employee id, site name, schedule name
             ...(search && {
                 OR: [
                     {
                         assignedUser: {
+                            name: { contains: search, mode: "insensitive" },
+                        },
+                    },
+                    {
+                        assignedUser: {
+                            employeeId: { contains: search, mode: "insensitive" },
+                        },
+                    },
+                    {
+                        patrolSchedule: {
                             name: { contains: search, mode: "insensitive" },
                         },
                     },
