@@ -14,7 +14,7 @@ router.use(requireAuth);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllPositions);
 
 // Create position
-router.post("/", requireRole(["HR_ADMIN"]), createPosition);
+router.post("/", requireRole(["HR_ADMIN", "HR_STAFF"]), createPosition);
 
 export default router;
 

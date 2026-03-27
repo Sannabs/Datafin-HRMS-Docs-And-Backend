@@ -14,7 +14,7 @@ router.use(requireAuth);
 router.get("/", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getAllDepartments);
 
 // Create department
-router.post("/", requireRole(["HR_ADMIN"]), createDepartment);
+router.post("/", requireRole(["HR_ADMIN", "HR_STAFF"]), createDepartment);
 
 export default router;
 
