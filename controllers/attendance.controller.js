@@ -7,10 +7,32 @@ import {
   isSameWifi,
   handlePhotoUpload,
   calculateHours,
+  formatClockInEarliestTime,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
+
+const tenantIncludeForAttendance = {
+  include: {
+    companyWorkDay: true,
+    locations: {
+      where: { isActive: true },
+    },
+  },
+};
+
+function geofenceFailurePayload(isWithinLocationRange) {
+  const noLocations =
+    isWithinLocationRange.message === "No configured locations found";
+  return {
+    success: false,
+    error: noLocations ? "No locations configured" : "Not in location range",
+    message: noLocations
+      ? "No office locations are configured for your organization. Ask HR to add an active location with coordinates."
+      : "You are not in the location range",
+  };
+}
 
 // Clock-In Controllers
 export const clockInGPS = async (req, res) => {
@@ -54,7 +76,7 @@ export const clockInGPS = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -71,17 +93,15 @@ export const clockInGPS = async (req, res) => {
     const isWithinLocationRange = withInLocationRange(
       latitude,
       longitude,
-      employee.tenant.location,
+      employee.tenant.locations,
       employee.tenant.geofenceRadius
     );
 
     if (!isWithinLocationRange.valid) {
-      logger.error("Not in location range");
-      return res.status(400).json({
-        success: false,
-        error: "Not in location range",
-        message: "You are not in the location range",
-      });
+      logger.error(
+        isWithinLocationRange.message || "Not in location range"
+      );
+      return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
     const now = new Date();
@@ -92,13 +112,18 @@ export const clockInGPS = async (req, res) => {
     );
 
     if (!isClockInAllowed.valid) {
+      const earliestLabel = formatClockInEarliestTime(
+        isClockInAllowed.windowStart
+      );
       logger.error(
-        `Clock in not allowed: ${isClockInAllowed.message} - ${isClockInAllowed.windowStart}`
+        `Clock in not allowed: ${isClockInAllowed.message} — earliest ${earliestLabel}`
       );
       return res.status(400).json({
         success: false,
         error: "Clock in not allowed",
-        message: `You are not allowed to clock in at this time ${isClockInAllowed.windowStart}`,
+        message: earliestLabel
+          ? `You are not allowed to clock in yet. You may clock in from ${earliestLabel}.`
+          : "You are not allowed to clock in at this time.",
       });
     }
 
@@ -198,7 +223,7 @@ export const clockInWiFi = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -211,14 +236,20 @@ export const clockInWiFi = async (req, res) => {
       });
     }
 
-    const wifiCheck = await isSameWifi(wifiSSID, employee.tenant.location);
+    const wifiCheck = await isSameWifi(wifiSSID, employee.tenant.locations);
 
     if (!wifiCheck.valid) {
-      logger.error("You are not connected to the companies WiFi");
+      logger.error(wifiCheck.message || "WiFi check failed");
+      const noWifiConfigured =
+        wifiCheck.message === "No Wi-Fi locations configured";
       return res.status(400).json({
         success: false,
-        error: "You are not connected to the companies WiFi",
-        message: "You are not connected to the companies WiFi",
+        error: noWifiConfigured
+          ? "No Wi-Fi locations configured"
+          : "You are not connected to the companies WiFi",
+        message: noWifiConfigured
+          ? "No Wi-Fi locations configured for your organization. Ask HR to add a location with a Wi-Fi SSID."
+          : "You are not connected to the companies WiFi",
       });
     }
 
@@ -230,13 +261,18 @@ export const clockInWiFi = async (req, res) => {
     );
 
     if (!isClockInAllowed.valid) {
+      const earliestLabel = formatClockInEarliestTime(
+        isClockInAllowed.windowStart
+      );
       logger.error(
-        `Clock in not allowed: ${isClockInAllowed.message} - ${isClockInAllowed.windowStart}`
+        `Clock in not allowed: ${isClockInAllowed.message} — earliest ${earliestLabel}`
       );
       return res.status(400).json({
         success: false,
         error: "Clock in not allowed",
-        message: `You are not allowed to clock in at this time ${isClockInAllowed.windowStart}`,
+        message: earliestLabel
+          ? `You are not allowed to clock in yet. You may clock in from ${earliestLabel}.`
+          : "You are not allowed to clock in at this time.",
       });
     }
 
@@ -347,7 +383,7 @@ export const clockInQRCode = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -364,17 +400,15 @@ export const clockInQRCode = async (req, res) => {
     const isWithinLocationRange = withInLocationRange(
       latitude,
       longitude,
-      employee.tenant.location,
+      employee.tenant.locations,
       employee.tenant.geofenceRadius
     );
 
     if (!isWithinLocationRange.valid) {
-      logger.error("Not in location range");
-      return res.status(400).json({
-        success: false,
-        error: "Not in location range",
-        message: "You are not in the location range",
-      });
+      logger.error(
+        isWithinLocationRange.message || "Not in location range"
+      );
+      return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
     const now = new Date();
@@ -385,13 +419,18 @@ export const clockInQRCode = async (req, res) => {
     );
 
     if (!isClockInAllowed.valid) {
+      const earliestLabel = formatClockInEarliestTime(
+        isClockInAllowed.windowStart
+      );
       logger.error(
-        `Clock in not allowed: ${isClockInAllowed.message} - ${isClockInAllowed.windowStart}`
+        `Clock in not allowed: ${isClockInAllowed.message} — earliest ${earliestLabel}`
       );
       return res.status(400).json({
         success: false,
         error: "Clock in not allowed",
-        message: `You are not allowed to clock in at this time ${isClockInAllowed.windowStart}`,
+        message: earliestLabel
+          ? `You are not allowed to clock in yet. You may clock in from ${earliestLabel}.`
+          : "You are not allowed to clock in at this time.",
       });
     }
 
@@ -439,7 +478,7 @@ export const clockInQRCode = async (req, res) => {
         locationId: isWithinLocationRange.location.id,
         clockInTime: now,
         status: attendanceStatus,
-        clockInMethod: "QR CODE",
+        clockInMethod: "QR_CODE",
         clockInPhotoUrl,
         clockInDeviceInfo,
         clockInIpAddress,
@@ -506,7 +545,7 @@ export const clockOutGPS = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -523,17 +562,15 @@ export const clockOutGPS = async (req, res) => {
     const isWithinLocationRange = withInLocationRange(
       latitude,
       longitude,
-      employee.tenant.location,
+      employee.tenant.locations,
       employee.tenant.geofenceRadius
     );
 
     if (!isWithinLocationRange.valid) {
-      logger.error("Not in location range");
-      return res.status(400).json({
-        success: false,
-        error: "Not in location range",
-        message: "You are not in the location range",
-      });
+      logger.error(
+        isWithinLocationRange.message || "Not in location range"
+      );
+      return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
     // Find today's attendance record for the user, then update it with clock out info
@@ -641,7 +678,7 @@ export const clockOutWiFi = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -654,14 +691,20 @@ export const clockOutWiFi = async (req, res) => {
       });
     }
 
-    const wifiCheck = await isSameWifi(wifiSSID, employee.tenant.location);
+    const wifiCheck = await isSameWifi(wifiSSID, employee.tenant.locations);
 
     if (!wifiCheck.valid) {
-      logger.error("You are not connected to the companies WiFi");
+      logger.error(wifiCheck.message || "WiFi check failed");
+      const noWifiConfigured =
+        wifiCheck.message === "No Wi-Fi locations configured";
       return res.status(400).json({
         success: false,
-        error: "You are not connected to the companies WiFi",
-        message: "You are not connected to the companies WiFi",
+        error: noWifiConfigured
+          ? "No Wi-Fi locations configured"
+          : "You are not connected to the companies WiFi",
+        message: noWifiConfigured
+          ? "No Wi-Fi locations configured for your organization. Ask HR to add a location with a Wi-Fi SSID."
+          : "You are not connected to the companies WiFi",
       });
     }
 
@@ -782,7 +825,7 @@ export const clockOutQRCode = async (req, res) => {
       include: {
         shift: true,
         employeeWorkConfig: true,
-        tenant: { include: { companyWorkDay: true } },
+        tenant: tenantIncludeForAttendance,
       },
     });
 
@@ -799,17 +842,15 @@ export const clockOutQRCode = async (req, res) => {
     const isWithinLocationRange = withInLocationRange(
       latitude,
       longitude,
-      employee.tenant.location,
+      employee.tenant.locations,
       employee.tenant.geofenceRadius
     );
 
     if (!isWithinLocationRange.valid) {
-      logger.error("Not in location range");
-      return res.status(400).json({
-        success: false,
-        error: "Not in location range",
-        message: "You are not in the location range",
-      });
+      logger.error(
+        isWithinLocationRange.message || "Not in location range"
+      );
+      return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
     const isQRPayloadValid = verifyQRPayload(qrPayload);

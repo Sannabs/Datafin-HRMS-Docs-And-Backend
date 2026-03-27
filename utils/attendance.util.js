@@ -24,7 +24,10 @@ export const withInLocationRange = (
   locationOrLocations,
   geofenceRadius
 ) => {
-  if (!locationOrLocations || locationOrLocations.length === 0) {
+  const noLocations =
+    !locationOrLocations ||
+    (Array.isArray(locationOrLocations) && locationOrLocations.length === 0);
+  if (noLocations) {
     return {
       valid: false,
       message: "No configured locations found",
@@ -140,8 +143,30 @@ export const ClockInWindow = (shift, earlyClockInMinutes, currentTime) => {
   };
 };
 
+/** `windowStart` from ClockInWindow is a UTC ms timestamp — format for user-facing messages. */
+export function formatClockInEarliestTime(windowStart) {
+  if (windowStart == null) return "";
+  const d =
+    windowStart instanceof Date ? windowStart : new Date(windowStart);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export const isSameWifi = async (wifiSSID, locationOrLocations) => {
-  if (!wifiSSID || !locationOrLocations || locationOrLocations.length === 0) {
+  const noLocations =
+    !locationOrLocations ||
+    (Array.isArray(locationOrLocations) && locationOrLocations.length === 0);
+  if (noLocations) {
+    return {
+      valid: false,
+      message: "No Wi-Fi locations configured",
+    };
+  }
+  if (!wifiSSID) {
     return {
       valid: false,
       message: "No WifiSSd Matched Yours",
