@@ -364,3 +364,46 @@ export const normalizeTimeFormat = (timeString) => {
 
   return timeString;
 };
+
+/**
+ * One attendance row per user per calendar day (server local date of referenceDate).
+ * Use before creating a new clock-in record.
+ */
+export async function assertCanClockInToday(
+  prisma,
+  userId,
+  tenantId,
+  referenceDate = new Date()
+) {
+  const startOfDay = new Date(referenceDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(referenceDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const existingToday = await prisma.attendance.findFirst({
+    where: {
+      userId,
+      tenantId,
+      clockInTime: { gte: startOfDay, lte: endOfDay },
+    },
+    orderBy: { clockInTime: "desc" },
+    select: { id: true, clockOutTime: true },
+  });
+
+  if (!existingToday) {
+    return { ok: true };
+  }
+  if (existingToday.clockOutTime == null) {
+    return {
+      ok: false,
+      error: "Already clocked in",
+      message:
+        "You are already clocked in today. Please clock out before starting a new session.",
+    };
+  }
+  return {
+    ok: false,
+    error: "Attendance already completed today",
+    message: "You have already clocked in and out today.",
+  };
+}

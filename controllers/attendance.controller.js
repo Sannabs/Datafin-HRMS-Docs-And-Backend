@@ -8,6 +8,7 @@ import {
   handlePhotoUpload,
   calculateHours,
   formatClockInEarliestTime,
+  assertCanClockInToday,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
@@ -89,6 +90,22 @@ export const clockInGPS = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const canClockIn = await assertCanClockInToday(
+      prisma,
+      userId,
+      tenantId,
+      now
+    );
+    if (!canClockIn.ok) {
+      logger.error(canClockIn.message);
+      return res.status(400).json({
+        success: false,
+        error: canClockIn.error,
+        message: canClockIn.message,
+      });
+    }
+
     // within location range
     const isWithinLocationRange = withInLocationRange(
       latitude,
@@ -104,7 +121,6 @@ export const clockInGPS = async (req, res) => {
       return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
-    const now = new Date();
     const isClockInAllowed = ClockInWindow(
       employee.shift,
       employee.tenant.earlyClockInMinutes,
@@ -236,6 +252,22 @@ export const clockInWiFi = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const canClockIn = await assertCanClockInToday(
+      prisma,
+      userId,
+      tenantId,
+      now
+    );
+    if (!canClockIn.ok) {
+      logger.error(canClockIn.message);
+      return res.status(400).json({
+        success: false,
+        error: canClockIn.error,
+        message: canClockIn.message,
+      });
+    }
+
     const wifiCheck = await isSameWifi(wifiSSID, employee.tenant.locations);
 
     if (!wifiCheck.valid) {
@@ -253,7 +285,6 @@ export const clockInWiFi = async (req, res) => {
       });
     }
 
-    const now = new Date();
     const isClockInAllowed = ClockInWindow(
       employee.shift,
       employee.tenant.earlyClockInMinutes,
@@ -396,6 +427,22 @@ export const clockInQRCode = async (req, res) => {
       });
     }
 
+    const now = new Date();
+    const canClockIn = await assertCanClockInToday(
+      prisma,
+      userId,
+      tenantId,
+      now
+    );
+    if (!canClockIn.ok) {
+      logger.error(canClockIn.message);
+      return res.status(400).json({
+        success: false,
+        error: canClockIn.error,
+        message: canClockIn.message,
+      });
+    }
+
     // within location range
     const isWithinLocationRange = withInLocationRange(
       latitude,
@@ -411,7 +458,6 @@ export const clockInQRCode = async (req, res) => {
       return res.status(400).json(geofenceFailurePayload(isWithinLocationRange));
     }
 
-    const now = new Date();
     const isClockInAllowed = ClockInWindow(
       employee.shift,
       employee.tenant.earlyClockInMinutes,
