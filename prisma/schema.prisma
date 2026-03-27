@@ -1362,6 +1362,8 @@ model PatrolSession {
   startedAt   DateTime? // set on first scan
   completedAt DateTime? // set when checkpointsHit >= required
 
+  intervalReminderSentAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

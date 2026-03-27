@@ -8,6 +8,7 @@ const VALID_NOTIFICATION_TYPES = [
   "PERFORMANCE",
   "ACTIVITIES",
   "OTHER",
+  "PATROL",
 ];
 
 export const getUserNotifications = async (req, res, next) => {

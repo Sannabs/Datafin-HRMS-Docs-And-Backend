@@ -16,6 +16,8 @@ import {
     updateSchedule,
     deleteSchedule,
     getSessions,
+    getMySchedules,
+    getMySessions,
     setupSite,
 } from "../controllers/patrol.controller.js";
 
@@ -25,6 +27,10 @@ router.use(requireAuth);
 
 // Guard / field — any authenticated user with an active schedule can scan
 router.post("/scan", scanCheckpoint);
+
+// Current user (mobile / employee)
+router.get("/me/schedules", getMySchedules);
+router.get("/me/sessions", getMySessions);
 
 // Sites
 router.post("/sites", requireRole(["HR_ADMIN", "HR_STAFF"]), createSite);

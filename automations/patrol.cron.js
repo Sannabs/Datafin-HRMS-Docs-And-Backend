@@ -3,6 +3,10 @@ import cron from "node-cron";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { getSlotStartsForDate } from "../utils/patrol.util.js";
+import {
+    sendPatrolSessionDigestEmails,
+    processPatrolIntervalReminders,
+} from "../services/patrol-notification.service.js";
 
 // ---------------------------------------------------------
 // Job 1: generateUpcomingSessions
@@ -29,6 +33,7 @@ export const generateUpcomingSessions = async () => {
 
         let created = 0;
         let skipped = 0;
+        const createdSessionIds = [];
 
         for (const schedule of schedules) {
             const totalCheckpoints = schedule.patrolSite.checkpoints.length;
@@ -60,7 +65,7 @@ export const generateUpcomingSessions = async () => {
                     continue;
                 }
 
-                await prisma.patrolSession.create({
+                const row = await prisma.patrolSession.create({
                     data: {
                         patrolScheduleId: schedule.id,
                         assignedUserId: schedule.assignedUserId,
@@ -71,8 +76,13 @@ export const generateUpcomingSessions = async () => {
                     },
                 });
 
+                createdSessionIds.push(row.id);
                 created++;
             }
+        }
+
+        if (createdSessionIds.length > 0) {
+            await sendPatrolSessionDigestEmails(createdSessionIds);
         }
 
         logger.info(
@@ -141,6 +151,9 @@ export const registerPatrolCrons = () => {
 
     // Close expired sessions every 15 minutes
     cron.schedule("*/15 * * * *", closeExpiredSessions);
+
+    // In-app reminders ~10 min before each slot (see PATROL_INTERVAL_REMINDER_MINUTES)
+    cron.schedule("*/5 * * * *", processPatrolIntervalReminders);
 
     logger.info("[PatrolCron] Patrol cron jobs registered");
 };

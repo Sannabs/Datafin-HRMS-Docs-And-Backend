@@ -893,6 +893,120 @@ export const deleteSchedule = async (req, res) => {
     }
 };
 
+// ---------------------------------------------------------
+// GET /patrol/me/schedules — assigned patrol schedules for current user
+// ---------------------------------------------------------
+export const getMySchedules = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const userId = req.user?.id;
+
+        if (!tenantId || !userId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Tenant or user context required",
+            });
+        }
+
+        const schedules = await prisma.patrolSchedule.findMany({
+            where: {
+                tenantId,
+                assignedUserId: userId,
+                deletedAt: null,
+                isActive: true,
+            },
+            include: {
+                patrolSite: { select: { id: true, name: true } },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: schedules,
+        });
+    } catch (error) {
+        logger.error(`Error fetching my patrol schedules: ${error.message}`, {
+            error: error.stack,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch patrol schedules",
+        });
+    }
+};
+
+// ---------------------------------------------------------
+// GET /patrol/me/sessions — sessions for current user (?page=&limit=)
+// ---------------------------------------------------------
+export const getMySessions = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const userId = req.user?.id;
+
+        if (!tenantId || !userId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Tenant or user context required",
+            });
+        }
+
+        const page = Math.max(1, parseInt(req.query.page || "1", 10));
+        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "20", 10)));
+        const skip = (page - 1) * limit;
+
+        const where = {
+            assignedUserId: userId,
+            patrolSchedule: { tenantId },
+        };
+
+        const [sessions, total] = await Promise.all([
+            prisma.patrolSession.findMany({
+                where,
+                include: {
+                    patrolSchedule: {
+                        select: {
+                            name: true,
+                            patrolSite: { select: { id: true, name: true } },
+                        },
+                    },
+                },
+                orderBy: { slotStart: "desc" },
+                skip,
+                take: limit,
+            }),
+            prisma.patrolSession.count({ where }),
+        ]);
+
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+
+        return res.status(200).json({
+            success: true,
+            data: sessions,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1,
+            },
+        });
+    } catch (error) {
+        logger.error(`Error fetching my patrol sessions: ${error.message}`, {
+            error: error.stack,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch patrol sessions",
+        });
+    }
+};
+
 // GET /patrol/sessions
 // Query params: siteId, userId, status, from, to, page, limit
 export const getSessions = async (req, res) => {

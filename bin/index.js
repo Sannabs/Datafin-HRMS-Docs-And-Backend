@@ -12,6 +12,7 @@ import {
   generateUpcomingSessions,
   closeExpiredSessions,
 } from "../automations/patrol.cron.js";
+import { processPatrolIntervalReminders } from "../services/patrol-notification.service.js";
 import "../automations/absent.automation.js";
 
 // BullMQ is optional during development
@@ -57,7 +58,11 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
     await startAllLeaveAutomationJobs();
 
     registerPatrolCrons();
-    await Promise.all([generateUpcomingSessions(), closeExpiredSessions()]);
+    await Promise.all([
+      generateUpcomingSessions(),
+      closeExpiredSessions(),
+      processPatrolIntervalReminders(),
+    ]);
   } catch (error) {
     logger.error(`Failed to start automation jobs: ${error.message}`, {
       error: error.stack,
