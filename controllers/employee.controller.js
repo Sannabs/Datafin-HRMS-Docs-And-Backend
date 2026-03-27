@@ -320,10 +320,16 @@ export const createEmployee = async (req, res) => {
 // get employee by id
 export const getEmployeeById = async (req, res) => {
     try {
-        const { id } = req.user;
+        const requesterId = req.user?.id;
+        const requesterRole = req.user?.role;
+        const requestedId = req.params?.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const canViewOtherEmployees =
+            ["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"].includes(requesterRole) ||
+            (requesterRole === "SUPER_ADMIN" && req.effectiveTenantId);
+        const targetEmployeeId = requestedId || requesterId;
 
-        if (!id) {
+        if (!targetEmployeeId) {
             return res.status(401).json({
                 success: false,
                 error: "Unauthorized",
@@ -331,14 +337,22 @@ export const getEmployeeById = async (req, res) => {
             });
         }
 
+        if (requestedId && requestedId !== requesterId && !canViewOtherEmployees) {
+            return res.status(403).json({
+                success: false,
+                error: "Forbidden",
+                message: "You can only view your own profile",
+            });
+        }
+
         const where = {
-            id,
+            id: targetEmployeeId,
             isDeleted: false,
             ...(tenantId && { tenantId }),
         };
 
         // Fetch employee with related data
-        const employee = await prisma.user.findUnique({
+        const employee = await prisma.user.findFirst({
             where,
             include: {
                 department: {
@@ -364,7 +378,7 @@ export const getEmployeeById = async (req, res) => {
         });
 
         if (!employee) {
-            logger.warn(`Employee not found with ID: ${id}`);
+            logger.warn(`Employee not found with ID: ${targetEmployeeId}`);
             return res.status(404).json({
                 success: false,
                 error: "Not Found",
@@ -372,14 +386,52 @@ export const getEmployeeById = async (req, res) => {
             });
         }
 
+        const now = new Date();
+        const dayStart = new Date(now);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(now);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const [openAttendanceToday, excusedAbsenceToday] = await Promise.all([
+            prisma.attendance.findFirst({
+                where: {
+                    ...(tenantId && { tenantId }),
+                    userId: employee.id,
+                    clockInTime: {
+                        gte: dayStart,
+                        lte: dayEnd,
+                    },
+                    clockOutTime: null,
+                },
+                select: { id: true },
+            }),
+            prisma.attendanceException.findFirst({
+                where: {
+                    ...(tenantId && { tenantId }),
+                    userId: employee.id,
+                    type: "EXCUSED_ABSENCE",
+                    isActive: true,
+                    date: {
+                        gte: dayStart,
+                        lte: dayEnd,
+                    },
+                },
+                select: { id: true },
+            }),
+        ]);
+
         // Remove sensitive information (password) from response
         const { password, ...sanitizedEmployee } = employee;
 
-        logger.info(`Retrieved employee with ID: ${id}`);
+        logger.info(`Retrieved employee with ID: ${targetEmployeeId}`);
 
         return res.status(200).json({
             success: true,
-            data: sanitizedEmployee,
+            data: {
+                ...sanitizedEmployee,
+                isClockedInToday: Boolean(openAttendanceToday),
+                hasExcusedAbsenceToday: Boolean(excusedAbsenceToday),
+            },
         });
     } catch (error) {
         logger.error(`Error fetching employee by ID: ${error.message}`, {
