@@ -188,6 +188,58 @@ export const getPayPeriods = async (req, res) => {
     }
 };
 
+export const getCurrentPayPeriod = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+        const { date } = req.query;
+
+        const target = date ? new Date(date) : new Date();
+        if (Number.isNaN(target.getTime())) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Invalid date provided",
+            });
+        }
+
+        const payPeriod = await prisma.payPeriod.findFirst({
+            where: {
+                tenantId,
+                startDate: { lte: target },
+                endDate: { gte: target },
+            },
+            include: {
+                paySchedule: { select: { id: true, name: true } },
+            },
+            orderBy: { startDate: "desc" },
+        });
+
+        if (!payPeriod) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "No current pay period found for the provided date",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: formatPayPeriodResponse(payPeriod),
+        });
+    } catch (error) {
+        logger.error(`Error fetching current pay period: ${error.message}`, {
+            error: error.stack,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch current pay period",
+        });
+    }
+};
+
 export const getPayPeriodById = async (req, res) => {
     try {
         const { id } = req.params;

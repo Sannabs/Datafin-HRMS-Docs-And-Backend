@@ -261,33 +261,34 @@ model Tenant {
   allowPastPayPeriodCreation Boolean @default(true)
   maxPayPeriodLookbackDays   Int? // null = unlimited; e.g. 365 = max 12 months back
 
-  users              User[]
-  departments        Department[]
-  positions          Position[]
-  salaryStructures   SalaryStructure[]
-  allowanceTypes     AllowanceType[]
-  deductionTypes     DeductionType[]
-  payPeriods         PayPeriod[]
-  paySchedules       PaySchedule[]
-  payrollRuns        PayrollRun[]
-  calculationRules   CalculationRule[]
-  auditLogs          AuditLog[]
-  invitations        Invitation[]
-  holidays           Holiday[]
-  notifications      Notification[]
-  recentActivities   RecentActivity[]
-  attendances        Attendance[]
+  users                User[]
+  departments          Department[]
+  positions            Position[]
+  salaryStructures     SalaryStructure[]
+  allowanceTypes       AllowanceType[]
+  deductionTypes       DeductionType[]
+  payPeriods           PayPeriod[]
+  paySchedules         PaySchedule[]
+  payrollRuns          PayrollRun[]
+  calculationRules     CalculationRule[]
+  auditLogs            AuditLog[]
+  invitations          Invitation[]
+  holidays             Holiday[]
+  notifications        Notification[]
+  recentActivities     RecentActivity[]
+  attendances          Attendance[]
   attendanceExceptions AttendanceException[]
-  companyWorkDay     CompanyWorkDay?
-  shifts             Shift[]
-  locations          Location[]
-  annualLeavePolicy  AnnualLeavePolicy?
-  leaveTypes         LeaveType[]
-  yearlyEntitlements YearlyEntitlement[]
-  leaveRequests      LeaveRequest[]
-  patrolSites        PatrolSite[]
-  patrolSchedules    PatrolSchedule[]
-  batchJobs          BatchJob[]
+  companyWorkDay       CompanyWorkDay?
+  shifts               Shift[]
+  locations            Location[]
+  annualLeavePolicy    AnnualLeavePolicy?
+  leaveTypes           LeaveType[]
+  yearlyEntitlements   YearlyEntitlement[]
+  leaveRequests        LeaveRequest[]
+  patrolSites          PatrolSite[]
+  patrolSchedules      PatrolSchedule[]
+  batchJobs            BatchJob[]
+  attendanceStatSnapshots AttendanceStatSnapshot[]
 
   @@index([phone])
   @@index([email])
@@ -382,7 +383,7 @@ model User {
 
   // Employee fields (optional - not all users are employees)
   employeeId                     String
-  gender                         Gender?         @default(PREFER_NOT_TO_SAY)
+  gender                         Gender?            @default(PREFER_NOT_TO_SAY)
   phone                          String?
   hireDate                       DateTime?
   address                        String?
@@ -393,36 +394,37 @@ model User {
   emergencyContactRelationship   String?
   emergencyContactPhone          String?
   emergencyContactPhoneSecondary String?
-  status                         EmployeeStatus? @default(ACTIVE)
+  status                         EmployeeStatus?    @default(ACTIVE)
   terminationReason              TerminationReason?
-  employmentType                 EmploymentType? @default(FULL_TIME)
+  employmentType                 EmploymentType?    @default(FULL_TIME)
   workLocation                   WorkLocation?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  sessions              Session[]
-  accounts              Account[]
-  auditLogs             AuditLog[]
-  invitations           Invitation[]
-  notifications         Notification[]
-  recentActivities      RecentActivity[]
-  attendances           Attendance[]
-  attendanceExceptions  AttendanceException[] @relation("AttendanceExceptionSubject")
+  sessions                    Session[]
+  accounts                    Account[]
+  auditLogs                   AuditLog[]
+  invitations                 Invitation[]
+  notifications               Notification[]
+  recentActivities            RecentActivity[]
+  attendances                 Attendance[]
+  attendanceExceptions        AttendanceException[] @relation("AttendanceExceptionSubject")
   createdAttendanceExceptions AttendanceException[] @relation("AttendanceExceptionCreator")
-  employeeWorkConfig    EmployeeWorkConfig?
-  shiftId               String?
-  shift                 Shift?              @relation(fields: [shiftId], references: [id])
-  yearlyEntitlements    YearlyEntitlement[]
-  leaveRequests         LeaveRequest[]
-  managedLeaveRequests  LeaveRequest[]      @relation("LeaveManager")
-  hrLeaveRequests       LeaveRequest[]      @relation("LeaveHR")
-  rejectedLeaveRequests LeaveRequest[]      @relation("LeaveRejecter")
-  patrolAssignments     PatrolSchedule[]    @relation("PatrolAssignee")
-  patrolSessions        PatrolSession[]     @relation("PatrolSessionUser")
-  patrolScanEvents      PatrolScanEvent[]   @relation("PatrolScanner")
-  createdBatchJobs      BatchJob[]          @relation("BatchJobCreator")
+  employeeWorkConfig          EmployeeWorkConfig?
+  shiftId                     String?
+  shift                       Shift?                @relation(fields: [shiftId], references: [id])
+  yearlyEntitlements          YearlyEntitlement[]
+  leaveRequests               LeaveRequest[]
+  managedLeaveRequests        LeaveRequest[]        @relation("LeaveManager")
+  hrLeaveRequests             LeaveRequest[]        @relation("LeaveHR")
+  rejectedLeaveRequests       LeaveRequest[]        @relation("LeaveRejecter")
+  patrolAssignments           PatrolSchedule[]      @relation("PatrolAssignee")
+  patrolSessions              PatrolSession[]       @relation("PatrolSessionUser")
+  patrolScanEvents            PatrolScanEvent[]     @relation("PatrolScanner")
+  createdBatchJobs            BatchJob[]            @relation("BatchJobCreator")
+  attendanceStatSnapshots     AttendanceStatSnapshot[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -711,10 +713,52 @@ model PayPeriod {
   updatedAt       DateTime        @updatedAt
 
   payrollRuns PayrollRun[]
+  attendanceStatSnapshots AttendanceStatSnapshot[]
 
   @@unique([tenantId, periodName])
   @@index([tenantId])
   @@index([payScheduleId])
+}
+
+model AttendanceStatSnapshot {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  payPeriodId String
+  payPeriod   PayPeriod @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+
+  periodStartDate DateTime
+  periodEndDate   DateTime
+
+  expectedWorkdays          Int @default(0)
+  effectiveExpectedWorkdays Int @default(0)
+  observedAttendanceDays    Int @default(0)
+
+  presentCount        Int @default(0)
+  lateCount           Int @default(0)
+  absentCount         Int @default(0)
+  excusedAbsenceCount Int @default(0)
+  overtimeDaysCount   Int @default(0)
+  overtimeHoursTotal  Float @default(0)
+  expectedWorkHours   Float @default(0)
+
+  presentRate  Float @default(0)
+  lateRate     Float @default(0)
+  absentRate   Float @default(0)
+  overtimeRate Float @default(0)
+  overtimeHoursRate Float @default(0)
+
+  computedAt DateTime @default(now())
+  computedBy String?
+
+  @@unique([tenantId, userId, payPeriodId])
+  @@index([tenantId, payPeriodId])
+  @@index([tenantId, userId])
 }
 
 model PayrollRun {
@@ -930,7 +974,7 @@ model Attendance {
   locationId String?
 
   clockInTime   DateTime?
-  clockOutTime  DateTime? 
+  clockOutTime  DateTime?
   totalHours    Float?
   overtimeHours Float?    @default(0)
 
@@ -1006,17 +1050,17 @@ model AttendanceException {
   reasonCategory ExcusedAbsenceReasonCategory
   reason         String
 
-  isActive   Boolean   @default(true)
-  createdBy  String?
-  clearedAt  DateTime?
+  isActive    Boolean   @default(true)
+  createdBy   String?
+  clearedAt   DateTime?
   clearReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user   User   @relation("AttendanceExceptionSubject", fields: [userId], references: [id], onDelete: Cascade)
-  createdByUser User? @relation("AttendanceExceptionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User   @relation("AttendanceExceptionSubject", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser User?  @relation("AttendanceExceptionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([tenantId, userId, date])
   @@index([tenantId, date, type, isActive])
@@ -1292,17 +1336,17 @@ model BatchJob {
 }
 
 model BatchJobRow {
-  id               String            @id @default(uuid())
-  batchJobId       String
-  batchJob         BatchJob          @relation(fields: [batchJobId], references: [id], onDelete: Cascade)
-  rowNumber        Int
-  status           BatchJobRowStatus @default(PENDING)
-  rawPayload       Json?
-  errorMessage     String?
-  errorField       String?
-  resultEntityId   String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id             String            @id @default(uuid())
+  batchJobId     String
+  batchJob       BatchJob          @relation(fields: [batchJobId], references: [id], onDelete: Cascade)
+  rowNumber      Int
+  status         BatchJobRowStatus @default(PENDING)
+  rawPayload     Json?
+  errorMessage   String?
+  errorField     String?
+  resultEntityId String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@index([batchJobId, rowNumber])
   @@index([batchJobId, status])
