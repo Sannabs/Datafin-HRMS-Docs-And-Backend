@@ -35,6 +35,46 @@ function geofenceFailurePayload(isWithinLocationRange) {
   };
 }
 
+const EXCUSED_REASON_CATEGORIES = new Set([
+  "MEDICAL",
+  "EMERGENCY",
+  "LEAVE_OVERLAP",
+  "ADMIN_CORRECTION",
+  "OTHER",
+]);
+
+function getDayBounds(date = new Date()) {
+  const d = new Date(date);
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(d);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+async function autoClearExcusedAbsenceForDate({
+  tenantId,
+  userId,
+  date,
+  clearReason = "AUTO_CLEARED_ATTENDANCE_RECORDED",
+}) {
+  const { start, end } = getDayBounds(date);
+  await prisma.attendanceException.updateMany({
+    where: {
+      tenantId,
+      userId,
+      type: "EXCUSED_ABSENCE",
+      isActive: true,
+      date: { gte: start, lte: end },
+    },
+    data: {
+      isActive: false,
+      clearedAt: new Date(),
+      clearReason,
+    },
+  });
+}
+
 // Clock-In Controllers
 export const clockInGPS = async (req, res) => {
   const userId = req.user.id;
@@ -181,6 +221,11 @@ export const clockInGPS = async (req, res) => {
         clockInDeviceInfo,
         clockInIpAddress,
       },
+    });
+    await autoClearExcusedAbsenceForDate({
+      tenantId,
+      userId,
+      date: now,
     });
 
     const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -345,6 +390,11 @@ export const clockInWiFi = async (req, res) => {
         clockInDeviceInfo,
         clockInIpAddress,
       },
+    });
+    await autoClearExcusedAbsenceForDate({
+      tenantId,
+      userId,
+      date: now,
     });
 
     const timeStrWifi = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -529,6 +579,11 @@ export const clockInQRCode = async (req, res) => {
         clockInDeviceInfo,
         clockInIpAddress,
       },
+    });
+    await autoClearExcusedAbsenceForDate({
+      tenantId,
+      userId,
+      date: now,
     });
 
     const timeStrQR = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -2326,6 +2381,130 @@ export const deleteTenantLocation = async (req, res) => {
   }
 };
 
+export const markExcusedAbsenceToday = async (req, res) => {
+  try {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const actorId = req.user?.id;
+    const userId = req.params.userId;
+    const { reasonCategory, reason, reference } = req.body ?? {};
+
+    if (!tenantId || !actorId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID is required",
+        message: "Tenant ID is required",
+      });
+    }
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required",
+        message: "User ID is required",
+      });
+    }
+
+    const normalizedCategory = String(reasonCategory || "").trim().toUpperCase();
+    if (!EXCUSED_REASON_CATEGORIES.has(normalizedCategory)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid reason category",
+        message: "Reason category is required and must be a valid option",
+      });
+    }
+
+    const normalizedReason = String(reason || "").trim();
+    if (normalizedReason.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid reason",
+        message: "Reason must be at least 10 characters",
+      });
+    }
+
+    const employee = await prisma.user.findFirst({
+      where: { id: userId, tenantId, isDeleted: false },
+      select: { id: true, name: true, status: true },
+    });
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        error: "Employee not found",
+        message: "Employee not found",
+      });
+    }
+    if (employee.status !== "ACTIVE") {
+      return res.status(400).json({
+        success: false,
+        error: "Employee must be active",
+        message: "Excused absence can only be recorded for active employees",
+      });
+    }
+
+    const now = new Date();
+    const { start: dayStart, end: dayEnd } = getDayBounds(now);
+    const existing = await prisma.attendanceException.findFirst({
+      where: {
+        tenantId,
+        userId,
+        type: "EXCUSED_ABSENCE",
+        isActive: true,
+        date: { gte: dayStart, lte: dayEnd },
+      },
+    });
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "Excused absence already recorded for today",
+        data: existing,
+      });
+    }
+
+    const created = await prisma.attendanceException.create({
+      data: {
+        tenantId,
+        userId,
+        date: now,
+        type: "EXCUSED_ABSENCE",
+        reasonCategory: normalizedCategory,
+        reason: normalizedReason,
+        reference: typeof reference === "string" && reference.trim() ? reference.trim() : null,
+        createdBy: actorId,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      "CREATE",
+      "AttendanceException",
+      created.id,
+      {
+        employeeUserId: userId,
+        type: created.type,
+        reasonCategory: created.reasonCategory,
+        reason: created.reason,
+        message: "Marked excused absence for today",
+      },
+      req
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Excused absence recorded for today",
+      data: created,
+    });
+  } catch (error) {
+    logger.error(`Error marking excused absence: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to mark excused absence",
+    });
+  }
+};
+
 export const createAttendance = async (req, res) => {
   try {
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
@@ -2510,6 +2689,13 @@ export const createAttendance = async (req, res) => {
         },
       });
       message = "Attendance created successfully";
+    }
+    if (attendance.clockInTime && ["ON_TIME", "LATE", "EARLY"].includes(attendance.status)) {
+      await autoClearExcusedAbsenceForDate({
+        tenantId,
+        userId,
+        date: attendance.clockInTime,
+      });
     }
 
     const afterSnapshot = {
@@ -2700,6 +2886,11 @@ export const adminClockInToday = async (req, res) => {
         overtimeHours: 0,
         notes: manualClockInNote,
       },
+    });
+    await autoClearExcusedAbsenceForDate({
+      tenantId,
+      userId,
+      date: clockIn,
     });
 
     await addLog(
@@ -3058,6 +3249,16 @@ export const adminUpdateAttendanceRecord = async (req, res) => {
         overtimeHours,
       },
     });
+    if (
+      updatedAttendance.clockInTime &&
+      ["ON_TIME", "LATE", "EARLY"].includes(updatedAttendance.status)
+    ) {
+      await autoClearExcusedAbsenceForDate({
+        tenantId,
+        userId: existing.userId,
+        date: updatedAttendance.clockInTime,
+      });
+    }
 
     const afterSnapshot = {
       clockInTime: updatedAttendance.clockInTime,

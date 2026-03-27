@@ -277,6 +277,7 @@ model Tenant {
   notifications      Notification[]
   recentActivities   RecentActivity[]
   attendances        Attendance[]
+  attendanceExceptions AttendanceException[]
   companyWorkDay     CompanyWorkDay?
   shifts             Shift[]
   locations          Location[]
@@ -408,6 +409,8 @@ model User {
   notifications         Notification[]
   recentActivities      RecentActivity[]
   attendances           Attendance[]
+  attendanceExceptions  AttendanceException[] @relation("AttendanceExceptionSubject")
+  createdAttendanceExceptions AttendanceException[] @relation("AttendanceExceptionCreator")
   employeeWorkConfig    EmployeeWorkConfig?
   shiftId               String?
   shift                 Shift?              @relation(fields: [shiftId], references: [id])
@@ -972,6 +975,39 @@ enum AttendanceStatus {
   LATE
   EARLY
   ABSENT
+}
+
+enum AttendanceExceptionType {
+  EXCUSED_ABSENCE
+}
+
+model AttendanceException {
+  id String @id @default(cuid())
+
+  tenantId String
+  userId   String
+  date     DateTime
+
+  type AttendanceExceptionType @default(EXCUSED_ABSENCE)
+
+  reasonCategory String
+  reason         String
+  reference      String?
+
+  isActive   Boolean   @default(true)
+  createdBy  String?
+  clearedAt  DateTime?
+  clearReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("AttendanceExceptionSubject", fields: [userId], references: [id], onDelete: Cascade)
+  createdByUser User? @relation("AttendanceExceptionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, date])
+  @@index([tenantId, date, type, isActive])
 }
 
 model EmployeeWorkConfig {

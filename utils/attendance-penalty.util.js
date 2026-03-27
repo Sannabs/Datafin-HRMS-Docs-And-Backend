@@ -153,15 +153,31 @@ const calculateWithConfig = async (
     select: { id: true, clockInTime: true, status: true },
     orderBy: { clockInTime: "asc" },
   });
+  const excusedAbsences = await prisma.attendanceException.findMany({
+    where: {
+      userId: employeeId,
+      tenantId,
+      type: "EXCUSED_ABSENCE",
+      isActive: true,
+      date: { gte: periodStartDate, lte: periodEndDate },
+    },
+    select: { date: true },
+  });
 
   const attendanceByDate = {};
   attendances.forEach((attendance) => {
     attendanceByDate[formatDateString(new Date(attendance.clockInTime))] =
       attendance;
   });
+  const excusedDateSet = new Set(
+    excusedAbsences.map((item) => formatDateString(new Date(item.date)))
+  );
 
   const absences = expectedWorkDays.filter(
-    (date) => !attendanceByDate[formatDateString(date)]
+    (date) => {
+      const key = formatDateString(date);
+      return !attendanceByDate[key] && !excusedDateSet.has(key);
+    }
   );
   const consecutiveLateSequences =
     findConsecutiveLateSequences(attendanceByDate);

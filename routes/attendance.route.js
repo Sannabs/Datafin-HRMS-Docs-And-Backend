@@ -29,6 +29,7 @@ import {
   adminClockInToday,
   adminClockOutToday,
   adminUpdateAttendanceRecord,
+  markExcusedAbsenceToday,
 } from "../controllers/attendance.controller.js";
 
 const router = express.Router();
@@ -88,6 +89,11 @@ router.post(
   "/manual-today/:userId/clock-out",
   requireRole(["HR_ADMIN", "HR_STAFF"]),
   adminClockOutToday
+);
+router.post(
+  "/excused-absence/:userId",
+  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  markExcusedAbsenceToday
 );
 router.patch(
   "/manual/update/:attendanceId",

@@ -128,8 +128,26 @@ export const getAllEmployees = async (req, res) => {
                 },
             })
             : [];
+        const excusedAbsencesToday = employeeIds.length
+            ? await prisma.attendanceException.findMany({
+                where: {
+                    ...(tenantId && { tenantId }),
+                    userId: { in: employeeIds },
+                    type: "EXCUSED_ABSENCE",
+                    isActive: true,
+                    date: {
+                        gte: dayStart,
+                        lte: dayEnd,
+                    },
+                },
+                select: {
+                    userId: true,
+                },
+            })
+            : [];
 
         const clockedInTodaySet = new Set(openAttendancesToday.map((attendance) => attendance.userId));
+        const excusedTodaySet = new Set(excusedAbsencesToday.map((item) => item.userId));
 
         // Remove sensitive information (password) from response
         const sanitizedEmployees = employees.map((employee) => {
@@ -138,6 +156,7 @@ export const getAllEmployees = async (req, res) => {
                 ...employeeWithoutPassword,
                 setupInviteEligible: password == null,
                 isClockedInToday: clockedInTodaySet.has(employee.id),
+                hasExcusedAbsenceToday: excusedTodaySet.has(employee.id),
             };
         });
 

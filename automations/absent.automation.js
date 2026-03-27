@@ -86,8 +86,21 @@ cron.schedule("*/30 * * * *", async () => {
             ],
           },
         });
+        const excusedAbsence = await prisma.attendanceException.findFirst({
+          where: {
+            tenantId: employee.tenantId,
+            userId: employee.id,
+            type: "EXCUSED_ABSENCE",
+            isActive: true,
+            date: {
+              gte: window.start,
+              lte: window.end,
+            },
+          },
+          select: { id: true },
+        });
 
-        if (attendance) {
+        if (attendance || excusedAbsence) {
           skippedHasAttendance++;
           continue;
         }
