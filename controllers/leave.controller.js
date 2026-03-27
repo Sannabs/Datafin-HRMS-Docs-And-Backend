@@ -2912,6 +2912,7 @@ export const getAllLeaveBalances = async (req, res) => {
       where: {
         tenantId,
         isDeleted: false,
+        status: "ACTIVE",
       },
       select: {
         id: true,

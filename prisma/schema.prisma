@@ -981,6 +981,19 @@ enum AttendanceExceptionType {
   EXCUSED_ABSENCE
 }
 
+enum ExcusedAbsenceReasonCategory {
+  MEDICAL
+  FAMILY_EMERGENCY
+  BEREAVEMENT
+  TRANSPORT_DISRUPTION
+  ADVERSE_WEATHER
+  PUBLIC_DUTY
+  APPROVED_LEAVE_OVERLAP
+  SYSTEM_ISSUE
+  ADMIN_CORRECTION
+  OTHER
+}
+
 model AttendanceException {
   id String @id @default(cuid())
 
@@ -990,9 +1003,8 @@ model AttendanceException {
 
   type AttendanceExceptionType @default(EXCUSED_ABSENCE)
 
-  reasonCategory String
+  reasonCategory ExcusedAbsenceReasonCategory
   reason         String
-  reference      String?
 
   isActive   Boolean   @default(true)
   createdBy  String?

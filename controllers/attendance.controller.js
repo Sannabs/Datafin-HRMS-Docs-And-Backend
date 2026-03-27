@@ -37,8 +37,13 @@ function geofenceFailurePayload(isWithinLocationRange) {
 
 const EXCUSED_REASON_CATEGORIES = new Set([
   "MEDICAL",
-  "EMERGENCY",
-  "LEAVE_OVERLAP",
+  "FAMILY_EMERGENCY",
+  "BEREAVEMENT",
+  "TRANSPORT_DISRUPTION",
+  "ADVERSE_WEATHER",
+  "PUBLIC_DUTY",
+  "APPROVED_LEAVE_OVERLAP",
+  "SYSTEM_ISSUE",
   "ADMIN_CORRECTION",
   "OTHER",
 ]);
@@ -2386,7 +2391,7 @@ export const markExcusedAbsenceToday = async (req, res) => {
     const tenantId = req.effectiveTenantId ?? req.user.tenantId;
     const actorId = req.user?.id;
     const userId = req.params.userId;
-    const { reasonCategory, reason, reference } = req.body ?? {};
+    const { reasonCategory, reason } = req.body ?? {};
 
     if (!tenantId || !actorId) {
       return res.status(400).json({
@@ -2467,7 +2472,6 @@ export const markExcusedAbsenceToday = async (req, res) => {
         type: "EXCUSED_ABSENCE",
         reasonCategory: normalizedCategory,
         reason: normalizedReason,
-        reference: typeof reference === "string" && reference.trim() ? reference.trim() : null,
         createdBy: actorId,
       },
     });
