@@ -293,8 +293,8 @@ export const createEmployee = async (req, res) => {
                     result.statusCode === 409
                         ? "Conflict"
                         : result.statusCode === 404
-                          ? "Not Found"
-                          : "Bad Request",
+                            ? "Not Found"
+                            : "Bad Request",
                 message: result.message,
             });
         }
@@ -673,6 +673,7 @@ export const updateEmployee = async (req, res) => {
             "employmentType",
             "hireDate",
             "role",
+            "workLocation",
         ];
 
         // Filter out disallowed fields and build update object
@@ -684,6 +685,59 @@ export const updateEmployee = async (req, res) => {
         }
 
         // If no valid fields to update
+        if (Object.keys(filteredData).length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No valid fields to update",
+            });
+        }
+
+        // Role changes: prevent privilege escalation and self-role edits
+        if (filteredData.role !== undefined) {
+            const actorRole = req.user?.role;
+            const newRole = filteredData.role;
+            const previousRole = existingEmployee.role;
+
+            if (newRole === "SUPER_ADMIN") {
+                return res.status(403).json({
+                    success: false,
+                    error: "Forbidden",
+                    message: "Super admin role cannot be assigned through this endpoint",
+                });
+            }
+
+            if (actorId === id) {
+                if (newRole === previousRole) {
+                    delete filteredData.role;
+                } else {
+                    return res.status(403).json({
+                        success: false,
+                        error: "Forbidden",
+                        message: "You cannot change your own role",
+                    });
+                }
+            }
+
+            if (actorRole === "HR_STAFF") {
+                const staffAssignable = ["STAFF", "DEPARTMENT_ADMIN"];
+                if (!staffAssignable.includes(newRole)) {
+                    return res.status(403).json({
+                        success: false,
+                        error: "Forbidden",
+                        message: "You can only assign Staff or Department admin roles",
+                    });
+                }
+                if (previousRole === "HR_ADMIN" || previousRole === "HR_STAFF") {
+                    return res.status(403).json({
+                        success: false,
+                        error: "Forbidden",
+                        message: "Only an HR administrator can change roles for HR administrators and HR staff",
+                    });
+                }
+            }
+        }
+
         if (Object.keys(filteredData).length === 0) {
             return res.status(400).json({
                 success: false,
@@ -926,7 +980,7 @@ export const terminateEmployee = async (req, res) => {
         const { reason } = req.body ?? {};
         const normalizedReason = String(reason ?? "").toUpperCase();
         const validTerminationReasons = ["FIRED", "RESIGNED"];
-        
+
         if (!targetEmployeeId) {
             return res.status(400).json({
                 success: false,
@@ -1060,7 +1114,7 @@ export const reactivateEmployee = async (req, res) => {
         const targetEmployeeId = req.params.id;
         const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        
+
         if (!targetEmployeeId) {
             return res.status(400).json({
                 success: false,
@@ -1186,7 +1240,7 @@ export const archiveEmployee = async (req, res) => {
         const targetEmployeeId = req.params.id;
         const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        
+
         if (!targetEmployeeId) {
             return res.status(400).json({
                 success: false,
@@ -1312,7 +1366,7 @@ export const restoreEmployee = async (req, res) => {
         const targetEmployeeId = req.params.id;
         const actorId = req.user.id;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        
+
         if (!targetEmployeeId) {
             return res.status(400).json({
                 success: false,

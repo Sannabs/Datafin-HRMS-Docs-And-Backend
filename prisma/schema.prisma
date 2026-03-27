@@ -276,6 +276,7 @@ model Tenant {
   holidays             Holiday[]
   notifications        Notification[]
   recentActivities     RecentActivity[]
+  employeeFeedItems    EmployeeFeedItem[]
   attendances          Attendance[]
   attendanceExceptions AttendanceException[]
   companyWorkDay       CompanyWorkDay?
@@ -409,6 +410,7 @@ model User {
   invitations                 Invitation[]
   notifications               Notification[]
   recentActivities            RecentActivity[]
+  employeeFeedItems           EmployeeFeedItem[]
   attendances                 Attendance[]
   attendanceExceptions        AttendanceException[] @relation("AttendanceExceptionSubject")
   createdAttendanceExceptions AttendanceException[] @relation("AttendanceExceptionCreator")
@@ -961,6 +963,43 @@ enum RecentActivityType {
   payroll
   attendance
   other
+}
+
+/// Combined employee timeline (materialized for sync / reporting).
+enum FeedItemKind {
+  ATTENDANCE
+  LEAVE
+  HOLIDAY
+  ATTENDANCE_EXCEPTION
+}
+
+enum FeedItemUiStatus {
+  PENDING
+  PRESENT
+  ABSENT
+  EXCUSED_ABSENCE
+  HOLIDAY
+}
+
+model EmployeeFeedItem {
+  id        String @id @default(uuid())
+  tenantId  String
+  userId    String
+  kind      FeedItemKind
+  uiStatus  FeedItemUiStatus
+  sortAt    DateTime
+  title     String
+  detail    String
+  sourceId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, kind, sourceId])
+  @@index([tenantId, userId, sortAt(sort: Desc)])
+  @@map("employee_feed_item")
 }
 
 // ------------------------------------------------------------
