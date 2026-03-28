@@ -14,6 +14,7 @@ import {
     updateProfilePicture,
     removeProfilePicture,
     getHomeStats,
+    getEmployeePayrollOverview,
 } from "../controllers/employee.controller.js";
 import { getEmployeeCombinedFeed } from "../controllers/employee-feed.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
@@ -37,6 +38,7 @@ router.get("/home-stats", getHomeStats);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.delete("/my-profile-picture", removeProfilePicture);
 router.get("/:userId/combined-feed", getEmployeeCombinedFeed);
+router.get("/:id/payroll-overview", getEmployeePayrollOverview);
 router.get("/:id", getEmployeeById);
 router.patch("/:id/employee-id", requireRole(["HR_ADMIN", "HR_STAFF"]), updateEmployeeIdDigits);
 router.put("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]),   updateEmployee);

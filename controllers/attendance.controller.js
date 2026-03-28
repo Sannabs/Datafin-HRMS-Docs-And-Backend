@@ -1071,6 +1071,8 @@ export const getAttendanceHistory = async (req, res) => {
       userId,
       search,
       locationId,
+      startDate,
+      endDate,
     } = req.query;
 
     // Build where clause
@@ -1081,6 +1083,27 @@ export const getAttendanceHistory = async (req, res) => {
     // Filter by user/employee
     if (userId) {
       where.userId = userId;
+    }
+
+    if (startDate || endDate) {
+      const clockInTime = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        if (!Number.isNaN(start.getTime())) {
+          start.setHours(0, 0, 0, 0);
+          clockInTime.gte = start;
+        }
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        if (!Number.isNaN(end.getTime())) {
+          end.setHours(23, 59, 59, 999);
+          clockInTime.lte = end;
+        }
+      }
+      if (Object.keys(clockInTime).length > 0) {
+        where.clockInTime = clockInTime;
+      }
     }
 
     // Filter by status
@@ -1129,7 +1152,7 @@ export const getAttendanceHistory = async (req, res) => {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy: { clockInTime: "desc" },
         include: {
           user: {
             select: {

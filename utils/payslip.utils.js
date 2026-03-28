@@ -239,3 +239,140 @@ export const getPayslipYTD = async (userId, tenantId, periodEndDate) => {
     };
 };
 
+/**
+ * Latest payslip for a user in a tenant with computed net pay, itemized breakdown (enriched), and YTD.
+ * Shared by GET /payslips/my/latest and employee payroll overview.
+ */
+export const getLatestPayslipBundleForUser = async (userId, tenantId) => {
+    const payslip = await prisma.payslip.findFirst({
+        where: {
+            userId,
+            payrollRun: { tenantId },
+        },
+        orderBy: { generatedAt: "desc" },
+        include: {
+            user: {
+                select: {
+                    id: true,
+                    name: true,
+                    employeeId: true,
+                    email: true,
+                    image: true,
+                    department: { select: { id: true, name: true } },
+                    position: { select: { id: true, title: true } },
+                },
+            },
+            payrollRun: {
+                include: {
+                    payPeriod: {
+                        select: {
+                            id: true,
+                            periodName: true,
+                            startDate: true,
+                            endDate: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    if (!payslip) {
+        return { payslip: null, netSalary: null, breakdown: null, ytd: null };
+    }
+
+    const storedNet = payslip.netSalary;
+    const netSalary =
+        storedNet != null && Number(storedNet) > 0
+            ? Number(storedNet)
+            : Math.max(
+                  0,
+                  Math.round(
+                      ((Number(payslip.grossSalary) || 0) - (Number(payslip.totalDeductions) || 0)) * 100
+                  ) / 100
+              );
+
+    let breakdown =
+        payslip.breakdownSnapshot != null
+            ? payslip.breakdownSnapshot
+            : await getPayslipBreakdown(
+                  payslip.userId,
+                  tenantId,
+                  payslip.payrollRun.payPeriod.startDate,
+                  payslip.payrollRun.payPeriod.endDate
+              );
+
+    if (breakdown && (breakdown.employerSSHFCRate == null || breakdown.employerContributions == null)) {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: {
+                gambiaStatutoryEnabled: true,
+                employerSocialSecurityRate: true,
+                gambiaSsnFundingMode: true,
+            },
+        });
+        const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+        const ssnFundingMode =
+            breakdown?.gambiaSsnFundingMode ?? tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+        const rate = resolveEmployerSocialSecurityRatePercent(
+            tenant?.employerSocialSecurityRate ?? null,
+            gambiaEnabled
+        );
+        const gross = Number(payslip.grossSalary) || 0;
+        const employerContributions = gambiaEnabled
+            ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
+            : [];
+        const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
+        const enriched = {
+            ...(gambiaEnabled && { gambiaSsnFundingMode: ssnFundingMode, employerContributions }),
+            ...(rate != null &&
+                employerSSHFCLine?.amount != null && {
+                    employerSSHFCRate: rate,
+                    employerSSHFCAmount: employerSSHFCLine.amount,
+                }),
+        };
+        if (Object.keys(enriched).length > 0) breakdown = { ...breakdown, ...enriched };
+    }
+
+    let ytd = null;
+    if (payslip.payrollRun?.payPeriod?.endDate) {
+        ytd = await getPayslipYTD(payslip.userId, tenantId, payslip.payrollRun.payPeriod.endDate);
+    }
+
+    return { payslip, netSalary, breakdown, ytd };
+};
+
+/**
+ * Current salary structure snapshot (as of today) for overview cards when no payslip exists
+ * or to show contractual base + pay frequency.
+ */
+export const getCurrentCompensationFromSalaryStructure = async (userId, tenantId) => {
+    const asOf = new Date();
+    const row = await prisma.salaryStructure.findFirst({
+        where: {
+            userId,
+            tenantId,
+            effectiveDate: { lte: asOf },
+            OR: [{ endDate: null }, { endDate: { gte: asOf } }],
+        },
+        orderBy: { effectiveDate: "desc" },
+        select: {
+            baseSalary: true,
+            salaryPeriodType: true,
+            currency: true,
+        },
+    });
+
+    if (!row) return null;
+
+    const monthly =
+        row.salaryPeriodType === "ANNUAL" ? row.baseSalary / 12 : row.baseSalary;
+
+    return {
+        baseSalaryMonthly: Math.round(monthly * 100) / 100,
+        salaryPeriodType: row.salaryPeriodType,
+        payFrequencyLabel: row.salaryPeriodType === "ANNUAL" ? "Annual" : "Monthly",
+        currency: row.currency || "USD",
+    };
+};
+

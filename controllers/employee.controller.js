@@ -14,6 +14,24 @@ import {
 } from "../utils/generateEmployeeId.js";
 import { createEmployeeInternal } from "../services/employee-create-internal.service.js";
 import { escapeCsv, formatDateForCsv } from "../utils/csv.utils.js";
+import {
+    getLatestPayslipBundleForUser,
+    getCurrentCompensationFromSalaryStructure,
+    getPayslipBreakdown,
+} from "../utils/payslip.utils.js";
+
+/** Map breakdown rows to a safe JSON shape for payroll overview. */
+function toPayrollOverviewLines(rows) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map((r) => ({
+        name: String(r?.name ?? "").trim() || "Item",
+        amount: Math.round((Number(r?.amount) || 0) * 100) / 100,
+    }));
+}
+
+function sumLineAmounts(lines) {
+    return Math.round(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) * 100) / 100;
+}
 
 // get all employees
 export const getAllEmployees = async (req, res) => {
@@ -367,6 +385,16 @@ export const getEmployeeById = async (req, res) => {
                         title: true,
                     },
                 },
+                shift: {
+                    select: {
+                        id: true,
+                        name: true,
+                        startTime: true,
+                        endTime: true,
+                        isDefault: true,
+                        isActive: true,
+                    },
+                },
                 tenant: {
                     select: {
                         id: true,
@@ -669,6 +697,7 @@ export const updateEmployee = async (req, res) => {
             "image",
             "departmentId",
             "positionId",
+            "shiftId",
             "status",
             "employmentType",
             "hireDate",
@@ -783,6 +812,27 @@ export const updateEmployee = async (req, res) => {
             }
         }
 
+        if (filteredData.shiftId !== undefined) {
+            if (filteredData.shiftId === "" || filteredData.shiftId === null) {
+                filteredData.shiftId = null;
+            } else {
+                const shift = await prisma.shift.findFirst({
+                    where: {
+                        id: filteredData.shiftId,
+                        tenantId,
+                        isActive: true,
+                    },
+                });
+                if (!shift) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Bad Request",
+                        message: "Invalid or inactive shift ID",
+                    });
+                }
+            }
+        }
+
         // Update employee
         const updatedEmployee = await prisma.user.update({
             where: {
@@ -802,6 +852,16 @@ export const updateEmployee = async (req, res) => {
                     select: {
                         id: true,
                         title: true,
+                    },
+                },
+                shift: {
+                    select: {
+                        id: true,
+                        name: true,
+                        startTime: true,
+                        endTime: true,
+                        isDefault: true,
+                        isActive: true,
                     },
                 },
                 tenant: {
@@ -1767,6 +1827,171 @@ export const getHomeStats = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to load home stats",
+        });
+    }
+};
+
+/**
+ * GET /api/employees/:id/payroll-overview
+ * Payroll tab: stat cards (YTD, latest net, compensation), itemized allowances/deductions
+ * from latest payslip breakdown, or projected from current salary structure when no payslip.
+ */
+export const getEmployeePayrollOverview = async (req, res) => {
+    try {
+        const requesterId = req.user?.id;
+        const requesterRole = req.user?.role;
+        const employeeId = req.params?.id;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+
+        const canViewOtherEmployees =
+            ["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"].includes(requesterRole) ||
+            (requesterRole === "SUPER_ADMIN" && req.effectiveTenantId);
+
+        if (!employeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee id is required",
+            });
+        }
+
+        if (employeeId !== requesterId && !canViewOtherEmployees) {
+            return res.status(403).json({
+                success: false,
+                error: "Forbidden",
+                message: "You can only view your own payroll overview",
+            });
+        }
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: employeeId,
+                isDeleted: false,
+                ...(tenantId && { tenantId }),
+            },
+            select: { id: true, employeeId: true },
+        });
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        const [bundle, compensationFromStructure] = await Promise.all([
+            getLatestPayslipBundleForUser(employeeId, tenantId),
+            getCurrentCompensationFromSalaryStructure(employeeId, tenantId),
+        ]);
+
+        let compensation = compensationFromStructure;
+        if (!compensation && bundle.breakdown) {
+            compensation = {
+                baseSalaryMonthly: bundle.breakdown.baseSalary ?? 0,
+                salaryPeriodType: "MONTHLY",
+                payFrequencyLabel: "Monthly",
+                currency: bundle.breakdown.currency || "USD",
+            };
+        }
+
+        const hasPayrollHistory = bundle.payslip != null;
+        const ytd = bundle.ytd
+            ? {
+                  grossEarnings: bundle.ytd.grossSalaryYTD,
+                  netPay: bundle.ytd.netSalaryYTD,
+                  totalDeductions: bundle.ytd.totalDeductionsYTD,
+              }
+            : null;
+
+        const latest = bundle.payslip
+            ? {
+                  netPay: bundle.netSalary,
+                  grossSalary: Math.round((Number(bundle.payslip.grossSalary) || 0) * 100) / 100,
+                  periodName: bundle.payslip.payrollRun.payPeriod.periodName,
+                  periodStartDate: bundle.payslip.payrollRun.payPeriod.startDate,
+                  periodEndDate: bundle.payslip.payrollRun.payPeriod.endDate,
+              }
+            : null;
+
+        const currency =
+            compensation?.currency || bundle.breakdown?.currency || "USD";
+
+        let latestBreakdown = null;
+        if (bundle.payslip && bundle.breakdown) {
+            const allowances = toPayrollOverviewLines(bundle.breakdown.allowances);
+            const deductions = toPayrollOverviewLines(bundle.breakdown.deductions);
+            const slip = bundle.payslip;
+            latestBreakdown = {
+                source: "PAYSLIP",
+                allowances,
+                deductions,
+                totalAllowances: Math.round(
+                    (Number(slip.totalAllowances) || sumLineAmounts(allowances)) * 100
+                ) / 100,
+                totalDeductions: Math.round(
+                    (Number(slip.totalDeductions) || sumLineAmounts(deductions)) * 100
+                ) / 100,
+            };
+        } else if (compensationFromStructure) {
+            const now = new Date();
+            const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            const proj = await getPayslipBreakdown(
+                employeeId,
+                tenantId,
+                periodStart,
+                periodEnd
+            );
+            const allowances = toPayrollOverviewLines(proj?.allowances);
+            const deductions = toPayrollOverviewLines(proj?.deductions);
+            if (allowances.length > 0 || deductions.length > 0) {
+                latestBreakdown = {
+                    source: "SALARY_STRUCTURE",
+                    allowances,
+                    deductions,
+                    totalAllowances: sumLineAmounts(allowances),
+                    totalDeductions: sumLineAmounts(deductions),
+                    note: "Estimated from current salary structure (no payslip yet).",
+                };
+            }
+        }
+
+        await addLog(
+            requesterId,
+            tenantId,
+            "VIEW",
+            "Employee",
+            employeeId,
+            {
+                action: "view_payroll_overview",
+                employeeCode: employee.employeeId,
+            },
+            req
+        );
+
+        logger.info(`Payroll overview for employee ${employeeId} (requester ${requesterId})`);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                currency,
+                hasPayrollHistory,
+                ytd,
+                latest,
+                compensation,
+                latestBreakdown,
+            },
+        });
+    } catch (error) {
+        logger.error(`getEmployeePayrollOverview: ${error.message}`, {
+            stack: error.stack,
+            employeeId: req.params?.id,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to load payroll overview",
         });
     }
 };

@@ -3,7 +3,13 @@ import logger from "../utils/logger.js";
 import { getPayslipUrl, getPayslipBuffer } from "../services/file-storage.service.js";
 import { generatePayslipFromRecord, generatePayslipsBatch } from "../services/payslip-generator.service.js";
 import { addLog } from "../utils/audit.utils.js";
-import { getPayslipBreakdown, getPayslipYTD, formatCurrency, sanitizePeriodNameForFilename } from "../utils/payslip.utils.js";
+import {
+    getPayslipBreakdown,
+    getPayslipYTD,
+    formatCurrency,
+    sanitizePeriodNameForFilename,
+    getLatestPayslipBundleForUser,
+} from "../utils/payslip.utils.js";
 import { sendEmail } from "../services/resend.service.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
 import { calculatePayrollRunTotals } from "../services/payroll-run.service.js";
@@ -1152,95 +1158,14 @@ export const getMyLatestPayslip = async (req, res) => {
         const { id: userId } = req.user;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
 
-        const payslip = await prisma.payslip.findFirst({
-            where: {
-                userId,
-                payrollRun: { tenantId },
-            },
-            orderBy: { generatedAt: "desc" },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        employeeId: true,
-                        email: true,
-                        image: true,
-                        department: { select: { id: true, name: true } },
-                        position: { select: { id: true, title: true } },
-                    },
-                },
-                payrollRun: {
-                    include: {
-                        payPeriod: {
-                            select: { id: true, periodName: true, startDate: true, endDate: true },
-                        },
-                    },
-                },
-            },
-        });
+        const bundle = await getLatestPayslipBundleForUser(userId, tenantId);
 
-        if (!payslip) {
+        if (!bundle.payslip) {
             return res.status(200).json({ success: true, data: null });
         }
 
-        // Ensure net pay is available: use stored netSalary or compute from gross - deductions
-        const storedNet = payslip.netSalary;
-        const netSalary =
-            storedNet != null && Number(storedNet) > 0
-                ? Number(storedNet)
-                : Math.max(
-                      0,
-                      Math.round(((Number(payslip.grossSalary) || 0) - (Number(payslip.totalDeductions) || 0)) * 100) / 100
-                  );
-
+        const { payslip, netSalary, breakdown, ytd } = bundle;
         const downloadUrl = payslip.filePath ? getPayslipUrl(payslip.filePath) : null;
-
-        let breakdown = null;
-        if (payslip.breakdownSnapshot != null) {
-            breakdown = payslip.breakdownSnapshot;
-        } else {
-            breakdown = await getPayslipBreakdown(
-                payslip.userId,
-                tenantId,
-                payslip.payrollRun.payPeriod.startDate,
-                payslip.payrollRun.payPeriod.endDate
-            );
-        }
-
-        if (breakdown && (breakdown.employerSSHFCRate == null || breakdown.employerContributions == null)) {
-            const tenant = await prisma.tenant.findUnique({
-                where: { id: tenantId },
-                select: { gambiaStatutoryEnabled: true, employerSocialSecurityRate: true, gambiaSsnFundingMode: true },
-            });
-            const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
-            const ssnFundingMode =
-                breakdown?.gambiaSsnFundingMode ?? tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
-            const rate = resolveEmployerSocialSecurityRatePercent(tenant?.employerSocialSecurityRate ?? null, gambiaEnabled);
-            const gross = Number(payslip.grossSalary) || 0;
-            const employerContributions = gambiaEnabled
-                ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
-                : [];
-            const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
-            const enriched = {
-                ...(gambiaEnabled && { gambiaSsnFundingMode: ssnFundingMode, employerContributions }),
-                ...(rate != null &&
-                    employerSSHFCLine?.amount != null && {
-                        employerSSHFCRate: rate,
-                        employerSSHFCAmount: employerSSHFCLine.amount,
-                    }),
-            };
-            if (Object.keys(enriched).length > 0) breakdown = { ...breakdown, ...enriched };
-        }
-
-        let ytd = null;
-        if (payslip.payrollRun?.payPeriod?.endDate) {
-            ytd = await getPayslipYTD(
-                payslip.userId,
-                tenantId,
-                payslip.payrollRun.payPeriod.endDate
-            );
-        }
 
         logger.info(`Retrieved latest payslip for user ${userId}`);
 

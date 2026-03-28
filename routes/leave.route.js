@@ -89,7 +89,7 @@ router.post("/requests/:id/cancel", cancelLeaveRequest);
 router.get("/balance", getMyLeaveBalance);
 router.get(
   "/balance/:userId",
-  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
   getEmployeeLeaveBalance
 );
 

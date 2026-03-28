@@ -1089,15 +1089,15 @@ export const getAllLeaveRequests = async (req, res, next) => {
       });
     }
 
-    // Only HR (or SUPER_ADMIN impersonating tenant) can see all requests
+    // HR, department heads (scoped by getDepartmentFilter), or SUPER_ADMIN with tenant
     const canViewAll =
-      ["HR_ADMIN", "HR_STAFF"].includes(role) ||
+      ["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"].includes(role) ||
       (role === "SUPER_ADMIN" && req.effectiveTenantId);
     if (!canViewAll) {
       return res.status(403).json({
         success: false,
         error: "Forbidden",
-        message: "Only HR staff can view all leave requests",
+        message: "You are not authorized to view leave requests",
       });
     }
 
@@ -1114,12 +1114,17 @@ export const getAllLeaveRequests = async (req, res, next) => {
       status,
       awaitingHrApproval,
       leaveTypeId,
+      userId: filterUserId,
     } = req.query;
 
     const where = {
       tenantId,
       user: { ...getDepartmentFilter(req.user) },
     };
+
+    if (filterUserId && String(filterUserId).trim()) {
+      where.userId = String(filterUserId).trim();
+    }
 
     // Filter by status (PENDING, MANAGER_APPROVED, APPROVED, REJECTED, CANCELLED)
     if (status) {
@@ -2520,6 +2525,7 @@ export const getEmployeeLeaveBalance = async (req, res) => {
         id: true,
         name: true,
         employeeId: true,
+        departmentId: true,
       },
     });
 
@@ -2528,6 +2534,19 @@ export const getEmployeeLeaveBalance = async (req, res) => {
         success: false,
         error: "Not Found",
         message: "Employee not found",
+      });
+    }
+
+    const requesterRole = req.user?.role;
+    if (
+      requesterRole === "DEPARTMENT_ADMIN" &&
+      (!req.user?.departmentId ||
+        employee.departmentId !== req.user.departmentId)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "You can only view leave balance for employees in your department",
       });
     }
 
