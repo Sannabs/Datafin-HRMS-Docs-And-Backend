@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "MonthlyAttendanceStatSnapshot_tenantId_userId_calendarYear_cale" RENAME TO "MonthlyAttendanceStatSnapshot_tenantId_userId_calendarYear__key";

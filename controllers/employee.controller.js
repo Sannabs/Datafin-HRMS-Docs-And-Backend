@@ -19,6 +19,10 @@ import {
     getCurrentCompensationFromSalaryStructure,
     getPayslipBreakdown,
 } from "../utils/payslip.utils.js";
+import {
+    hasStoredLoginCredentials,
+    credentialAccountsInclude,
+} from "../utils/loginCredentials.util.js";
 
 /** Map breakdown rows to a safe JSON shape for payroll overview. */
 function toPayrollOverviewLines(rows) {
@@ -115,6 +119,7 @@ export const getAllEmployees = async (req, res) => {
                             code: true,
                         },
                     },
+                    accounts: credentialAccountsInclude,
                 },
                 orderBy,
                 skip,
@@ -167,12 +172,12 @@ export const getAllEmployees = async (req, res) => {
         const clockedInTodaySet = new Set(openAttendancesToday.map((attendance) => attendance.userId));
         const excusedTodaySet = new Set(excusedAbsencesToday.map((item) => item.userId));
 
-        // Remove sensitive information (password) from response
+        // Remove sensitive information (password, account hashes) from response
         const sanitizedEmployees = employees.map((employee) => {
-            const { password, ...employeeWithoutPassword } = employee;
+            const { password, accounts, ...employeeWithoutPassword } = employee;
             return {
                 ...employeeWithoutPassword,
-                setupInviteEligible: password == null,
+                setupInviteEligible: !hasStoredLoginCredentials(password, accounts),
                 isClockedInToday: clockedInTodaySet.has(employee.id),
                 hasExcusedAbsenceToday: excusedTodaySet.has(employee.id),
             };
@@ -402,6 +407,7 @@ export const getEmployeeById = async (req, res) => {
                         code: true,
                     },
                 },
+                accounts: credentialAccountsInclude,
             },
         });
 
@@ -448,8 +454,8 @@ export const getEmployeeById = async (req, res) => {
             }),
         ]);
 
-        // Remove sensitive information (password) from response
-        const { password, ...sanitizedEmployee } = employee;
+        // Remove sensitive information (password, account hashes) from response
+        const { password, accounts, ...sanitizedEmployee } = employee;
 
         logger.info(`Retrieved employee with ID: ${targetEmployeeId}`);
 
@@ -459,6 +465,7 @@ export const getEmployeeById = async (req, res) => {
                 ...sanitizedEmployee,
                 isClockedInToday: Boolean(openAttendanceToday),
                 hasExcusedAbsenceToday: Boolean(excusedAbsenceToday),
+                setupInviteEligible: !hasStoredLoginCredentials(password, accounts),
             },
         });
     } catch (error) {
@@ -606,16 +613,19 @@ export const updateMyProfle = async (req, res) => {
                         code: true,
                     },
                 },
+                accounts: credentialAccountsInclude,
             },
         });
 
-        // Remove sensitive information (password) from response
-        const { password, ...sanitizedEmployee } = updatedEmployee;
-
+        // Remove sensitive information (password, account hashes) from response
+        const { password, accounts, ...sanitizedEmployee } = updatedEmployee;
 
         return res.status(200).json({
             success: true,
-            data: sanitizedEmployee,
+            data: {
+                ...sanitizedEmployee,
+                setupInviteEligible: !hasStoredLoginCredentials(password, accounts),
+            },
             message: "Employee updated successfully",
         });
     } catch (error) {

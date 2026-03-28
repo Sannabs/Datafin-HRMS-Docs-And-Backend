@@ -14,6 +14,7 @@ import {
   getMyTodayStatus,
   getMyAttendanceStats,
   getEmployeeAttendanceStats,
+  getEmployeeWorkSummary,
   lateReason,
   manualClockOut,
   createOrUpdateEmployeeWorkConfig,
@@ -56,6 +57,11 @@ router.get(
   "/employees/:userId/stats",
   requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
   getEmployeeAttendanceStats
+);
+router.get(
+  "/employees/:userId/work-summary",
+  requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+  getEmployeeWorkSummary
 );
 
 // Late Reason (Employee)

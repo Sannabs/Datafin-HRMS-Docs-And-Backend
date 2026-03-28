@@ -14,6 +14,7 @@ import {
 } from "../automations/patrol.cron.js";
 import { processPatrolIntervalReminders } from "../services/patrol-notification.service.js";
 import "../automations/absent.automation.js";
+import { startMonthlyAttendanceSnapshotJob } from "../automations/monthly-attendance-snapshot.job.js";
 
 // BullMQ is optional during development
 // Set ENABLE_BULLMQ_QUEUE=true in .env to enable queue-based processing
@@ -58,6 +59,7 @@ server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
     await startAllLeaveAutomationJobs();
 
     registerPatrolCrons();
+    startMonthlyAttendanceSnapshotJob();
     await Promise.all([
       generateUpcomingSessions(),
       closeExpiredSessions(),

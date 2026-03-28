@@ -5,6 +5,10 @@ import { hashPassword } from "better-auth/crypto";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { sendInvitationEmail } from "../views/sendInvitationEmail.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
+import {
+    hasStoredLoginCredentials,
+    credentialAccountsInclude,
+} from "../utils/loginCredentials.util.js";
 
 /**
  * Send an invitation to a user
@@ -398,6 +402,7 @@ export const sendSetupInvitation = async (req, res, next) => {
         status: true,
         employmentType: true,
         tenantId: true,
+        accounts: credentialAccountsInclude,
       },
     });
 
@@ -415,7 +420,7 @@ export const sendSetupInvitation = async (req, res, next) => {
       });
     }
 
-    if (employee.password != null) {
+    if (hasStoredLoginCredentials(employee.password, employee.accounts)) {
       return res.status(409).json({
         success: false,
         message: "Employee already has login credentials",

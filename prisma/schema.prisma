@@ -290,6 +290,10 @@ model Tenant {
   patrolSchedules      PatrolSchedule[]
   batchJobs            BatchJob[]
   attendanceStatSnapshots AttendanceStatSnapshot[]
+  monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
+
+  /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
+  timezone String?
 
   @@index([phone])
   @@index([email])
@@ -427,6 +431,7 @@ model User {
   patrolScanEvents            PatrolScanEvent[]     @relation("PatrolScanner")
   createdBatchJobs            BatchJob[]            @relation("BatchJobCreator")
   attendanceStatSnapshots     AttendanceStatSnapshot[]
+  monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -760,6 +765,47 @@ model AttendanceStatSnapshot {
 
   @@unique([tenantId, userId, payPeriodId])
   @@index([tenantId, payPeriodId])
+  @@index([tenantId, userId])
+}
+
+/// Frozen stats for a tenant calendar month (tenant timezone)
+model MonthlyAttendanceStatSnapshot {
+  id String @id @default(uuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  calendarYear  Int
+  calendarMonth Int
+
+  periodStartDate DateTime
+  periodEndDate   DateTime
+
+  expectedWorkdays          Int @default(0)
+  effectiveExpectedWorkdays Int @default(0)
+  observedAttendanceDays    Int @default(0)
+
+  presentCount        Int @default(0)
+  lateCount           Int @default(0)
+  absentCount         Int @default(0)
+  excusedAbsenceCount Int @default(0)
+  overtimeDaysCount   Int @default(0)
+  overtimeHoursTotal  Float @default(0)
+  expectedWorkHours   Float @default(0)
+
+  presentRate       Float @default(0)
+  lateRate          Float @default(0)
+  absentRate        Float @default(0)
+  overtimeRate      Float @default(0)
+  overtimeHoursRate Float @default(0)
+
+  computedAt DateTime @default(now())
+  computedBy String?
+
+  @@unique([tenantId, userId, calendarYear, calendarMonth])
   @@index([tenantId, userId])
 }
 

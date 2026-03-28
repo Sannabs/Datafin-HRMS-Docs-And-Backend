@@ -1,5 +1,11 @@
 import prisma from "../config/prisma.config.js";
 import {
+  payPeriodSnapshotToStatsData,
+  computeLiveEmployeeAttendanceStats,
+  currentCalendarMonthRangeInZone,
+} from "../services/employee-attendance-stats.service.js";
+import { buildEmployeeWorkSummary } from "../services/employee-work-summary.service.js";
+import {
   ClockInWindow,
   determineAttendanceStatus,
   verifyQRPayload,
@@ -1353,6 +1359,7 @@ export const getEmployeeAttendanceStats = async (req, res) => {
         tenant: {
           select: {
             weekendDays: true,
+            timezone: true,
           },
         },
       },
@@ -1374,49 +1381,30 @@ export const getEmployeeAttendanceStats = async (req, res) => {
         return res.status(200).json({
           success: true,
           message: "Employee attendance stats retrieved successfully",
-          data: {
-            totalDays: existingSnapshot.observedAttendanceDays,
-            observedAttendanceDays: existingSnapshot.observedAttendanceDays,
-            expectedWorkdays: existingSnapshot.expectedWorkdays,
-            effectiveExpectedWorkdays: existingSnapshot.effectiveExpectedWorkdays,
-            expectedWorkHours: existingSnapshot.expectedWorkHours,
-            denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
-            period: {
-              startDate: new Date(existingSnapshot.periodStartDate).toISOString().slice(0, 10),
-              endDate: new Date(existingSnapshot.periodEndDate).toISOString().slice(0, 10),
-            },
-            presentCount: existingSnapshot.presentCount,
-            absentCount: existingSnapshot.absentCount,
-            lateCount: existingSnapshot.lateCount,
-            excusedAbsenceCount: existingSnapshot.excusedAbsenceCount,
-            overtimeDaysCount: existingSnapshot.overtimeDaysCount,
-            overtimeHoursTotal: existingSnapshot.overtimeHoursTotal,
-            presentRate: existingSnapshot.presentRate,
-            absentRate: existingSnapshot.absentRate,
-            lateRate: existingSnapshot.lateRate,
-            overtimeRate: existingSnapshot.overtimeRate,
-            overtimeHoursRate: existingSnapshot.overtimeHoursRate,
-            noData:
-              existingSnapshot.effectiveExpectedWorkdays === 0 &&
-              existingSnapshot.observedAttendanceDays === 0,
-            snapshot: true,
-            payPeriodId: resolvedPayPeriod.id,
-          },
+          data: payPeriodSnapshotToStatsData(existingSnapshot, resolvedPayPeriod.id),
         });
       }
     }
 
     const now = new Date();
-    const rangeStart = resolvedPayPeriod?.startDate
-      ? new Date(resolvedPayPeriod.startDate)
-      : startDate
+    let rangeStart;
+    let rangeEnd;
+    if (resolvedPayPeriod?.startDate) {
+      rangeStart = new Date(resolvedPayPeriod.startDate);
+      rangeEnd = new Date(resolvedPayPeriod.endDate);
+    } else if (startDate || endDate) {
+      rangeStart = startDate
         ? new Date(startDate)
         : new Date(now.getFullYear(), now.getMonth(), 1);
-    const rangeEnd = resolvedPayPeriod?.endDate
-      ? new Date(resolvedPayPeriod.endDate)
-      : endDate
+      rangeEnd = endDate
         ? new Date(endDate)
         : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    } else {
+      const cur = currentCalendarMonthRangeInZone(employee.tenant?.timezone);
+      rangeStart = cur.rangeStart;
+      rangeEnd = cur.rangeEnd;
+    }
+
     if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
       return res.status(400).json({
         success: false,
@@ -1427,301 +1415,28 @@ export const getEmployeeAttendanceStats = async (req, res) => {
     rangeStart.setHours(0, 0, 0, 0);
     rangeEnd.setHours(23, 59, 59, 999);
 
-    const where = {
+    const live = await computeLiveEmployeeAttendanceStats(prisma, {
       tenantId,
       userId,
-      clockInTime: {
-        gte: rangeStart,
-        lte: rangeEnd,
-      },
-    };
+      rangeStart,
+      rangeEnd,
+      resolvedPayPeriod,
+      persistClosedSnapshot: resolvedPayPeriod?.status === "CLOSED",
+      computedBy: req.user?.id ?? null,
+    });
 
-    const parseTimeToMinutes = (timeStr) => {
-      if (!timeStr || typeof timeStr !== "string") return null;
-      const [hRaw, mRaw] = timeStr.split(":");
-      const h = Number.parseInt(String(hRaw), 10);
-      const m = Number.parseInt(String(mRaw), 10);
-      if (Number.isNaN(h) || Number.isNaN(m)) return null;
-      if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-      return h * 60 + m;
-    };
-
-    const computeShiftHours = (shift) => {
-      const startMin = parseTimeToMinutes(shift?.startTime);
-      const endMin = parseTimeToMinutes(shift?.endTime);
-      if (startMin == null || endMin == null) return null;
-      let diff = endMin - startMin;
-      if (diff <= 0) diff += 24 * 60; // overnight shift
-      return diff / 60;
-    };
-
-    const [attendanceRows, excusedRows, employeeWorkConfig, companyWorkDay, holidays, shiftRow, defaultShiftRow] =
-      await Promise.all([
-      prisma.attendance.findMany({
-        where,
-        select: {
-          clockInTime: true,
-          status: true,
-          overtimeHours: true,
-        },
-      }),
-      prisma.attendanceException.findMany({
-        where: {
-          tenantId,
-          userId,
-          type: "EXCUSED_ABSENCE",
-          isActive: true,
-          date: {
-            gte: rangeStart,
-            lte: rangeEnd,
-          },
-        },
-        select: { date: true },
-      }),
-      prisma.employeeWorkConfig.findUnique({
-        where: { userId },
-        select: {
-          monday: true,
-          tuesday: true,
-          wednesday: true,
-          thursday: true,
-          friday: true,
-          saturday: true,
-          sunday: true,
-        },
-      }),
-      prisma.companyWorkDay.findUnique({
-        where: { tenantId },
-        select: {
-          monday: true,
-          tuesday: true,
-          wednesday: true,
-          thursday: true,
-          friday: true,
-          saturday: true,
-          sunday: true,
-        },
-      }),
-      prisma.holiday.findMany({
-        where: {
-          tenantId,
-          isActive: true,
-          OR: [
-            {
-              isRecurring: false,
-              date: {
-                gte: rangeStart,
-                lte: rangeEnd,
-              },
-            },
-            { isRecurring: true },
-          ],
-        },
-        select: {
-          date: true,
-          isRecurring: true,
-          year: true,
-        },
-      }),
-      employee.shiftId
-        ? prisma.shift.findFirst({
-          where: { id: employee.shiftId, tenantId, isActive: true },
-          select: { startTime: true, endTime: true },
-        })
-        : Promise.resolve(null),
-      prisma.shift.findFirst({
-        where: { tenantId, isDefault: true, isActive: true },
-        select: { startTime: true, endTime: true },
-        orderBy: { updatedAt: "desc" },
-      }),
-    ]);
-
-    // Normalize by calendar day to avoid skew from multiple records on the same day.
-    const dayMap = new Map();
-    for (const row of attendanceRows) {
-      const dayKey = new Date(row.clockInTime).toISOString().slice(0, 10);
-      const existing = dayMap.get(dayKey) ?? {
-        hasPresent: false,
-        hasLate: false,
-        hasAbsent: false,
-        hasOvertime: false,
-        overtimeHoursTotal: 0,
-      };
-
-      if (row.status === "ON_TIME" || row.status === "EARLY") existing.hasPresent = true;
-      if (row.status === "LATE") existing.hasLate = true;
-      if (row.status === "ABSENT") existing.hasAbsent = true;
-      if (Number(row.overtimeHours ?? 0) > 0) existing.hasOvertime = true;
-      existing.overtimeHoursTotal += Number(row.overtimeHours ?? 0);
-
-      dayMap.set(dayKey, existing);
-    }
-
-    const tenantWeekendSet = new Set(employee?.tenant?.weekendDays ?? [0, 6]);
-    const companyWorkdayByDow = companyWorkDay
-      ? {
-        0: companyWorkDay.sunday,
-        1: companyWorkDay.monday,
-        2: companyWorkDay.tuesday,
-        3: companyWorkDay.wednesday,
-        4: companyWorkDay.thursday,
-        5: companyWorkDay.friday,
-        6: companyWorkDay.saturday,
-      }
-      : null;
-    const employeeWorkdayByDow = employeeWorkConfig
-      ? {
-        0: employeeWorkConfig.sunday,
-        1: employeeWorkConfig.monday,
-        2: employeeWorkConfig.tuesday,
-        3: employeeWorkConfig.wednesday,
-        4: employeeWorkConfig.thursday,
-        5: employeeWorkConfig.friday,
-        6: employeeWorkConfig.saturday,
-      }
-      : null;
-    const isConfiguredWorkday = (date) => {
-      const dow = date.getDay();
-      if (employeeWorkdayByDow) return Boolean(employeeWorkdayByDow[dow]);
-      if (companyWorkdayByDow) return Boolean(companyWorkdayByDow[dow]);
-      return !tenantWeekendSet.has(dow);
-    };
-
-    const oneTimeHolidaySet = new Set();
-    const recurringHolidaySet = new Set();
-    for (const holiday of holidays) {
-      const d = new Date(holiday.date);
-      const monthDay = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      if (holiday.isRecurring) {
-        if (holiday.year == null) recurringHolidaySet.add(monthDay);
-      } else {
-        oneTimeHolidaySet.add(d.toISOString().slice(0, 10));
-      }
-    }
-    const isHoliday = (date) => {
-      const dayKey = date.toISOString().slice(0, 10);
-      if (oneTimeHolidaySet.has(dayKey)) return true;
-      const monthDay = `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      return recurringHolidaySet.has(monthDay);
-    };
-
-    const expectedDayKeys = [];
-    for (const d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
-      const day = new Date(d);
-      if (!isConfiguredWorkday(day)) continue;
-      if (isHoliday(day)) continue;
-      expectedDayKeys.push(day.toISOString().slice(0, 10));
-    }
-
-    const excusedSet = new Set(
-      excusedRows.map((item) => new Date(item.date).toISOString().slice(0, 10))
-    );
-
-    let present = 0;
-    let late = 0;
-    let absent = 0;
-    let overtimeDays = 0;
-    let overtimeHoursTotal = 0;
-    for (const dayKey of expectedDayKeys) {
-      const day = dayMap.get(dayKey);
-
-      if (excusedSet.has(dayKey)) {
-        // Excluded from absent numerator.
-      } else if (!day || (!day.hasAbsent && !day.hasLate && !day.hasPresent)) {
-        absent += 1;
-      } else if (day.hasAbsent) {
-        absent += 1;
-      } else if (day.hasLate) {
-        late += 1;
-      } else if (day.hasPresent) {
-        present += 1;
-      }
-
-      if (day?.hasOvertime) overtimeDays += 1;
-      overtimeHoursTotal += day?.overtimeHoursTotal ?? 0;
-    }
-
-    const observedAttendanceDays = dayMap.size;
-    const expectedWorkdays = expectedDayKeys.length;
-    const excusedAbsenceCount = expectedDayKeys.reduce(
-      (acc, key) => acc + (excusedSet.has(key) ? 1 : 0),
-      0
-    );
-    const effectiveExpectedWorkdays = Math.max(0, expectedWorkdays - excusedAbsenceCount);
-    const rate = (count) =>
-      effectiveExpectedWorkdays > 0
-        ? Math.round(((count / effectiveExpectedWorkdays) * 100) * 10) / 10
-        : 0;
-
-    const expectedHoursPerDay =
-      computeShiftHours(shiftRow) ?? computeShiftHours(defaultShiftRow) ?? 8;
-    const expectedWorkHoursRaw = effectiveExpectedWorkdays * expectedHoursPerDay;
-    const expectedWorkHours = Math.round(expectedWorkHoursRaw * 10) / 10;
-    const overtimeHoursRate =
-      expectedWorkHours > 0
-        ? Math.round(((overtimeHoursTotal / expectedWorkHours) * 100) * 10) / 10
-        : 0;
-
-    const responseData = {
-      totalDays: observedAttendanceDays,
-      observedAttendanceDays,
-      expectedWorkdays,
-      effectiveExpectedWorkdays,
-      expectedWorkHours,
-      denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
-      period: {
-        startDate: rangeStart.toISOString().slice(0, 10),
-        endDate: rangeEnd.toISOString().slice(0, 10),
-      },
-      presentCount: present,
-      absentCount: absent,
-      lateCount: late,
-      excusedAbsenceCount,
-      overtimeDaysCount: overtimeDays,
-      overtimeHoursTotal: Math.round(overtimeHoursTotal * 10) / 10,
-      presentRate: rate(present),
-      absentRate: rate(absent),
-      lateRate: rate(late),
-      overtimeRate: rate(overtimeDays),
-      overtimeHoursRate,
-      noData: effectiveExpectedWorkdays === 0 && observedAttendanceDays === 0,
-      ...(resolvedPayPeriod?.id ? { payPeriodId: resolvedPayPeriod.id } : {}),
-    };
-
-    // Persist snapshot if requested pay period is CLOSED (and no snapshot existed).
-    if (resolvedPayPeriod?.status === "CLOSED") {
-      await prisma.attendanceStatSnapshot.create({
-        data: {
-          tenantId,
-          userId,
-          payPeriodId: resolvedPayPeriod.id,
-          periodStartDate: rangeStart,
-          periodEndDate: rangeEnd,
-          expectedWorkdays,
-          effectiveExpectedWorkdays,
-          observedAttendanceDays,
-          presentCount: present,
-          lateCount: late,
-          absentCount: absent,
-          excusedAbsenceCount,
-          overtimeDaysCount: overtimeDays,
-          overtimeHoursTotal: Math.round(overtimeHoursTotal * 10) / 10,
-          expectedWorkHours,
-          presentRate: rate(present),
-          lateRate: rate(late),
-          absentRate: rate(absent),
-          overtimeRate: rate(overtimeDays),
-          overtimeHoursRate,
-          computedBy: req.user?.id ?? null,
-        },
+    if (!live.ok) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Employee not found",
       });
-      responseData.snapshot = true;
     }
 
     return res.status(200).json({
       success: true,
       message: "Employee attendance stats retrieved successfully",
-      data: responseData,
+      data: live.responseData,
     });
   } catch (error) {
     logger.error(`Error getting employee attendance stats: ${error.message}`, {
@@ -1731,6 +1446,54 @@ export const getEmployeeAttendanceStats = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to get employee attendance stats",
+    });
+  }
+};
+
+export const getEmployeeWorkSummary = async (req, res) => {
+  const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+  const userId = req.params.userId;
+  const { monthsBack, payPeriodsBack } = req.query;
+
+  try {
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Tenant ID or User ID is required",
+        message: "Tenant ID or User ID is required",
+      });
+    }
+
+    const result = await buildEmployeeWorkSummary(prisma, {
+      tenantId,
+      userId,
+      requestUserRole: req.user?.role,
+      monthsBack: monthsBack != null ? Number(monthsBack) : undefined,
+      payPeriodsBack: payPeriodsBack != null ? Number(payPeriodsBack) : undefined,
+      computedBy: req.user?.id ?? null,
+    });
+
+    if (!result.ok && result.code === "EMPLOYEE_NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Employee not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Work summary retrieved successfully",
+      data: result.data,
+    });
+  } catch (error) {
+    logger.error(`Error getting work summary: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to get work summary",
     });
   }
 };
