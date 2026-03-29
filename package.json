@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node ./bin/index.js",
     "dev": "nodemon ./bin/index.js",
+    "db:generate": "prisma generate",
+    "build": "npm run db:generate",
     "seed:activities": "node ./scripts/seed-recent-activities-and-notifications.js",
     "seed:attendance": "node ./scripts/seed-attendance-and-locations.js",
     "db:clear": "node scripts/clear-data-except-user-tenant.js",
