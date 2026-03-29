@@ -22,9 +22,9 @@ const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
 
 const server = http.createServer(app);
 
+const HOST = process.env.NODE_ENV === "production" ? "127.0.0.1" : "0.0.0.0";
 
-
-server.listen(process.env.PORT || 5001, "0.0.0.0", async () => {
+server.listen(process.env.PORT || 5001, HOST, async () => {
 
 
   logger.info(`Server is running on port ${process.env.PORT || 5001}`);
