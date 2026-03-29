@@ -90,12 +90,12 @@ export const validateEmployees = async (employeeIds, tenantId, payPeriodId) => {
                     warnings.push({
                         employeeId: employee.id,
                         name: employee.name,
-                        warning: `Overtime recorded (${otState.rawHours.toFixed(2)}h) but not approved by HR`,
+                        warning: `Overtime recorded (${otState.rawHours.toFixed(2)}h) but not approved or rejected by HR`,
                     });
                     ineligible.push({
                         employeeId: employee.id,
                         name: employee.name,
-                        reason: "Overtime requires HR approval (Payroll → Overtime)",
+                        reason: "Overtime requires HR approval or rejection (Payroll → Overtime)",
                     });
                 } else {
                     eligible.push({

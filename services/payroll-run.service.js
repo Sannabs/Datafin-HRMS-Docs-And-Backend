@@ -377,7 +377,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
         if (otState.blocked) {
             throw new OvertimeNotApprovedError(
                 `Employee has ${otState.rawHours.toFixed(2)} overtime hour(s) in this pay period. ` +
-                    "An HR Admin must approve overtime (Payroll → Overtime) before this employee can be included in payroll."
+                    "An HR Admin must approve or reject overtime (Payroll → Overtime) before this employee can be included in payroll."
             );
         }
         const payableOvertimeHours = otState.payableHours;

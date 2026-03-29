@@ -120,7 +120,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         );
         if (otState.rawHours > 0 && otState.blocked) {
             overtimeProjectionNote =
-                "Recorded overtime exists but is not approved; overtime pay is not included in this estimate.";
+                "Recorded overtime exists but is not approved or rejected by HR; overtime pay is not included in this estimate.";
         }
         payableOvertimeHours = otState.payableHours;
     }

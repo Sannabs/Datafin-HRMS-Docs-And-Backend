@@ -72,11 +72,17 @@ export const getOvertimePayrollState = async (userId, tenantId, payPeriodId, per
         return { rawHours, payableHours: rawHours, blocked: false, approval };
     }
 
+    // Explicit reject: payroll proceeds with $0 OT (recorded hours remain for audit only)
+    if (approval?.status === "REJECTED") {
+        return { rawHours, payableHours: 0, blocked: false, approval };
+    }
+
+    // PENDING or no approval row yet — need HR decision before payroll
     return { rawHours, payableHours: 0, blocked: true, approval };
 };
 
 /**
- * Throws OvertimeNotApprovedError when employee has OT hours but HR has not approved.
+ * Throws OvertimeNotApprovedError when employee has OT hours but HR has not approved or rejected.
  */
 export const assertOvertimeApprovedForPayrollOrThrow = async (
     userId,
@@ -89,7 +95,7 @@ export const assertOvertimeApprovedForPayrollOrThrow = async (
     if (state.blocked) {
         throw new OvertimeNotApprovedError(
             `Employee has ${state.rawHours.toFixed(2)} overtime hour(s) in this pay period. ` +
-                "An HR Admin must approve overtime (Payroll → Overtime) before this employee can be included in payroll."
+                "An HR Admin must approve or reject overtime (Payroll → Overtime) before this employee can be included in payroll."
         );
     }
     return state;
