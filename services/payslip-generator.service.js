@@ -1,4 +1,5 @@
 import puppeteer from "puppeteer";
+import pLimit from "p-limit";
 import { readFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -10,6 +11,10 @@ import { getPayslipBreakdown, getPayslipYTD, formatCurrency } from "../utils/pay
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const templatePath = process.env.PAYSLIP_TEMPLATE_PATH || join(__dirname, "../templates/payslip.html");
+
+/** Max concurrent Chromium processes for payslip PDF (launch → close); fixed at 2 via p-limit. */
+const payslipBrowserConcurrency = Math.max(1, 2);
+const browserInstanceLimit = pLimit(payslipBrowserConcurrency);
 
 /**
  * Launch a shared Puppeteer browser instance (for batch use)
@@ -26,6 +31,30 @@ const launchBrowser = () => {
 };
 
 /**
+ * Render HTML template to PDF buffer using an existing browser (caller manages browser lifecycle).
+ * @param {import("puppeteer").Browser} browser
+ * @param {string} template
+ */
+const renderPayslipPdfBuffer = async (browser, template) => {
+    const page = await browser.newPage();
+    try {
+        await page.setContent(template, { waitUntil: "domcontentloaded" });
+        return await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: {
+                top: "20mm",
+                right: "15mm",
+                bottom: "20mm",
+                left: "15mm",
+            },
+        });
+    } finally {
+        await page.close();
+    }
+};
+
+/**
  * Generate payslip PDF and upload to Cloudflare R2
  * @param {string} payslipId - Payslip ID
  * @param {string} tenantId - Tenant ID
@@ -35,8 +64,6 @@ const launchBrowser = () => {
  */
 export const generatePayslipPDF = async (payslipId, tenantId, payslipData, options = {}) => {
     const { browser: sharedBrowser } = options;
-    let browser = sharedBrowser ?? null;
-    const ownedBrowser = !sharedBrowser;
 
     try {
         // Load HTML template
@@ -173,30 +200,18 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
         template = template.replace("{{employerSSHFCSection}}", employerSSHFCSectionHTML);
         template = template.replace("{{ytdSection}}", ytdSectionHTML);
 
-        if (!browser) {
-            browser = await launchBrowser();
-        }
-
-        const page = await browser.newPage();
-        // domcontentloaded is sufficient for static inline HTML; networkidle0 can timeout in containerized environments (e.g. Render)
-        await page.setContent(template, { waitUntil: "domcontentloaded" });
-
-        // Generate PDF
-        const pdfBuffer = await page.pdf({
-            format: "A4",
-            printBackground: true,
-            margin: {
-                top: "20mm",
-                right: "15mm",
-                bottom: "20mm",
-                left: "15mm",
-            },
-        });
-        await page.close();
-
-        if (ownedBrowser && browser) {
-            await browser.close();
-            browser = null;
+        let pdfBuffer;
+        if (sharedBrowser) {
+            pdfBuffer = await renderPayslipPdfBuffer(sharedBrowser, template);
+        } else {
+            pdfBuffer = await browserInstanceLimit(async () => {
+                const browser = await launchBrowser();
+                try {
+                    return await renderPayslipPdfBuffer(browser, template);
+                } finally {
+                    await browser.close();
+                }
+            });
         }
 
         // Get year and month from pay period
@@ -221,9 +236,6 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
 
         return uploadResult;
     } catch (error) {
-        if (ownedBrowser && browser) {
-            await browser.close();
-        }
         logger.error(`Error generating payslip PDF: ${error.message}`, {
             error: error.stack,
             payslipId,
@@ -406,23 +418,25 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
  */
 export const generatePayslipsBatch = async (payslipIds, tenantId) => {
     if (payslipIds.length === 0) return new Map();
-    let browser = null;
-    const results = new Map();
-    try {
-        browser = await launchBrowser();
-        for (const payslipId of payslipIds) {
-            try {
-                const uploadResult = await generatePayslipFromRecord(payslipId, tenantId, { browser });
-                results.set(payslipId, uploadResult.public_id);
-            } catch (err) {
-                logger.warn(`Failed to generate PDF for payslip ${payslipId} in batch: ${err.message}`);
+    return browserInstanceLimit(async () => {
+        let browser = null;
+        const results = new Map();
+        try {
+            browser = await launchBrowser();
+            for (const payslipId of payslipIds) {
+                try {
+                    const uploadResult = await generatePayslipFromRecord(payslipId, tenantId, { browser });
+                    results.set(payslipId, uploadResult.public_id);
+                } catch (err) {
+                    logger.warn(`Failed to generate PDF for payslip ${payslipId} in batch: ${err.message}`);
+                }
+            }
+        } finally {
+            if (browser) {
+                await browser.close();
             }
         }
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
-    }
-    return results;
+        return results;
+    });
 };
 
