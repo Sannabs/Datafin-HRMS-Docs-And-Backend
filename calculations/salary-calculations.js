@@ -16,7 +16,8 @@ export const calculateAllowanceAmount = async (
     baseSalary,
     employeeContext = null,
     grossSalary = 0,
-    tenantId = null
+    tenantId = null,
+    formulaScopeOptions = null
 ) => {
     const { amount, amountPeriodType, calculationMethod, allowanceTypeId, formulaExpression } = allowance;
 
@@ -41,7 +42,7 @@ export const calculateAllowanceAmount = async (
                     baseSalary,
                     grossSalary || baseSalary,
                     employeeContext || {},
-                    {},
+                    formulaScopeOptions && typeof formulaScopeOptions === "object" ? formulaScopeOptions : {},
                     tenantId
                 );
                 if (result.success && typeof result.result === "number") {
@@ -79,7 +80,8 @@ export const calculateDeductionAmount = async (
     grossSalary,
     baseSalary,
     employeeContext = null,
-    tenantId = null
+    tenantId = null,
+    formulaScopeOptions = null
 ) => {
     const { amount, amountPeriodType, calculationMethod, deductionTypeId, formulaExpression } = deduction;
 
@@ -104,7 +106,7 @@ export const calculateDeductionAmount = async (
                     baseSalary,
                     grossSalary,
                     employeeContext || {},
-                    {},
+                    formulaScopeOptions && typeof formulaScopeOptions === "object" ? formulaScopeOptions : {},
                     tenantId
                 );
                 if (result.success && typeof result.result === "number") {
@@ -140,7 +142,8 @@ export const calculateGrossSalary = async (
     baseSalary,
     allowances = [],
     employeeContext = null,
-    tenantId = null
+    tenantId = null,
+    formulaScopeOptions = null
 ) => {
     if (!allowances || allowances.length === 0) {
         return baseSalary;
@@ -157,7 +160,8 @@ export const calculateGrossSalary = async (
             baseSalary,
             employeeContext,
             currentGross,
-            tenantId
+            tenantId,
+            formulaScopeOptions
         );
         totalAllowances += allowanceAmount;
         // Update current gross for next iteration (if conditional depends on gross)
@@ -181,7 +185,8 @@ export const calculateNetSalary = async (
     deductions = [],
     baseSalary = 0,
     employeeContext = null,
-    tenantId = null
+    tenantId = null,
+    formulaScopeOptions = null
 ) => {
     if (!deductions || deductions.length === 0) {
         return {
@@ -200,7 +205,8 @@ export const calculateNetSalary = async (
             grossSalary,
             baseSalary,
             employeeContext,
-            tenantId
+            tenantId,
+            formulaScopeOptions
         );
         totalDeductions += deductionAmount;
     }
@@ -232,10 +238,24 @@ export const recalculateSalary = async (
     allowances = [],
     deductions = [],
     employeeContext = null,
-    tenantId = null
+    tenantId = null,
+    formulaScopeOptions = null
 ) => {
-    const grossSalary = await calculateGrossSalary(baseSalary, allowances, employeeContext, tenantId);
-    const netResult = await calculateNetSalary(grossSalary, deductions, baseSalary, employeeContext, tenantId);
+    const grossSalary = await calculateGrossSalary(
+        baseSalary,
+        allowances,
+        employeeContext,
+        tenantId,
+        formulaScopeOptions
+    );
+    const netResult = await calculateNetSalary(
+        grossSalary,
+        deductions,
+        baseSalary,
+        employeeContext,
+        tenantId,
+        formulaScopeOptions
+    );
 
     return {
         grossSalary,
@@ -272,7 +292,9 @@ export const getSalaryBreakdownItemized = async (
     tenantId = null,
     gambiaStatutoryEnabled = false,
     gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE",
-    isGambiaTaxExempt = false
+    isGambiaTaxExempt = false,
+    formulaScopeOptions = null,
+    supplementalAllowanceLines = []
 ) => {
     const allowanceLines = [];
     let totalAllowances = 0;
@@ -284,7 +306,8 @@ export const getSalaryBreakdownItemized = async (
             baseSalary,
             employeeContext,
             currentGross,
-            tenantId
+            tenantId,
+            formulaScopeOptions
         );
         totalAllowances += amount;
         currentGross = baseSalary + totalAllowances;
@@ -299,6 +322,19 @@ export const getSalaryBreakdownItemized = async (
         allowanceLines.push({ name, amount, calculationMethod: method, description });
     }
 
+    const extraLines = Array.isArray(supplementalAllowanceLines) ? supplementalAllowanceLines : [];
+    for (const line of extraLines) {
+        const amt = Math.round((Number(line.amount) || 0) * 100) / 100;
+        totalAllowances += amt;
+        currentGross = baseSalary + totalAllowances;
+        allowanceLines.push({
+            name: line.name ?? "Allowance",
+            amount: amt,
+            calculationMethod: line.calculationMethod ?? "FIXED",
+            description: line.description ?? "",
+        });
+    }
+
     const grossSalary = baseSalary + totalAllowances;
     const deductionLines = [];
     let totalDeductions = 0;
@@ -309,7 +345,8 @@ export const getSalaryBreakdownItemized = async (
             grossSalary,
             baseSalary,
             employeeContext,
-            tenantId
+            tenantId,
+            formulaScopeOptions
         );
         totalDeductions += amount;
         const name = deduction.deductionType?.name ?? "Deduction";
@@ -340,7 +377,9 @@ export const getSalaryBreakdownItemized = async (
         }
     }
 
-    const netSalary = Math.max(0, grossSalary - totalDeductions);
+    const originalNetSalary = grossSalary - totalDeductions;
+    const negativeNetWarning = originalNetSalary < 0;
+    const netSalary = Math.max(0, originalNetSalary);
 
     return {
         grossSalary,
@@ -348,5 +387,7 @@ export const getSalaryBreakdownItemized = async (
         totalDeductions,
         allowanceLines,
         deductionLines,
+        negativeNetWarning,
+        originalNetSalary,
     };
 };

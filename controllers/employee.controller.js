@@ -1911,8 +1911,22 @@ export const getEmployeePayrollOverview = async (req, res) => {
                   grossEarnings: bundle.ytd.grossSalaryYTD,
                   netPay: bundle.ytd.netSalaryYTD,
                   totalDeductions: bundle.ytd.totalDeductionsYTD,
+                  overtimePayYTD: bundle.ytd.overtimePayYTD ?? 0,
+                  overtimeHoursYTD: bundle.ytd.overtimeHoursYTD ?? 0,
               }
             : null;
+
+        const overtime =
+            bundle.breakdown?.overtime && typeof bundle.breakdown.overtime === "object"
+                ? {
+                      latestPayAmount: Math.round((Number(bundle.breakdown.overtime.amount) || 0) * 100) / 100,
+                      latestPayHours: Math.round((Number(bundle.breakdown.overtime.hours) || 0) * 100) / 100,
+                      multiplier:
+                          bundle.breakdown.overtime.multiplier != null
+                              ? Number(bundle.breakdown.overtime.multiplier)
+                              : null,
+                  }
+                : null;
 
         const latest = bundle.payslip
             ? {
@@ -1963,6 +1977,7 @@ export const getEmployeePayrollOverview = async (req, res) => {
                     totalAllowances: sumLineAmounts(allowances),
                     totalDeductions: sumLineAmounts(deductions),
                     note: "Estimated from current salary structure (no payslip yet).",
+                    ...(proj?.overtimeProjectionNote && { overtimeProjectionNote: proj.overtimeProjectionNote }),
                 };
             }
         }
@@ -1991,6 +2006,7 @@ export const getEmployeePayrollOverview = async (req, res) => {
                 latest,
                 compensation,
                 latestBreakdown,
+                overtime,
             },
         });
     } catch (error) {

@@ -4,6 +4,7 @@ import {
     processEmployeePayroll,
     getActiveEmployeesForPayroll,
 } from "./payroll-run.service.js";
+import { getOvertimePayrollState } from "../utils/overtime-payroll.util.js";
 
 /**
  * Validate employee eligibility for payroll processing
@@ -78,11 +79,31 @@ export const validateEmployees = async (employeeIds, tenantId, payPeriodId) => {
                     reason: "No active salary structure",
                 });
             } else {
-                eligible.push({
-                    employeeId: employee.id,
-                    name: employee.name,
-                    employeeCode: employee.employeeId,
-                });
+                const otState = await getOvertimePayrollState(
+                    employee.id,
+                    tenantId,
+                    payPeriodId,
+                    payPeriod.startDate,
+                    payPeriod.endDate
+                );
+                if (otState.blocked) {
+                    warnings.push({
+                        employeeId: employee.id,
+                        name: employee.name,
+                        warning: `Overtime recorded (${otState.rawHours.toFixed(2)}h) but not approved by HR`,
+                    });
+                    ineligible.push({
+                        employeeId: employee.id,
+                        name: employee.name,
+                        reason: "Overtime requires HR approval (Payroll → Overtime)",
+                    });
+                } else {
+                    eligible.push({
+                        employeeId: employee.id,
+                        name: employee.name,
+                        employeeCode: employee.employeeId,
+                    });
+                }
             }
         }
 

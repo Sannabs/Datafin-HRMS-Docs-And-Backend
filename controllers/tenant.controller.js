@@ -200,6 +200,7 @@ export const getPayrollSettings = async (req, res) => {
                 maxPayPeriodLookbackDays: true,
                 gambiaTaxAgeExemptionEnabled: true,
                 gambiaTaxExemptionAge: true,
+                overtimePayMultiplier: true,
             },
         });
 
@@ -221,6 +222,8 @@ export const getPayrollSettings = async (req, res) => {
                 maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
                 gambiaTaxAgeExemptionEnabled: tenant.gambiaTaxAgeExemptionEnabled ?? false,
                 gambiaTaxExemptionAge: tenant.gambiaTaxExemptionAge ?? null,
+                overtimePayMultiplier:
+                    tenant.overtimePayMultiplier != null ? Number(tenant.overtimePayMultiplier) : 1.5,
             },
         });
     } catch (error) {
@@ -253,6 +256,7 @@ export const updatePayrollSettings = async (req, res) => {
             maxPayPeriodLookbackDays,
             gambiaTaxAgeExemptionEnabled,
             gambiaTaxExemptionAge,
+            overtimePayMultiplier,
         } = req.body;
 
         const updateData = {};
@@ -312,12 +316,23 @@ export const updatePayrollSettings = async (req, res) => {
                 updateData.gambiaTaxExemptionAge = age;
             }
         }
+        if (overtimePayMultiplier !== undefined) {
+            const m = Number(overtimePayMultiplier);
+            if (Number.isNaN(m) || m <= 0 || m > 10) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message: "overtimePayMultiplier must be a number between 0 and 10 (e.g. 1.5)",
+                });
+            }
+            updateData.overtimePayMultiplier = m;
+        }
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No valid fields to update (gambiaStatutoryEnabled, gambiaSsnFundingMode, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays, gambiaTaxAgeExemptionEnabled, gambiaTaxExemptionAge)",
+                message: "No valid fields to update (gambiaStatutoryEnabled, gambiaSsnFundingMode, employerSocialSecurityRate, allowPastPayPeriodCreation, maxPayPeriodLookbackDays, gambiaTaxAgeExemptionEnabled, gambiaTaxExemptionAge, overtimePayMultiplier)",
             });
         }
 
@@ -332,6 +347,7 @@ export const updatePayrollSettings = async (req, res) => {
                 maxPayPeriodLookbackDays: true,
                 gambiaTaxAgeExemptionEnabled: true,
                 gambiaTaxExemptionAge: true,
+                overtimePayMultiplier: true,
             },
         });
 
@@ -351,6 +367,8 @@ export const updatePayrollSettings = async (req, res) => {
                 maxPayPeriodLookbackDays: tenant.maxPayPeriodLookbackDays ?? null,
                 gambiaTaxAgeExemptionEnabled: tenant.gambiaTaxAgeExemptionEnabled ?? false,
                 gambiaTaxExemptionAge: tenant.gambiaTaxExemptionAge ?? null,
+                overtimePayMultiplier:
+                    tenant.overtimePayMultiplier != null ? Number(tenant.overtimePayMultiplier) : 1.5,
             },
             message: "Payroll settings updated",
         });

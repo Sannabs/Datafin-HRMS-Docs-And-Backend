@@ -1,11 +1,11 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { getSalaryBreakdownItemized } from "../calculations/salary-calculations.js";
 import {
-    recalculateSalary,
-    calculateAllowanceAmount,
-    calculateDeductionAmount,
-    getSalaryBreakdownItemized,
-} from "../calculations/salary-calculations.js";
+    computeOvertimePayAmount,
+    getOvertimePayrollState,
+    OvertimeNotApprovedError,
+} from "../utils/overtime-payroll.util.js";
 import { createProgress, updateProgress } from "./payroll-progress.service.js";
 import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 import { addPayrollRunJob } from "../queues/payroll.queue.js";
@@ -13,8 +13,6 @@ import { updatePayPeriodStatusAutomatically } from "./pay-period-automation.serv
 import { validateStatusTransition } from "../utils/payroll-run.utils.js";
 import {
     buildGambiaEmployerContributionLines,
-    calculateGambiaPAYE,
-    GAMBIA_SSN_EMPLOYEE_RATE,
     resolveEmployerSocialSecurityRatePercent,
 } from "../constants/gambia-payroll.defaults.js";
 
@@ -163,7 +161,7 @@ export const finalizePayrollRun = async (payrollRunId, options = {}) => {
             where: { id: payrollRunId },
             data: updateData,
             include: {
-                payPeriod: updatePayPeriod,
+                payPeriod: true,
             },
         });
 
@@ -291,6 +289,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 employerSocialSecurityRate: true,
                 gambiaTaxAgeExemptionEnabled: true,
                 gambiaTaxExemptionAge: true,
+                overtimePayMultiplier: true,
             },
         });
 
@@ -368,6 +367,57 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 ? salaryStructure.baseSalary / 12
                 : salaryStructure.baseSalary;
 
+        const otState = await getOvertimePayrollState(
+            employeeId,
+            tenantId,
+            payPeriodId,
+            payPeriod.startDate,
+            payPeriod.endDate
+        );
+        if (otState.blocked) {
+            throw new OvertimeNotApprovedError(
+                `Employee has ${otState.rawHours.toFixed(2)} overtime hour(s) in this pay period. ` +
+                    "An HR Admin must approve overtime (Payroll → Overtime) before this employee can be included in payroll."
+            );
+        }
+        const payableOvertimeHours = otState.payableHours;
+
+        const formulaScopeOptions = {
+            payPeriodStartDate: payPeriod.startDate,
+            payPeriodEndDate: payPeriod.endDate,
+        };
+
+        const multiplier =
+            tenant?.overtimePayMultiplier != null &&
+            Number(tenant.overtimePayMultiplier) > 0
+                ? Number(tenant.overtimePayMultiplier)
+                : 1.5;
+
+        const supplementalAllowanceLines = [];
+        let overtimeMeta = null;
+        if (payableOvertimeHours > 0) {
+            const ot = await computeOvertimePayAmount(
+                baseSalaryMonthly,
+                tenantId,
+                payPeriod.startDate,
+                payPeriod.endDate,
+                payableOvertimeHours,
+                multiplier
+            );
+            supplementalAllowanceLines.push({
+                name: "Overtime pay",
+                amount: ot.amount,
+                calculationMethod: "OVERTIME",
+                description: ot.description,
+            });
+            overtimeMeta = {
+                hours: ot.hours,
+                hourlyRate: ot.hourlyRate,
+                multiplier: ot.multiplier,
+                amount: ot.amount,
+            };
+        }
+
         // Build employee context for conditional calculations
         const employeeContext = {
             departmentId: employee.departmentId,
@@ -377,6 +427,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             status: employee.status,
             hireDate: employee.hireDate,
             dateOfBirth: employee.dateOfBirth,
+            overtimeHours: payableOvertimeHours,
         };
 
         const getAgeFromDate = (date) => {
@@ -399,69 +450,6 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             employeeAge != null &&
             employeeAge >= tenant.gambiaTaxExemptionAge;
 
-        // Calculate gross and net salary (with warning detection)
-        const salaryResult = await recalculateSalary(
-            baseSalaryMonthly,
-            salaryStructure.allowances,
-            salaryStructure.deductions,
-            employeeContext,
-            tenantId
-        );
-
-        const { grossSalary, netSalary, warnings } = salaryResult;
-
-        // Log warning if deductions exceed gross salary
-        if (warnings?.hasNegativeNetSalary) {
-            logger.warn(`Negative net salary detected for employee ${employeeId}: ${warnings.message}`, {
-                employeeId,
-                grossSalary,
-                originalNetSalary: warnings.originalNetSalary,
-                adjustedNetSalary: netSalary,
-            });
-        }
-
-        // Calculate total allowances and deductions
-        let totalAllowances = 0;
-        for (const allowance of salaryStructure.allowances) {
-            const amount = await calculateAllowanceAmount(
-                allowance,
-                baseSalaryMonthly,
-                employeeContext,
-                grossSalary,
-                tenantId
-            );
-            totalAllowances += amount;
-        }
-
-        let totalDeductions = 0;
-        for (const deduction of salaryStructure.deductions) {
-            const amount = await calculateDeductionAmount(
-                deduction,
-                grossSalary,
-                baseSalaryMonthly,
-                employeeContext,
-                tenantId
-            );
-            totalDeductions += amount;
-        }
-
-        let netSalaryFinal = netSalary;
-        if (tenant?.gambiaStatutoryEnabled) {
-            const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
-
-            if (!isGambiaTaxExempt) {
-                const payeAmount = calculateGambiaPAYE(grossSalary);
-                totalDeductions += payeAmount;
-            }
-
-            if (ssnFundingMode === "DEDUCT_FROM_EMPLOYEE") {
-                const ssnAmount = Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100;
-                totalDeductions += ssnAmount;
-            }
-
-            netSalaryFinal = Math.max(0, grossSalary - totalDeductions);
-        }
-
         // Snapshot itemized breakdown so later config changes don't change this payslip's detail/PDF
         const itemized = await getSalaryBreakdownItemized(
             baseSalaryMonthly,
@@ -471,8 +459,32 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             tenantId,
             tenant?.gambiaStatutoryEnabled ?? false,
             tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
-            isGambiaTaxExempt
+            isGambiaTaxExempt,
+            formulaScopeOptions,
+            supplementalAllowanceLines
         );
+
+        const grossSalary = itemized.grossSalary;
+        const totalAllowances = itemized.allowanceLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+        const totalDeductions = itemized.totalDeductions;
+        const netSalaryFinal = itemized.netSalary;
+
+        const warnings = itemized.negativeNetWarning
+            ? {
+                  hasNegativeNetSalary: true,
+                  originalNetSalary: itemized.originalNetSalary,
+                  message: `Deductions exceed gross salary. Original net: ${itemized.originalNetSalary.toFixed(2)}, adjusted to 0.`,
+              }
+            : null;
+
+        if (warnings?.hasNegativeNetSalary) {
+            logger.warn(`Negative net salary detected for employee ${employeeId}: ${warnings.message}`, {
+                employeeId,
+                grossSalary,
+                originalNetSalary: warnings.originalNetSalary,
+                adjustedNetSalary: netSalaryFinal,
+            });
+        }
         const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
         const employerRatePercent = resolveEmployerSocialSecurityRatePercent(
             tenant?.employerSocialSecurityRate ?? null,
@@ -506,6 +518,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                         employerSSHFCAmount: employerSSHFCLine.amount,
                     }),
             }),
+            ...(overtimeMeta && { overtime: overtimeMeta }),
         };
 
         return {

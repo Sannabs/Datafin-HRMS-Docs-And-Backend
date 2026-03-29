@@ -4,6 +4,10 @@ import {
     buildGambiaEmployerContributionLines,
     resolveEmployerSocialSecurityRatePercent,
 } from "../constants/gambia-payroll.defaults.js";
+import {
+    computeOvertimePayAmount,
+    getOvertimePayrollState,
+} from "./overtime-payroll.util.js";
 
 /**
  * Get itemized allowances and deductions breakdown for a payslip with calculated amounts
@@ -83,6 +87,44 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         },
     });
 
+    const [tenant, payPeriod] = await Promise.all([
+        prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: {
+                gambiaStatutoryEnabled: true,
+                employerSocialSecurityRate: true,
+                gambiaSsnFundingMode: true,
+                gambiaTaxAgeExemptionEnabled: true,
+                gambiaTaxExemptionAge: true,
+                overtimePayMultiplier: true,
+            },
+        }),
+        prisma.payPeriod.findFirst({
+            where: {
+                tenantId,
+                startDate: payPeriodStartDate,
+                endDate: payPeriodEndDate,
+            },
+        }),
+    ]);
+
+    let payableOvertimeHours = 0;
+    let overtimeProjectionNote = null;
+    if (user && payPeriod) {
+        const otState = await getOvertimePayrollState(
+            userId,
+            tenantId,
+            payPeriod.id,
+            payPeriodStartDate,
+            payPeriodEndDate
+        );
+        if (otState.rawHours > 0 && otState.blocked) {
+            overtimeProjectionNote =
+                "Recorded overtime exists but is not approved; overtime pay is not included in this estimate.";
+        }
+        payableOvertimeHours = otState.payableHours;
+    }
+
     const employeeContext = user
         ? {
             departmentId: user.departmentId,
@@ -92,19 +134,9 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
             hireDate: user.hireDate,
             dateOfBirth: user.dateOfBirth,
             baseSalary: baseSalaryMonthly,
+            overtimeHours: payableOvertimeHours,
           }
         : null;
-
-    const tenant = await prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-            gambiaStatutoryEnabled: true,
-            employerSocialSecurityRate: true,
-            gambiaSsnFundingMode: true,
-            gambiaTaxAgeExemptionEnabled: true,
-            gambiaTaxExemptionAge: true,
-        },
-    });
 
     const getAgeFromDate = (date) => {
         if (!date) return null;
@@ -126,6 +158,34 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         employeeAge != null &&
         employeeAge >= tenant.gambiaTaxExemptionAge;
 
+    const formulaScopeOptions = {
+        payPeriodStartDate,
+        payPeriodEndDate,
+    };
+
+    const multiplier =
+        tenant?.overtimePayMultiplier != null && Number(tenant.overtimePayMultiplier) > 0
+            ? Number(tenant.overtimePayMultiplier)
+            : 1.5;
+
+    const supplementalAllowanceLines = [];
+    if (payableOvertimeHours > 0 && user) {
+        const ot = await computeOvertimePayAmount(
+            baseSalaryMonthly,
+            tenantId,
+            payPeriodStartDate,
+            payPeriodEndDate,
+            payableOvertimeHours,
+            multiplier
+        );
+        supplementalAllowanceLines.push({
+            name: "Overtime pay",
+            amount: ot.amount,
+            calculationMethod: "OVERTIME",
+            description: ot.description,
+        });
+    }
+
     const itemized = await getSalaryBreakdownItemized(
         baseSalaryMonthly,
         salaryStructure.allowances,
@@ -134,11 +194,12 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         tenantId,
         tenant?.gambiaStatutoryEnabled ?? false,
         tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE",
-        isGambiaTaxExempt
+        isGambiaTaxExempt,
+        formulaScopeOptions,
+        supplementalAllowanceLines
     );
 
-    const grossSalaryForEmployer =
-        baseSalaryMonthly + itemized.allowanceLines.reduce((sum, l) => sum + (l.amount || 0), 0);
+    const grossSalaryForEmployer = itemized.grossSalary;
     const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
     const employerRate = resolveEmployerSocialSecurityRatePercent(
         tenant?.employerSocialSecurityRate ?? null,
@@ -174,6 +235,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
                 employerSSHFCRate: employerRate,
                 employerSSHFCAmount: employerSSHFCLine.amount,
             }),
+        ...(overtimeProjectionNote && { overtimeProjectionNote }),
     };
 };
 
@@ -236,6 +298,48 @@ export const getPayslipYTD = async (userId, tenantId, periodEndDate) => {
         grossSalaryYTD: Math.round((agg._sum.grossSalary ?? 0) * 100) / 100,
         totalDeductionsYTD: Math.round((agg._sum.totalDeductions ?? 0) * 100) / 100,
         netSalaryYTD: Math.round((agg._sum.netSalary ?? 0) * 100) / 100,
+    };
+};
+
+/**
+ * Sum overtime pay amounts from payslip breakdown snapshots (YTD).
+ * @param {string} userId
+ * @param {string} tenantId
+ * @param {Date} periodEndDate
+ * @returns {Promise<{ overtimePayYTD: number, overtimeHoursYTD: number }>}
+ */
+export const getOvertimePayYtdForUser = async (userId, tenantId, periodEndDate) => {
+    const end = periodEndDate instanceof Date ? periodEndDate : new Date(periodEndDate);
+    const year = end.getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+
+    const slips = await prisma.payslip.findMany({
+        where: {
+            userId,
+            payrollRun: {
+                tenantId,
+                payPeriod: {
+                    endDate: { gte: startOfYear, lte: end },
+                },
+            },
+        },
+        select: { breakdownSnapshot: true },
+    });
+
+    let overtimePayYTD = 0;
+    let overtimeHoursYTD = 0;
+    for (const p of slips) {
+        const snap = p.breakdownSnapshot;
+        const o = snap && typeof snap === "object" ? snap.overtime : null;
+        if (o && typeof o === "object") {
+            overtimePayYTD += Number(o.amount) || 0;
+            overtimeHoursYTD += Number(o.hours) || 0;
+        }
+    }
+
+    return {
+        overtimePayYTD: Math.round(overtimePayYTD * 100) / 100,
+        overtimeHoursYTD: Math.round(overtimeHoursYTD * 100) / 100,
     };
 };
 
@@ -336,7 +440,10 @@ export const getLatestPayslipBundleForUser = async (userId, tenantId) => {
 
     let ytd = null;
     if (payslip.payrollRun?.payPeriod?.endDate) {
-        ytd = await getPayslipYTD(payslip.userId, tenantId, payslip.payrollRun.payPeriod.endDate);
+        const end = payslip.payrollRun.payPeriod.endDate;
+        const baseYtd = await getPayslipYTD(payslip.userId, tenantId, end);
+        const otYtd = await getOvertimePayYtdForUser(payslip.userId, tenantId, end);
+        ytd = { ...baseYtd, ...otYtd };
     }
 
     return { payslip, netSalary, breakdown, ytd };

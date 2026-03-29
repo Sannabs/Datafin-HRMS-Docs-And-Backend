@@ -4,6 +4,7 @@ import {
     calculateWorkingDays,
     getWorkingDaysInCurrentMonth,
 } from "../utils/working-days.utils.js";
+import { inclusiveCalendarDaysInPeriod } from "../utils/overtime-payroll.util.js";
 
 // Create a restricted mathjs instance for safe evaluation
 const math = create(all);
@@ -72,6 +73,12 @@ export const buildFormulaScope = (
     employeeContext = {},
     additionalVars = {}
 ) => {
+    const {
+        payPeriodStartDate,
+        payPeriodEndDate,
+        ...restAdditional
+    } = additionalVars || {};
+
     const today = new Date();
     const hireDate = employeeContext.hireDate ? new Date(employeeContext.hireDate) : null;
 
@@ -82,21 +89,27 @@ export const buildFormulaScope = (
         yearsOfService = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
     }
 
-    // Calculate days in current month
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-
-    // Use synchronous working days calculation (excludes weekends, not holidays)
-    const workingDays = getWorkingDaysInCurrentMonth();
+    let daysInMonth;
+    let workingDays;
+    if (payPeriodStartDate != null && payPeriodEndDate != null) {
+        const startDate = new Date(payPeriodStartDate);
+        const endDate = new Date(payPeriodEndDate);
+        daysInMonth = inclusiveCalendarDaysInPeriod(startDate, endDate);
+        workingDays = getWorkingDaysInCurrentMonth(); // sync path: approximate without tenant holidays
+    } else {
+        daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+        workingDays = getWorkingDaysInCurrentMonth();
+    }
 
     const scope = {
         // Core salary values
         baseSalary: Number(baseSalary) || 0,
         grossSalary: Number(grossSalary) || 0,
-        netSalary: Number(additionalVars.netSalary) || 0,
+        netSalary: Number(restAdditional.netSalary) || 0,
 
         // Aggregates
-        totalAllowances: Number(additionalVars.totalAllowances) || 0,
-        totalDeductions: Number(additionalVars.totalDeductions) || 0,
+        totalAllowances: Number(restAdditional.totalAllowances) || 0,
+        totalDeductions: Number(restAdditional.totalDeductions) || 0,
 
         // Time-based
         yearsOfService,
@@ -113,7 +126,7 @@ export const buildFormulaScope = (
         E: Math.E,
 
         // Custom helper values
-        ...additionalVars,
+        ...restAdditional,
     };
 
     // Add all numeric values from employeeContext with 'ctx_' prefix
@@ -144,6 +157,12 @@ export const buildFormulaScopeAsync = async (
     additionalVars = {},
     tenantId = null
 ) => {
+    const {
+        payPeriodStartDate,
+        payPeriodEndDate,
+        ...restAdditional
+    } = additionalVars || {};
+
     const today = new Date();
     const hireDate = employeeContext.hireDate ? new Date(employeeContext.hireDate) : null;
 
@@ -154,30 +173,35 @@ export const buildFormulaScopeAsync = async (
         yearsOfService = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 365.25));
     }
 
-    // Calculate days in current month
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // Calculate working days using tenant-specific holidays and weekend config
+    let daysInMonth;
     let workingDays;
-    if (tenantId) {
-        const startDate = new Date(year, month, 1);
-        const endDate = new Date(year, month + 1, 0);
+    if (payPeriodStartDate != null && payPeriodEndDate != null && tenantId) {
+        const startDate = new Date(payPeriodStartDate);
+        const endDate = new Date(payPeriodEndDate);
+        daysInMonth = inclusiveCalendarDaysInPeriod(startDate, endDate);
         workingDays = await calculateWorkingDays(startDate, endDate, tenantId);
     } else {
-        workingDays = getWorkingDaysInCurrentMonth();
+        const year = today.getFullYear();
+        const month = today.getMonth();
+        daysInMonth = new Date(year, month + 1, 0).getDate();
+        if (tenantId) {
+            const startDate = new Date(year, month, 1);
+            const endDate = new Date(year, month + 1, 0);
+            workingDays = await calculateWorkingDays(startDate, endDate, tenantId);
+        } else {
+            workingDays = getWorkingDaysInCurrentMonth();
+        }
     }
 
     const scope = {
         // Core salary values
         baseSalary: Number(baseSalary) || 0,
         grossSalary: Number(grossSalary) || 0,
-        netSalary: Number(additionalVars.netSalary) || 0,
+        netSalary: Number(restAdditional.netSalary) || 0,
 
         // Aggregates
-        totalAllowances: Number(additionalVars.totalAllowances) || 0,
-        totalDeductions: Number(additionalVars.totalDeductions) || 0,
+        totalAllowances: Number(restAdditional.totalAllowances) || 0,
+        totalDeductions: Number(restAdditional.totalDeductions) || 0,
 
         // Time-based
         yearsOfService,
@@ -194,7 +218,7 @@ export const buildFormulaScopeAsync = async (
         E: Math.E,
 
         // Custom helper values
-        ...additionalVars,
+        ...restAdditional,
     };
 
     // Add all numeric values from employeeContext with 'ctx_' prefix

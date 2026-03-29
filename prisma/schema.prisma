@@ -63,6 +63,12 @@ enum GambiaSsnFundingMode {
   EMPLOYER_PAYS_ON_BEHALF
 }
 
+enum OvertimeApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Invitation {
   id                  String            @id @default(uuid())
   senderId            String
@@ -261,6 +267,9 @@ model Tenant {
   allowPastPayPeriodCreation Boolean @default(true)
   maxPayPeriodLookbackDays   Int? // null = unlimited; e.g. 365 = max 12 months back
 
+  /// Overtime pay rate multiplier (e.g. 1.5 for time-and-a-half)
+  overtimePayMultiplier Float @default(1.5)
+
   users                User[]
   departments          Department[]
   positions            Position[]
@@ -291,6 +300,7 @@ model Tenant {
   batchJobs            BatchJob[]
   attendanceStatSnapshots AttendanceStatSnapshot[]
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
+  overtimePeriodApprovals OvertimePeriodApproval[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -432,6 +442,8 @@ model User {
   createdBatchJobs            BatchJob[]            @relation("BatchJobCreator")
   attendanceStatSnapshots     AttendanceStatSnapshot[]
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
+  overtimePeriodApprovalsAsEmployee OvertimePeriodApproval[] @relation("OvertimeApprovalSubject")
+  overtimePeriodApprovalsAsApprover OvertimePeriodApproval[] @relation("OvertimeApprovalApprover")
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -721,10 +733,33 @@ model PayPeriod {
 
   payrollRuns PayrollRun[]
   attendanceStatSnapshots AttendanceStatSnapshot[]
+  overtimePeriodApprovals OvertimePeriodApproval[]
 
   @@unique([tenantId, periodName])
   @@index([tenantId])
   @@index([payScheduleId])
+}
+
+/// HR approval gate for paying attendance overtime in a pay period
+model OvertimePeriodApproval {
+  id          String                 @id @default(uuid())
+  tenantId    String
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                   @relation("OvertimeApprovalSubject", fields: [userId], references: [id], onDelete: Cascade)
+  payPeriodId String
+  payPeriod   PayPeriod              @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+  status      OvertimeApprovalStatus @default(PENDING)
+  approvedById String?
+  approvedBy   User?                 @relation("OvertimeApprovalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId, payPeriodId])
+  @@index([tenantId, payPeriodId])
 }
 
 model AttendanceStatSnapshot {
