@@ -459,7 +459,7 @@ DRAFT → PROCESSING → COMPLETED
 - Handle any employee inquiries
 - Process corrections if discrepancies found
 - Create adjustment payroll runs if needed
-- Close pay period (mark as CLOSED)
+- Pay period moves to CLOSED automatically after the grace period (or pause auto-close if more time is needed)
 - Archive payroll data
 
 ### Key Milestones
@@ -497,7 +497,7 @@ DRAFT → PROCESSING → COMPLETED
 **Post-Processing:**
 - [ ] Address any employee inquiries
 - [ ] Process corrections if needed
-- [ ] Close pay period
+- [ ] Confirm pay period auto-closed (or pause/resume auto-close as needed)
 - [ ] Archive payroll records
 
 ---

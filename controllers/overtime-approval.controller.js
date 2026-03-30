@@ -67,6 +67,13 @@ export const postOvertimeApprovalDecision = async (req, res) => {
     } catch (error) {
         logger.error(`postOvertimeApprovalDecision: ${error.message}`, { stack: error.stack });
         const msg = error.message || "Failed to update approval";
+        if (msg.includes("closed")) {
+            return res.status(409).json({
+                success: false,
+                error: "Conflict",
+                message: msg,
+            });
+        }
         const status =
             msg.includes("not found") || msg.includes("No overtime")
                 ? 400

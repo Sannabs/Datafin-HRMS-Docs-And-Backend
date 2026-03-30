@@ -53,31 +53,30 @@ export function calendarMonthRangeInZone(year, month1to12, timeZone) {
  * @param {string} payPeriodId
  */
 export function payPeriodSnapshotToStatsData(existingSnapshot, payPeriodId) {
+  const noData = existingSnapshot.observedAttendanceDays === 0;
   return {
-    totalDays: existingSnapshot.observedAttendanceDays,
-    observedAttendanceDays: existingSnapshot.observedAttendanceDays,
+    totalDays: noData ? 0 : existingSnapshot.observedAttendanceDays,
+    observedAttendanceDays: noData ? 0 : existingSnapshot.observedAttendanceDays,
     expectedWorkdays: existingSnapshot.expectedWorkdays,
     effectiveExpectedWorkdays: existingSnapshot.effectiveExpectedWorkdays,
-    expectedWorkHours: existingSnapshot.expectedWorkHours,
+    expectedWorkHours: noData ? 0 : existingSnapshot.expectedWorkHours,
     denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
     period: {
       startDate: new Date(existingSnapshot.periodStartDate).toISOString().slice(0, 10),
       endDate: new Date(existingSnapshot.periodEndDate).toISOString().slice(0, 10),
     },
-    presentCount: existingSnapshot.presentCount,
-    absentCount: existingSnapshot.absentCount,
-    lateCount: existingSnapshot.lateCount,
+    presentCount: noData ? 0 : existingSnapshot.presentCount,
+    absentCount: noData ? 0 : existingSnapshot.absentCount,
+    lateCount: noData ? 0 : existingSnapshot.lateCount,
     excusedAbsenceCount: existingSnapshot.excusedAbsenceCount,
-    overtimeDaysCount: existingSnapshot.overtimeDaysCount,
-    overtimeHoursTotal: existingSnapshot.overtimeHoursTotal,
-    presentRate: existingSnapshot.presentRate,
-    absentRate: existingSnapshot.absentRate,
-    lateRate: existingSnapshot.lateRate,
-    overtimeRate: existingSnapshot.overtimeRate,
-    overtimeHoursRate: existingSnapshot.overtimeHoursRate,
-    noData:
-      existingSnapshot.effectiveExpectedWorkdays === 0 &&
-      existingSnapshot.observedAttendanceDays === 0,
+    overtimeDaysCount: noData ? 0 : existingSnapshot.overtimeDaysCount,
+    overtimeHoursTotal: noData ? 0 : existingSnapshot.overtimeHoursTotal,
+    presentRate: noData ? 0 : existingSnapshot.presentRate,
+    absentRate: noData ? 0 : existingSnapshot.absentRate,
+    lateRate: noData ? 0 : existingSnapshot.lateRate,
+    overtimeRate: noData ? 0 : existingSnapshot.overtimeRate,
+    overtimeHoursRate: noData ? 0 : existingSnapshot.overtimeHoursRate,
+    noData,
     snapshot: true,
     payPeriodId,
   };
@@ -87,29 +86,30 @@ export function payPeriodSnapshotToStatsData(existingSnapshot, payPeriodId) {
  * @param {import("@prisma/client").MonthlyAttendanceStatSnapshot} row
  */
 export function monthlySnapshotToStatsData(row) {
+  const noData = row.observedAttendanceDays === 0;
   return {
-    totalDays: row.observedAttendanceDays,
-    observedAttendanceDays: row.observedAttendanceDays,
+    totalDays: noData ? 0 : row.observedAttendanceDays,
+    observedAttendanceDays: noData ? 0 : row.observedAttendanceDays,
     expectedWorkdays: row.expectedWorkdays,
     effectiveExpectedWorkdays: row.effectiveExpectedWorkdays,
-    expectedWorkHours: row.expectedWorkHours,
+    expectedWorkHours: noData ? 0 : row.expectedWorkHours,
     denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
     period: {
       startDate: new Date(row.periodStartDate).toISOString().slice(0, 10),
       endDate: new Date(row.periodEndDate).toISOString().slice(0, 10),
     },
-    presentCount: row.presentCount,
-    absentCount: row.absentCount,
-    lateCount: row.lateCount,
+    presentCount: noData ? 0 : row.presentCount,
+    absentCount: noData ? 0 : row.absentCount,
+    lateCount: noData ? 0 : row.lateCount,
     excusedAbsenceCount: row.excusedAbsenceCount,
-    overtimeDaysCount: row.overtimeDaysCount,
-    overtimeHoursTotal: row.overtimeHoursTotal,
-    presentRate: row.presentRate,
-    absentRate: row.absentRate,
-    lateRate: row.lateRate,
-    overtimeRate: row.overtimeRate,
-    overtimeHoursRate: row.overtimeHoursRate,
-    noData: row.effectiveExpectedWorkdays === 0 && row.observedAttendanceDays === 0,
+    overtimeDaysCount: noData ? 0 : row.overtimeDaysCount,
+    overtimeHoursTotal: noData ? 0 : row.overtimeHoursTotal,
+    presentRate: noData ? 0 : row.presentRate,
+    absentRate: noData ? 0 : row.absentRate,
+    lateRate: noData ? 0 : row.lateRate,
+    overtimeRate: noData ? 0 : row.overtimeRate,
+    overtimeHoursRate: noData ? 0 : row.overtimeHoursRate,
+    noData,
     snapshot: true,
   };
 }
@@ -132,6 +132,36 @@ const computeShiftHours = (shift) => {
   if (diff <= 0) diff += 24 * 60;
   return diff / 60;
 };
+
+/**
+ * First calendar day the employee should appear in stats (hire date, else account created), tenant wall time.
+ * @param {Date | null | undefined} hireDate
+ * @param {Date} createdAt
+ * @param {string} tz
+ * @returns {DateTime | null}
+ */
+function employeeStatsEligibilityStartLuxon(hireDate, createdAt, tz) {
+  const raw = hireDate ?? createdAt;
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const iso = d.toISOString().slice(0, 10);
+  const dt = DateTime.fromISO(iso, { zone: tz }).startOf("day");
+  return dt.isValid ? dt : null;
+}
+
+/**
+ * @param {import("luxon").DateTime} effStartLuxon
+ * @param {import("luxon").DateTime} effEndLuxon
+ * @returns {{ rangeStartEff: Date, rangeEndEff: Date }}
+ */
+function luxonBoundsToPrismaRange(effStartLuxon, effEndLuxon) {
+  const rangeStartEff = effStartLuxon.startOf("day").toJSDate();
+  rangeStartEff.setHours(0, 0, 0, 0);
+  const rangeEndEff = effEndLuxon.endOf("day").toJSDate();
+  rangeEndEff.setHours(23, 59, 59, 999);
+  return { rangeStartEff, rangeEndEff };
+}
 
 /**
  * Live stats for a date range (and optional pay period metadata).
@@ -163,9 +193,12 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
     select: {
       id: true,
       shiftId: true,
+      hireDate: true,
+      createdAt: true,
       tenant: {
         select: {
           weekendDays: true,
+          timezone: true,
         },
       },
     },
@@ -175,12 +208,66 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
     return { ok: false, code: "EMPLOYEE_NOT_FOUND" };
   }
 
+  const tz = effectiveTimeZone(employee.tenant?.timezone);
+  const rangeStartLuxon = DateTime.fromJSDate(rangeStart, { zone: tz }).startOf("day");
+  const rangeEndLuxon = DateTime.fromJSDate(rangeEnd, { zone: tz }).endOf("day");
+
+  const eligibilityLuxon = employeeStatsEligibilityStartLuxon(
+    employee.hireDate,
+    employee.createdAt,
+    tz
+  );
+  let effStartLuxon = rangeStartLuxon;
+  if (eligibilityLuxon && eligibilityLuxon > effStartLuxon) {
+    effStartLuxon = eligibilityLuxon;
+  }
+
+  const capEndAtToday = !persistClosedSnapshot;
+  let effEndLuxon = rangeEndLuxon;
+  if (capEndAtToday) {
+    const todayEndLuxon = DateTime.now().setZone(tz).endOf("day");
+    if (effEndLuxon > todayEndLuxon) effEndLuxon = todayEndLuxon;
+  }
+
+  if (effStartLuxon > effEndLuxon) {
+    return {
+      ok: true,
+      responseData: {
+        totalDays: 0,
+        observedAttendanceDays: 0,
+        expectedWorkdays: 0,
+        effectiveExpectedWorkdays: 0,
+        expectedWorkHours: 0,
+        denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
+        period: {
+          startDate: effStartLuxon.toFormat("yyyy-MM-dd"),
+          endDate: effEndLuxon.toFormat("yyyy-MM-dd"),
+        },
+        presentCount: 0,
+        absentCount: 0,
+        lateCount: 0,
+        excusedAbsenceCount: 0,
+        overtimeDaysCount: 0,
+        overtimeHoursTotal: 0,
+        presentRate: 0,
+        absentRate: 0,
+        lateRate: 0,
+        overtimeRate: 0,
+        overtimeHoursRate: 0,
+        noData: true,
+        ...(resolvedPayPeriod?.id ? { payPeriodId: resolvedPayPeriod.id } : {}),
+      },
+    };
+  }
+
+  const { rangeStartEff, rangeEndEff } = luxonBoundsToPrismaRange(effStartLuxon, effEndLuxon);
+
   const where = {
     tenantId,
     userId,
     clockInTime: {
-      gte: rangeStart,
-      lte: rangeEnd,
+      gte: rangeStartEff,
+      lte: rangeEndEff,
     },
   };
 
@@ -201,8 +288,8 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
           type: "EXCUSED_ABSENCE",
           isActive: true,
           date: {
-            gte: rangeStart,
-            lte: rangeEnd,
+            gte: rangeStartEff,
+            lte: rangeEndEff,
           },
         },
         select: { date: true },
@@ -239,8 +326,8 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
             {
               isRecurring: false,
               date: {
-                gte: rangeStart,
-                lte: rangeEnd,
+                gte: rangeStartEff,
+                lte: rangeEndEff,
               },
             },
             { isRecurring: true },
@@ -334,7 +421,7 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
   };
 
   const expectedDayKeys = [];
-  for (const d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
+  for (const d = new Date(rangeStartEff); d <= rangeEndEff; d.setDate(d.getDate() + 1)) {
     const day = new Date(d);
     if (!isConfiguredWorkday(day)) continue;
     if (isHoliday(day)) continue;
@@ -390,29 +477,61 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
       ? Math.round(((overtimeHoursTotal / expectedWorkHours) * 100) * 10) / 10
       : 0;
 
+  const insufficientAttendanceForRates =
+    observedAttendanceDays === 0 && effectiveExpectedWorkdays > 0;
+
+  let presentOut = present;
+  let lateOut = late;
+  let absentOut = absent;
+  let overtimeDaysOut = overtimeDays;
+  let overtimeHoursTotalOut = overtimeHoursTotal;
+  if (insufficientAttendanceForRates) {
+    presentOut = 0;
+    lateOut = 0;
+    absentOut = 0;
+    overtimeDaysOut = 0;
+    overtimeHoursTotalOut = 0;
+  }
+
+  const presentRateOut = insufficientAttendanceForRates ? 0 : rate(presentOut);
+  const absentRateOut = insufficientAttendanceForRates ? 0 : rate(absentOut);
+  const lateRateOut = insufficientAttendanceForRates ? 0 : rate(lateOut);
+  const overtimeRateOut = insufficientAttendanceForRates ? 0 : rate(overtimeDaysOut);
+  const overtimeHoursRateOut = insufficientAttendanceForRates
+    ? 0
+    : overtimeHoursRate;
+  const expectedWorkHoursOut = insufficientAttendanceForRates
+    ? 0
+    : expectedWorkHours;
+
+  const observedAttendanceDaysOut = insufficientAttendanceForRates
+    ? 0
+    : observedAttendanceDays;
+  const noData = observedAttendanceDaysOut === 0;
+
   const responseData = {
-    totalDays: observedAttendanceDays,
-    observedAttendanceDays,
+    totalDays: observedAttendanceDaysOut,
+    observedAttendanceDays: observedAttendanceDaysOut,
     expectedWorkdays,
     effectiveExpectedWorkdays,
-    expectedWorkHours,
+    expectedWorkHours: expectedWorkHoursOut,
     denominatorType: "EFFECTIVE_EXPECTED_WORKDAYS",
     period: {
-      startDate: rangeStart.toISOString().slice(0, 10),
-      endDate: rangeEnd.toISOString().slice(0, 10),
+      startDate: effStartLuxon.toFormat("yyyy-MM-dd"),
+      endDate: effEndLuxon.toFormat("yyyy-MM-dd"),
     },
-    presentCount: present,
-    absentCount: absent,
-    lateCount: late,
+    presentCount: presentOut,
+    absentCount: absentOut,
+    lateCount: lateOut,
     excusedAbsenceCount,
-    overtimeDaysCount: overtimeDays,
-    overtimeHoursTotal: Math.round(overtimeHoursTotal * 10) / 10,
-    presentRate: rate(present),
-    absentRate: rate(absent),
-    lateRate: rate(late),
-    overtimeRate: rate(overtimeDays),
-    overtimeHoursRate,
-    noData: effectiveExpectedWorkdays === 0 && observedAttendanceDays === 0,
+    overtimeDaysCount: overtimeDaysOut,
+    overtimeHoursTotal: Math.round(overtimeHoursTotalOut * 10) / 10,
+    presentRate: presentRateOut,
+    absentRate: absentRateOut,
+    lateRate: lateRateOut,
+    overtimeRate: overtimeRateOut,
+    overtimeHoursRate: overtimeHoursRateOut,
+    noData,
     ...(resolvedPayPeriod?.id ? { payPeriodId: resolvedPayPeriod.id } : {}),
   };
 
@@ -422,23 +541,23 @@ export async function computeLiveEmployeeAttendanceStats(prisma, args) {
         tenantId,
         userId,
         payPeriodId: resolvedPayPeriod.id,
-        periodStartDate: rangeStart,
-        periodEndDate: rangeEnd,
+        periodStartDate: rangeStartEff,
+        periodEndDate: rangeEndEff,
         expectedWorkdays,
         effectiveExpectedWorkdays,
-        observedAttendanceDays,
-        presentCount: present,
-        lateCount: late,
-        absentCount: absent,
+        observedAttendanceDays: observedAttendanceDaysOut,
+        presentCount: presentOut,
+        lateCount: lateOut,
+        absentCount: absentOut,
         excusedAbsenceCount,
-        overtimeDaysCount: overtimeDays,
-        overtimeHoursTotal: Math.round(overtimeHoursTotal * 10) / 10,
-        expectedWorkHours,
-        presentRate: rate(present),
-        lateRate: rate(late),
-        absentRate: rate(absent),
-        overtimeRate: rate(overtimeDays),
-        overtimeHoursRate,
+        overtimeDaysCount: overtimeDaysOut,
+        overtimeHoursTotal: Math.round(overtimeHoursTotalOut * 10) / 10,
+        expectedWorkHours: expectedWorkHoursOut,
+        presentRate: presentRateOut,
+        lateRate: lateRateOut,
+        absentRate: absentRateOut,
+        overtimeRate: overtimeRateOut,
+        overtimeHoursRate: overtimeHoursRateOut,
         computedBy: computedBy ?? null,
       },
     });
@@ -481,14 +600,22 @@ export async function ensureMonthlyAttendanceSnapshot(prisma, args) {
   if (!live.ok) return null;
 
   const d = live.responseData;
+  const snapTz = effectiveTimeZone(timeZone);
+  const periodStartPersist = DateTime.fromISO(d.period.startDate, { zone: snapTz })
+    .startOf("day")
+    .toJSDate();
+  const periodEndPersist = DateTime.fromISO(d.period.endDate, { zone: snapTz })
+    .endOf("day")
+    .toJSDate();
+
   await prisma.monthlyAttendanceStatSnapshot.create({
     data: {
       tenantId,
       userId,
       calendarYear,
       calendarMonth,
-      periodStartDate: rangeStart,
-      periodEndDate: rangeEnd,
+      periodStartDate: periodStartPersist,
+      periodEndDate: periodEndPersist,
       expectedWorkdays: d.expectedWorkdays,
       effectiveExpectedWorkdays: d.effectiveExpectedWorkdays,
       observedAttendanceDays: d.observedAttendanceDays,

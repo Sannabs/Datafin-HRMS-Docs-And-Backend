@@ -2,7 +2,8 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import { sendPayPeriodStatusChangeEmail, sendPayrollCompletionEmail } from "./pay-period-notification.service.js";
-import { validateStatusTransition, getNextStatus } from "../utils/pay-period.utils.js";
+import { validateStatusTransition } from "../utils/pay-period.utils.js";
+import { hasUnresolvedOvertimeApprovals } from "./overtime-approval.service.js";
 
 /**
  * Automatically update pay period status based on payroll run states
@@ -202,6 +203,13 @@ export const shouldAutoClose = async (payPeriodId, tenantId, gracePeriodHours = 
             return false;
         }
 
+        if (await hasUnresolvedOvertimeApprovals(tenantId, payPeriod)) {
+            logger.debug(
+                `Auto-close skipped for pay period ${payPeriodId}: unresolved overtime approvals`
+            );
+            return false;
+        }
+
         // Check if grace period has passed
         const updatedAt = new Date(payPeriod.updatedAt);
         const now = new Date();
@@ -248,19 +256,27 @@ export const autoClosePayPeriod = async (payPeriodId, tenantId) => {
             return null;
         }
 
-        // Validate using state machine
+        if (payPeriod.status !== "COMPLETED") {
+            logger.warn(`Cannot auto-close pay period ${payPeriodId}: expected COMPLETED, got ${payPeriod.status}`);
+            return null;
+        }
+
         const hasIncompleteRuns = payPeriod.payrollRuns.some((r) =>
             r.status === "PROCESSING" || r.status === "DRAFT"
         );
         const hasFailedRuns = payPeriod.payrollRuns.some((r) => r.status === "FAILED");
 
-        const validation = validateStatusTransition(payPeriod.status, "CLOSED", {
-            hasIncompleteRuns,
-            hasFailedRuns,
-        });
+        if (hasIncompleteRuns || hasFailedRuns) {
+            logger.warn(
+                `Cannot auto-close pay period ${payPeriodId}: incomplete or failed payroll runs still present`
+            );
+            return null;
+        }
 
-        if (!validation.valid) {
-            logger.warn(`Cannot auto-close pay period ${payPeriodId}: ${validation.message}`);
+        if (await hasUnresolvedOvertimeApprovals(tenantId, payPeriod)) {
+            logger.warn(
+                `Cannot auto-close pay period ${payPeriodId}: unresolved overtime approvals`
+            );
             return null;
         }
 
@@ -279,7 +295,7 @@ export const autoClosePayPeriod = async (payPeriodId, tenantId) => {
             {
                 status: { before: payPeriod.status, after: "CLOSED" },
                 reason: "Automatic closure after grace period",
-                event: validation.event,
+                event: "AUTO_CLOSE",
             },
             null
         );

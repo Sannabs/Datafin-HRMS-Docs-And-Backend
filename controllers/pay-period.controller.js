@@ -456,6 +456,15 @@ export const updatePayPeriodStatus = async (req, res) => {
             });
         }
 
+        if (nextStatus === "CLOSED") {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message:
+                    "Pay periods cannot be closed manually. They close automatically after the configured grace period once all payroll runs are completed.",
+            });
+        }
+
         const payPeriod = await prisma.payPeriod.findFirst({
             where: { id, tenantId },
             include: {

@@ -4,10 +4,10 @@ import { createMachine, assign } from "xstate";
  * Pay Period State Machine
  * 
  * States: DRAFT → PROCESSING → COMPLETED → CLOSED
- * 
+ *
  * Business Rules:
  * - Can only move forward in the status flow (no going back)
- * - Cannot close if there are incomplete/failed payroll runs
+ * - CLOSED is applied only by the auto-close job (not PATCH /status)
  * - CLOSED is terminal - no further transitions allowed
  */
 
@@ -62,11 +62,6 @@ export const payPeriodMachine = createMachine({
         },
         COMPLETED: {
             on: {
-                CLOSE: {
-                    target: "CLOSED",
-                    guard: "canClose",
-                    actions: ["clearError", "onClose"],
-                },
                 PAUSE_AUTO_CLOSE: {
                     actions: ["pauseAutoClose"],
                 },
@@ -76,7 +71,7 @@ export const payPeriodMachine = createMachine({
             },
             meta: {
                 description: "All payroll runs completed successfully",
-                allowedActions: ["close", "pauseAutoClose", "resumeAutoClose", "viewReports"],
+                allowedActions: ["pauseAutoClose", "resumeAutoClose", "viewReports"],
             },
         },
         CLOSED: {
@@ -101,19 +96,6 @@ export const payPeriodMachine = createMachine({
          */
         canComplete: ({ context }) => {
             if (context.hasIncompleteRuns) {
-                return false;
-            }
-            return true;
-        },
-
-        /**
-         * Can close if there are no failed runs and no incomplete runs
-         */
-        canClose: ({ context }) => {
-            if (context.hasIncompleteRuns) {
-                return false;
-            }
-            if (context.hasFailedRuns) {
                 return false;
             }
             return true;
@@ -145,10 +127,6 @@ export const payPeriodMachine = createMachine({
 
         onDelete: () => {
             // Placeholder for delete action - actual deletion handled by controller
-        },
-
-        onClose: () => {
-            // Placeholder for close action - notifications handled by service
         },
     },
 });
@@ -192,17 +170,24 @@ export const validateTransition = (currentStatus, targetStatus, context = {}) =>
         };
     }
 
-    // Map target status to event
+    // Map target status to event (CLOSED is not reachable via API — auto-close only)
     const statusToEvent = {
         DRAFT: null, // Can't go back to DRAFT
         PROCESSING: "START_PROCESSING",
         COMPLETED: "COMPLETE",
-        CLOSED: "CLOSE",
+        CLOSED: null,
     };
 
     const event = statusToEvent[targetStatus];
 
     if (!event) {
+        if (targetStatus === "CLOSED") {
+            return {
+                valid: false,
+                message:
+                    "Pay periods cannot be closed manually. They close automatically after the configured grace period once all payroll runs are completed.",
+            };
+        }
         return {
             valid: false,
             message: `Cannot transition to ${targetStatus} from ${currentStatus}`,
@@ -234,20 +219,6 @@ export const validateTransition = (currentStatus, targetStatus, context = {}) =>
                     valid: false,
                     message: "Cannot complete: there are incomplete payroll runs",
                 };
-            }
-            if (guardName === "canClose") {
-                if (context.hasIncompleteRuns) {
-                    return {
-                        valid: false,
-                        message: "Cannot close: there are incomplete payroll runs",
-                    };
-                }
-                if (context.hasFailedRuns) {
-                    return {
-                        valid: false,
-                        message: "Cannot close: there are failed payroll runs",
-                    };
-                }
             }
             return {
                 valid: false,
@@ -281,7 +252,7 @@ export const getNextStatus = (currentStatus) => {
     const statusFlow = {
         DRAFT: "PROCESSING",
         PROCESSING: "COMPLETED",
-        COMPLETED: "CLOSED",
+        COMPLETED: null,
         CLOSED: null,
     };
     return statusFlow[currentStatus] || null;

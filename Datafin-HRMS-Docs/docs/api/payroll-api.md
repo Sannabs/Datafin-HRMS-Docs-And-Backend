@@ -374,9 +374,11 @@
 }
 ```
 
-**Valid Status Transitions:**
-- DRAFT → PROCESSING → COMPLETED → CLOSED
+**Valid status transitions (via this endpoint):**
+- DRAFT → PROCESSING → COMPLETED
 - State machine validates transitions
+
+**Note:** `CLOSED` is **not** set through this API. Pay periods move to `CLOSED` only via the **auto-close job** after the grace period (unless auto-close is paused).
 
 ### Pause Auto-Close
 
