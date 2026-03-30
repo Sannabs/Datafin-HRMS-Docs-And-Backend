@@ -91,7 +91,9 @@ export async function buildEmployeeWorkSummary(prisma, args) {
   const monthsBack = Math.min(Math.max(Number(monthsBackRaw) || 6, 1), 24);
   const payPeriodsBack = Math.min(Math.max(Number(payPeriodsBackRaw) || 6, 1), 24);
   const includePayPeriodRows =
-    requestUserRole === "HR_ADMIN" || requestUserRole === "HR_STAFF";
+    requestUserRole === "HR_ADMIN" ||
+    requestUserRole === "HR_STAFF" ||
+    requestUserRole === "SUPER_ADMIN";
 
   const employee = await prisma.user.findFirst({
     where: { id: userId, tenantId, isDeleted: false },

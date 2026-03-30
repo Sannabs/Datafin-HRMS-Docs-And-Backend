@@ -99,10 +99,10 @@ export const notifyAllAdmins = async (
 
     const admins = await prisma.user.findMany({
       where: {
-        role: "HR_ADMIN",
         tenantId,
         isDeleted: false,
         status: "ACTIVE",
+        role: { in: ["HR_ADMIN", "SUPER_ADMIN"] },
       },
     });
 
