@@ -413,6 +413,13 @@ export const sendSetupInvitation = async (req, res, next) => {
       });
     }
 
+    if ((employee.status || "") === "INACTIVE") {
+      return res.status(409).json({
+        success: false,
+        message: "Cannot send invitation to inactive employee",
+      });
+    }
+
     if (!employee.email) {
       return res.status(400).json({
         success: false,
