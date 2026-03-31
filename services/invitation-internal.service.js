@@ -3,6 +3,10 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { sendInvitationEmail } from "../views/sendInvitationEmail.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
+import {
+    hasStoredLoginCredentials,
+    credentialAccountsInclude,
+} from "../utils/loginCredentials.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
@@ -246,6 +250,127 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
     } catch (emailError) {
         logger.error(
             `Invitation created but failed to send email to ${newInvitation.email}: ${emailError.message}`,
+            { stack: emailError.stack }
+        );
+    }
+
+    return { ok: true, invitation: newInvitation };
+}
+
+/**
+ * Send setup invitation for an existing employee (no credentials yet).
+ * @param {object} params
+ * @param {string} params.tenantId
+ * @param {string} params.senderId
+ * @param {string} params.senderRole
+ * @param {string} params.employeeId
+ * @returns {Promise<{ ok: true, invitation: object } | { ok: false, statusCode: number, message: string }>}
+ */
+export async function createSetupInvitationInternal({ tenantId, senderId, senderRole, employeeId }) {
+    if (!employeeId) {
+        return { ok: false, statusCode: 400, message: "Employee ID is required" };
+    }
+
+    const canSend =
+        senderRole === "HR_ADMIN" ||
+        senderRole === "HR_STAFF" ||
+        senderRole === "SUPER_ADMIN";
+    if (!canSend) {
+        return { ok: false, statusCode: 403, message: "Only HR users can send invitations" };
+    }
+
+    const employee = await prisma.user.findFirst({
+        where: {
+            id: employeeId,
+            tenantId,
+            isDeleted: false,
+        },
+        select: {
+            id: true,
+            email: true,
+            password: true,
+            role: true,
+            departmentId: true,
+            positionId: true,
+            dateOfBirth: true,
+            hireDate: true,
+            status: true,
+            employmentType: true,
+            accounts: credentialAccountsInclude,
+        },
+    });
+
+    if (!employee) {
+        return { ok: false, statusCode: 404, message: "Employee not found" };
+    }
+
+    if ((employee.status || "") === "INACTIVE") {
+        return { ok: false, statusCode: 409, message: "Cannot send invitation to inactive employee" };
+    }
+
+    if (!employee.email) {
+        return { ok: false, statusCode: 400, message: "Employee does not have an email address" };
+    }
+
+    if (hasStoredLoginCredentials(employee.password, employee.accounts)) {
+        return { ok: false, statusCode: 409, message: "Employee already has login credentials" };
+    }
+
+    const pendingInvite = await prisma.invitation.findFirst({
+        where: {
+            email: employee.email,
+            tenantId,
+            status: "PENDING",
+            expiresAt: {
+                gte: new Date(),
+            },
+        },
+    });
+    if (pendingInvite) {
+        return { ok: false, statusCode: 409, message: "A pending invitation already exists for this employee" };
+    }
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const expiryDate = new Date(Date.now() + 1000 * 60 * 60 * 48);
+
+    const newInvitation = await prisma.invitation.create({
+        data: {
+            senderId,
+            tenantId,
+            email: employee.email,
+            role: employee.role ?? "STAFF",
+            departmentId: employee.departmentId || null,
+            positionId: employee.positionId || null,
+            token,
+            expiresAt: expiryDate,
+            dateOfBirth: employee.dateOfBirth ?? null,
+            hireDate: employee.hireDate ?? null,
+            employmentStatus: employee.status ?? null,
+            employmentType: employee.employmentType ?? null,
+        },
+        include: {
+            tenant: {
+                select: {
+                    name: true,
+                },
+            },
+        },
+    });
+
+    const clientUrl =
+        process.env.NODE_ENV === "development" ? "http://localhost:3000" : process.env.CLIENT_URL;
+    const acceptLink = `${clientUrl}/accept-invite/${newInvitation.token}`;
+    const tenantName = newInvitation.tenant?.name || "your organization";
+    try {
+        await sendInvitationEmail({
+            to: newInvitation.email,
+            acceptLink,
+            tenantName,
+            expiresAt: newInvitation.expiresAt,
+        });
+    } catch (emailError) {
+        logger.error(
+            `Setup invitation created but failed to send invitation email to ${newInvitation.email}: ${emailError.message}`,
             { stack: emailError.stack }
         );
     }

@@ -1,7 +1,10 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { createEmployeeInternal } from "./employee-create-internal.service.js";
-import { createInvitationInternal } from "./invitation-internal.service.js";
+import {
+    createInvitationInternal,
+    createSetupInvitationInternal,
+} from "./invitation-internal.service.js";
 import { getOrCreateDepartment, getOrCreatePosition } from "./batch-org.service.js";
 import {
     findLatestSalaryStructureForUser,
@@ -131,6 +134,23 @@ export async function processBatchJobById(batchJobId) {
                         break;
                     }
                     case "EMPLOYEE_INVITATION": {
+                        const employeeId = pick(payload, "employeeId", "employee_id", "employeeid");
+                        if (employeeId) {
+                            const r = await createSetupInvitationInternal({
+                                tenantId: job.tenantId,
+                                senderId,
+                                senderRole: actorRole,
+                                employeeId,
+                            });
+                            if (!r.ok) {
+                                errMsg = r.message;
+                                errField = "row";
+                            } else {
+                                resultEntityId = r.invitation.id;
+                            }
+                            break;
+                        }
+
                         const email = pick(payload, "email");
                         const departmentName = pick(payload, "department", "department_name", "departmentName");
                         const positionTitle = pick(payload, "position", "position_title", "positionTitle");

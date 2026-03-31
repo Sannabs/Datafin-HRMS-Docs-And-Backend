@@ -27,6 +27,11 @@ export function mapBatchJobToListItem(job) {
     const creator = job.createdByUser;
     const isSystem = false;
     const processedAt = job.processCompletedAt || job.processStartedAt || job.createdAt;
+    const batchType =
+        job.type === "EMPLOYEE_INVITATION" && job.inputJson?.source === "DIRECTORY_SETUP_INVITATION"
+            ? "Send invitations"
+            : prismaBatchTypeToUi(job.type);
+
     return {
         id: job.id,
         batchCode: job.batchCode,
@@ -42,7 +47,7 @@ export function mapBatchJobToListItem(job) {
                     ? `${Math.round(job.fileSizeBytes / 1024)} KB`
                     : `${(job.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB`
                 : undefined,
-        batchType: prismaBatchTypeToUi(job.type),
+        batchType,
         totalRecords: job.totalRows,
         successCount: job.successCount,
         failedCount: job.failedCount,

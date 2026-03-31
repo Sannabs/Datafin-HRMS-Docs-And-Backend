@@ -529,6 +529,74 @@ export const createEmployeeInvitationBatch = async (req, res) => {
     }
 };
 
+export const createSendInvitationsBatch = async (req, res) => {
+    try {
+        const tenantId = tenantIdFromReq(req);
+        const employeeIds = Array.isArray(req.body?.employeeIds) ? req.body.employeeIds : [];
+        const normalizedEmployeeIds = Array.from(
+            new Set(
+                employeeIds
+                    .map((v) => String(v || "").trim())
+                    .filter(Boolean)
+            )
+        );
+
+        if (normalizedEmployeeIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "employeeIds[] is required",
+            });
+        }
+        if (normalizedEmployeeIds.length > 500) {
+            return res.status(400).json({
+                success: false,
+                message: "A maximum of 500 employees can be processed per batch",
+            });
+        }
+
+        const batchCode = await generateBatchCode(tenantId);
+        const job = await prisma.batchJob.create({
+            data: {
+                tenantId,
+                createdByUserId: req.user.id,
+                type: "EMPLOYEE_INVITATION",
+                status: "PENDING",
+                batchCode,
+                totalRows: normalizedEmployeeIds.length,
+                inputJson: {
+                    actorRole: req.user.role,
+                    source: "DIRECTORY_SETUP_INVITATION",
+                },
+            },
+        });
+
+        const rowCreates = normalizedEmployeeIds.map((employeeId, i) => ({
+            batchJobId: job.id,
+            rowNumber: i + 1,
+            status: "PENDING",
+            rawPayload: { employeeId },
+        }));
+
+        if (rowCreates.length > 0) {
+            await prisma.batchJobRow.createMany({ data: rowCreates });
+        }
+
+        const processingMode = await beginBatchJobProcessing(job.id);
+        return res.status(201).json({
+            success: true,
+            data: {
+                id: job.id,
+                batchCode: job.batchCode,
+                totalRows: rowCreates.length,
+                processingMode,
+            },
+        });
+    } catch (e) {
+        logger.error(`createSendInvitationsBatch: ${e.message}`, { stack: e.stack });
+        return res.status(500).json({ success: false, message: e.message || "Failed to create batch" });
+    }
+};
+
 export const createBulkUpdateBatch = async (req, res) => {
     try {
         const tenantId = tenantIdFromReq(req);

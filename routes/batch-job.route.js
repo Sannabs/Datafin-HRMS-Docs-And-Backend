@@ -11,6 +11,7 @@ import {
     exportBatchJobRows,
     createEmployeeCreationBatch,
     createEmployeeInvitationBatch,
+    createSendInvitationsBatch,
     createBulkUpdateBatch,
     createAllowanceAllocationBatch,
     createDeductionAllocationBatch,
@@ -32,6 +33,7 @@ router.get("/", listBatchJobs);
 
 router.post("/employee-creation", uploadCsvSingle, createEmployeeCreationBatch);
 router.post("/employee-invitation", uploadCsvSingle, createEmployeeInvitationBatch);
+router.post("/send-invitations", createSendInvitationsBatch);
 router.post("/bulk-update", uploadCsvSingle, createBulkUpdateBatch);
 router.post("/allowance-allocation", createAllowanceAllocationBatch);
 router.post("/deduction-allocation", createDeductionAllocationBatch);
