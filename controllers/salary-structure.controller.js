@@ -383,10 +383,26 @@ export const getAllSalaryStructures = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { employeeId } = req.query;
+        const employeeStatusRaw = String(req.query.employeeStatus || "ACTIVE").trim().toUpperCase();
+        if (!["ACTIVE", "ALL"].includes(employeeStatusRaw)) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "employeeStatus must be ACTIVE or ALL",
+            });
+        }
 
         const where = {
             tenantId,
             ...(employeeId && { userId: employeeId }),
+            ...(employeeStatusRaw === "ACTIVE"
+                ? {
+                    user: {
+                        isDeleted: false,
+                        status: "ACTIVE",
+                    },
+                }
+                : {}),
         };
 
         const salaryStructures = await prisma.salaryStructure.findMany({
