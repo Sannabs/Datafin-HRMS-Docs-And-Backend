@@ -24,7 +24,7 @@ const REVIEWER_PASSWORD = "Review@1234";
 const REVIEWER_NAME = "Reviewer";
 
 const TENANT_ID =
-  process.env.TENANT_ID || "375e02fd-68f0-441d-be53-e6bbd49a746f";
+  process.env.TENANT_ID || "4824d306-f50f-41f2-8412-ae5dc15fc2db";
 
 async function main() {
   const tenant = await prisma.tenant.findUnique({
