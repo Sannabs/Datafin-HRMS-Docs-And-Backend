@@ -135,6 +135,22 @@
 
 ## Salary Structures
 
+### Get All Salary Structures (HR View)
+
+**GET** `/api/salary-structures`
+
+**Access:** HR_ADMIN, HR_STAFF
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `employeeId` | string | No | Filter structures for a single employee id |
+| `employeeStatus` | string | No | `ACTIVE` (default) or `ALL` |
+
+**Notes:**
+- Default behavior is `employeeStatus=ACTIVE` (returns structures for active, non-deleted employees only).
+- Use `employeeStatus=ALL` to include inactive employees as well.
+
 ### Get My Salary Structure (Employee Self-Service)
 
 **GET** `/api/salary-structures/me/salary-structure`
@@ -294,6 +310,82 @@
 **DELETE** `/api/salary-structures/salary-structures/:id/deductions/:deductionId`
 
 **Access:** HR_ADMIN
+
+---
+
+## Bulk Allowance / Deduction Allocation (Batch)
+
+### Create Allowance Allocation Batch
+
+**POST** `/api/batch-jobs/allowance-allocation`
+
+**Access:** HR_ADMIN, HR_STAFF
+
+**Request Body:**
+```json
+{
+  "lines": [
+    {
+      "userId": "usr_123",
+      "allowanceTypeId": "at_123",
+      "calculationMethod": "FIXED",
+      "amount": 5000,
+      "amountPeriodType": "MONTHLY",
+      "formulaExpression": null,
+      "calculationRuleId": null
+    }
+  ]
+}
+```
+
+**Notes:**
+- Many-to-many is supported by passing multiple `lines` across employee/type pairs.
+- Duplicate pairs in the request (`userId + allowanceTypeId`) are deduplicated server-side.
+- Existing line for the same employee/type is replaced during processing.
+
+### Create Deduction Allocation Batch
+
+**POST** `/api/batch-jobs/deduction-allocation`
+
+**Access:** HR_ADMIN, HR_STAFF
+
+**Request Body:**
+```json
+{
+  "lines": [
+    {
+      "userId": "usr_123",
+      "deductionTypeId": "dt_123",
+      "calculationMethod": "PERCENTAGE",
+      "amount": 10,
+      "amountPeriodType": "MONTHLY",
+      "formulaExpression": null,
+      "calculationRuleId": null
+    }
+  ]
+}
+```
+
+**Notes:**
+- Many-to-many is supported by passing multiple `lines` across employee/type pairs.
+- Duplicate pairs in the request (`userId + deductionTypeId`) are deduplicated server-side.
+- Existing line for the same employee/type is replaced during processing.
+
+### Line Coverage (for Bulk UI)
+
+**GET** `/api/salary-structures/line-coverage`
+
+**Access:** HR_ADMIN, HR_STAFF, SUPER_ADMIN
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `allowanceTypeId` | string | Conditional | Provide exactly one of `allowanceTypeId` or `deductionTypeId` |
+| `deductionTypeId` | string | Conditional | Provide exactly one of `allowanceTypeId` or `deductionTypeId` |
+
+**Notes:**
+- Response is keyed by `userId` for the specified single type.
+- For multi-type UI flows, call this endpoint once per selected type and merge results client-side.
 
 ---
 
