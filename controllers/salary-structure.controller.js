@@ -97,6 +97,21 @@ async function getFormulaFromRuleId(calculationRuleId, tenantId) {
     return null;
 }
 
+function findDuplicateTypeIds(items, key) {
+    if (!Array.isArray(items)) return [];
+    const seen = new Set();
+    const duplicates = new Set();
+    for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const raw = item[key];
+        const id = raw == null ? "" : String(raw).trim();
+        if (!id) continue;
+        if (seen.has(id)) duplicates.add(id);
+        else seen.add(id);
+    }
+    return Array.from(duplicates);
+}
+
 /**
  * Employee self-service: Get my current (active) salary structure
  */
@@ -549,6 +564,25 @@ export const createSalaryStructure = async (req, res) => {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
 
+        const duplicateAllowanceTypeIds = findDuplicateTypeIds(allowances, "allowanceTypeId");
+        if (duplicateAllowanceTypeIds.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Duplicate allowance types are not allowed in a salary structure",
+                data: { duplicateAllowanceTypeIds },
+            });
+        }
+        const duplicateDeductionTypeIds = findDuplicateTypeIds(deductions, "deductionTypeId");
+        if (duplicateDeductionTypeIds.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Duplicate deduction types are not allowed in a salary structure",
+                data: { duplicateDeductionTypeIds },
+            });
+        }
+
         if (!baseSalary || !effectiveDate) {
             return res.status(400).json({
                 success: false,
@@ -880,6 +914,25 @@ export const updateSalaryStructure = async (req, res) => {
         const { id: userId } = req.user;
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { baseSalary, salaryPeriodType, effectiveDate, endDate, currency, allowances, deductions } = req.body;
+
+        const duplicateAllowanceTypeIds = findDuplicateTypeIds(allowances, "allowanceTypeId");
+        if (duplicateAllowanceTypeIds.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Duplicate allowance types are not allowed in a salary structure",
+                data: { duplicateAllowanceTypeIds },
+            });
+        }
+        const duplicateDeductionTypeIds = findDuplicateTypeIds(deductions, "deductionTypeId");
+        if (duplicateDeductionTypeIds.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Duplicate deduction types are not allowed in a salary structure",
+                data: { duplicateDeductionTypeIds },
+            });
+        }
 
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -1594,6 +1647,18 @@ export const addAllowanceToStructure = async (req, res) => {
             });
         }
 
+        const existingAllowance = await prisma.allowance.findFirst({
+            where: { salaryStructureId: id, allowanceTypeId },
+            select: { id: true },
+        });
+        if (existingAllowance) {
+            return res.status(409).json({
+                success: false,
+                error: "Conflict",
+                message: "This allowance type already exists on the salary structure",
+            });
+        }
+
         const allowance = await prisma.allowance.create({
             data: {
                 salaryStructureId: id,
@@ -1883,6 +1948,18 @@ export const addDeductionToStructure = async (req, res) => {
                 success: false,
                 error: "Not Found",
                 message: "Deduction type not found",
+            });
+        }
+
+        const existingDeduction = await prisma.deduction.findFirst({
+            where: { salaryStructureId: id, deductionTypeId },
+            select: { id: true },
+        });
+        if (existingDeduction) {
+            return res.status(409).json({
+                success: false,
+                error: "Conflict",
+                message: "This deduction type already exists on the salary structure",
             });
         }
 

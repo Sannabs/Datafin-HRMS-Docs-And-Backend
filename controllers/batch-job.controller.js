@@ -28,6 +28,26 @@ function pickRow(row, ...keys) {
     return "";
 }
 
+function dedupeAllocationLines(lines, typeField) {
+    const unique = [];
+    const seen = new Set();
+    for (const raw of lines) {
+        if (!raw || typeof raw !== "object") continue;
+        const userId = String(raw.userId ?? "").trim();
+        const typeId = String(raw[typeField] ?? "").trim();
+        if (!userId || !typeId) continue;
+        const key = `${userId}:${typeId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push({
+            ...raw,
+            userId,
+            [typeField]: typeId,
+        });
+    }
+    return unique;
+}
+
 /**
  * CSV preflight: empty file + required headers only. Returns a result object to return immediately, or null to run deep validation.
  * @param {"EMPLOYEE_CREATION"|"EMPLOYEE_INVITATION"|"BULK_UPDATE"} batchType
@@ -657,7 +677,10 @@ export const createAllowanceAllocationBatch = async (req, res) => {
     try {
         const tenantId = tenantIdFromReq(req);
         const { lines } = req.body || {};
-        if (!Array.isArray(lines) || lines.length === 0) {
+        const normalizedLines = Array.isArray(lines)
+            ? dedupeAllocationLines(lines, "allowanceTypeId")
+            : [];
+        if (normalizedLines.length === 0) {
             return res.status(400).json({ success: false, message: "lines[] is required" });
         }
 
@@ -669,12 +692,12 @@ export const createAllowanceAllocationBatch = async (req, res) => {
                 type: "ALLOWANCE_ALLOCATION",
                 status: "PENDING",
                 batchCode,
-                totalRows: lines.length,
+                totalRows: normalizedLines.length,
                 inputJson: { actorRole: req.user.role },
             },
         });
 
-        const rowCreates = lines.map((line, i) => ({
+        const rowCreates = normalizedLines.map((line, i) => ({
             batchJobId: job.id,
             rowNumber: i + 1,
             status: "PENDING",
@@ -685,7 +708,7 @@ export const createAllowanceAllocationBatch = async (req, res) => {
         const processingMode = await beginBatchJobProcessing(job.id);
         return res.status(201).json({
             success: true,
-            data: { id: job.id, batchCode: job.batchCode, totalRows: lines.length, processingMode },
+            data: { id: job.id, batchCode: job.batchCode, totalRows: normalizedLines.length, processingMode },
         });
     } catch (e) {
         logger.error(`createAllowanceAllocationBatch: ${e.message}`, { stack: e.stack });
@@ -697,7 +720,10 @@ export const createDeductionAllocationBatch = async (req, res) => {
     try {
         const tenantId = tenantIdFromReq(req);
         const { lines } = req.body || {};
-        if (!Array.isArray(lines) || lines.length === 0) {
+        const normalizedLines = Array.isArray(lines)
+            ? dedupeAllocationLines(lines, "deductionTypeId")
+            : [];
+        if (normalizedLines.length === 0) {
             return res.status(400).json({ success: false, message: "lines[] is required" });
         }
 
@@ -709,12 +735,12 @@ export const createDeductionAllocationBatch = async (req, res) => {
                 type: "DEDUCTION_ALLOCATION",
                 status: "PENDING",
                 batchCode,
-                totalRows: lines.length,
+                totalRows: normalizedLines.length,
                 inputJson: { actorRole: req.user.role },
             },
         });
 
-        const rowCreates = lines.map((line, i) => ({
+        const rowCreates = normalizedLines.map((line, i) => ({
             batchJobId: job.id,
             rowNumber: i + 1,
             status: "PENDING",
@@ -725,7 +751,7 @@ export const createDeductionAllocationBatch = async (req, res) => {
         const processingMode = await beginBatchJobProcessing(job.id);
         return res.status(201).json({
             success: true,
-            data: { id: job.id, batchCode: job.batchCode, totalRows: lines.length, processingMode },
+            data: { id: job.id, batchCode: job.batchCode, totalRows: normalizedLines.length, processingMode },
         });
     } catch (e) {
         logger.error(`createDeductionAllocationBatch: ${e.message}`, { stack: e.stack });
