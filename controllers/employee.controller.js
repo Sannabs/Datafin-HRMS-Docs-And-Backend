@@ -37,6 +37,25 @@ function sumLineAmounts(lines) {
     return Math.round(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) * 100) / 100;
 }
 
+/**
+ * End any currently-active salary structures for a user.
+ * Active = effectiveDate <= asOf AND (endDate is null OR endDate >= asOf)
+ */
+async function endActiveSalaryStructuresForUser(tx, tenantId, userId, asOf) {
+    const result = await tx.salaryStructure.updateMany({
+        where: {
+            tenantId,
+            userId,
+            effectiveDate: { lte: asOf },
+            OR: [{ endDate: null }, { endDate: { gte: asOf } }],
+        },
+        data: {
+            endDate: asOf,
+        },
+    });
+    return result.count ?? 0;
+}
+
 // get all employees
 export const getAllEmployees = async (req, res) => {
     try {
@@ -1110,37 +1129,48 @@ export const terminateEmployee = async (req, res) => {
             });
         }
 
-        // Terminate employee (set status to INACTIVE)
-        const terminatedEmployee = await prisma.user.update({
-            where: {
-                id: targetEmployeeId,
+        const now = new Date();
+        const { terminatedEmployee, endedSalaryStructures } = await prisma.$transaction(async (tx) => {
+            const endedCount = await endActiveSalaryStructuresForUser(
+                tx,
                 tenantId,
-            },
-            data: {
-                status: "INACTIVE",
-                terminationReason: normalizedReason,
-            },
-            include: {
-                department: {
-                    select: {
-                        id: true,
-                        name: true,
+                targetEmployeeId,
+                now
+            );
+
+            const updatedEmployee = await tx.user.update({
+                where: {
+                    id: targetEmployeeId,
+                    tenantId,
+                },
+                data: {
+                    status: "INACTIVE",
+                    terminationReason: normalizedReason,
+                },
+                include: {
+                    department: {
+                        select: {
+                            id: true,
+                            name: true,
+                        },
+                    },
+                    position: {
+                        select: {
+                            id: true,
+                            title: true,
+                        },
+                    },
+                    tenant: {
+                        select: {
+                            id: true,
+                            name: true,
+                            code: true,
+                        },
                     },
                 },
-                position: {
-                    select: {
-                        id: true,
-                        title: true,
-                    },
-                },
-                tenant: {
-                    select: {
-                        id: true,
-                        name: true,
-                        code: true,
-                    },
-                },
-            },
+            });
+
+            return { terminatedEmployee: updatedEmployee, endedSalaryStructures: endedCount };
         });
 
         // Remove sensitive information (password) from response
@@ -1152,7 +1182,12 @@ export const terminateEmployee = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: sanitizedEmployee,
+            data: {
+                ...sanitizedEmployee,
+                payroll: {
+                    endedActiveSalaryStructures: endedSalaryStructures,
+                },
+            },
             message: "Employee terminated successfully",
         });
     } catch (error) {
@@ -1278,7 +1313,13 @@ export const reactivateEmployee = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: sanitizedEmployee,
+            data: {
+                ...sanitizedEmployee,
+                payroll: {
+                    salaryStructureAction: "NONE",
+                    note: "Salary structures are not auto-reactivated on rehire. Create a new salary structure effective from rehire date.",
+                },
+            },
             message: "Employee reactivated successfully",
         });
     } catch (error) {
