@@ -6,6 +6,7 @@ import {
     generateFilename,
     extractFilenameFromUrl,
     deleteFile,
+    getFile,
 } from "../config/storage.config.js";
 import {
     parseEmployeeId,
@@ -35,6 +36,24 @@ function toPayrollOverviewLines(rows) {
 
 function sumLineAmounts(lines) {
     return Math.round(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) * 100) / 100;
+}
+
+function canAccessEmployeeDocument(requesterRole, requesterId, targetEmployeeId, hasEffectiveTenant) {
+    const canViewOtherEmployees =
+        ["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"].includes(requesterRole) ||
+        (requesterRole === "SUPER_ADMIN" && hasEffectiveTenant);
+    return targetEmployeeId === requesterId || canViewOtherEmployees;
+}
+
+function parseDocumentExtension(originalName, mimeType) {
+    if (typeof originalName === "string" && originalName.includes(".")) {
+        const ext = originalName.split(".").pop()?.trim().toLowerCase();
+        if (ext) return ext;
+    }
+    if (typeof mimeType === "string" && mimeType.includes("/")) {
+        return mimeType.split("/")[1]?.toLowerCase() || null;
+    }
+    return null;
 }
 
 /**
@@ -2059,6 +2078,310 @@ export const getEmployeePayrollOverview = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to load payroll overview",
+        });
+    }
+};
+
+export const getEmployeeDocuments = async (req, res) => {
+    try {
+        const requesterId = req.user?.id;
+        const requesterRole = req.user?.role;
+        const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
+        const targetEmployeeId = req.params?.id;
+
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee id is required",
+            });
+        }
+
+        if (
+            !canAccessEmployeeDocument(
+                requesterRole,
+                requesterId,
+                targetEmployeeId,
+                Boolean(req.effectiveTenantId)
+            )
+        ) {
+            return res.status(403).json({
+                success: false,
+                error: "Forbidden",
+                message: "You can only view your own documents",
+            });
+        }
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: targetEmployeeId,
+                isDeleted: false,
+                ...(tenantId && { tenantId }),
+            },
+            select: { id: true },
+        });
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        const documents = await prisma.employeeDocument.findMany({
+            where: {
+                userId: targetEmployeeId,
+                ...(tenantId && { tenantId }),
+            },
+            orderBy: [{ createdAt: "desc" }],
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: documents,
+            count: documents.length,
+        });
+    } catch (error) {
+        logger.error(`Error fetching employee documents: ${error.message}`, {
+            error: error.stack,
+            employeeId: req.params?.id,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch employee documents",
+        });
+    }
+};
+
+export const uploadEmployeeDocument = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
+        const actorId = req.user?.id;
+        const targetEmployeeId = req.params?.id;
+
+        if (!targetEmployeeId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee id is required",
+            });
+        }
+
+        const files = Array.isArray(req.files)
+            ? req.files
+            : req.file
+                ? [req.file]
+                : [];
+
+        if (files.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "No documents uploaded",
+            });
+        }
+
+        const employee = await prisma.user.findFirst({
+            where: {
+                id: targetEmployeeId,
+                isDeleted: false,
+                ...(tenantId && { tenantId }),
+            },
+            select: { id: true },
+        });
+
+        if (!employee) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Employee not found",
+            });
+        }
+
+        const uploadedDocuments = [];
+        for (const file of files) {
+            const storedName = generateFilename(
+                file.originalname,
+                `employee-documents/${tenantId}/${targetEmployeeId}`
+            );
+            const filePath = await uploadFile(file.buffer, storedName, file.mimetype);
+            const extension = parseDocumentExtension(file.originalname, file.mimetype);
+
+            const document = await prisma.employeeDocument.create({
+                data: {
+                    tenantId,
+                    userId: targetEmployeeId,
+                    originalName: file.originalname,
+                    storedName,
+                    filePath,
+                    mimeType: file.mimetype,
+                    extension,
+                    sizeBytes: file.size,
+                    uploadedBy: actorId,
+                },
+            });
+            uploadedDocuments.push(document);
+
+            await addLog(actorId, tenantId, "CREATE", "EmployeeDocument", document.id, {
+                employeeId: targetEmployeeId,
+                originalName: document.originalName,
+                sizeBytes: document.sizeBytes,
+            }, req);
+        }
+
+        return res.status(201).json({
+            success: true,
+            data: uploadedDocuments,
+            count: uploadedDocuments.length,
+            message:
+                uploadedDocuments.length === 1
+                    ? "Employee document uploaded successfully"
+                    : "Employee documents uploaded successfully",
+        });
+    } catch (error) {
+        logger.error(`Error uploading employee document: ${error.message}`, {
+            error: error.stack,
+            employeeId: req.params?.id,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to upload employee document",
+        });
+    }
+};
+
+export const downloadEmployeeDocument = async (req, res) => {
+    try {
+        const requesterId = req.user?.id;
+        const requesterRole = req.user?.role;
+        const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
+        const targetEmployeeId = req.params?.id;
+        const documentId = req.params?.documentId;
+
+        if (!targetEmployeeId || !documentId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee id and document id are required",
+            });
+        }
+
+        if (
+            !canAccessEmployeeDocument(
+                requesterRole,
+                requesterId,
+                targetEmployeeId,
+                Boolean(req.effectiveTenantId)
+            )
+        ) {
+            return res.status(403).json({
+                success: false,
+                error: "Forbidden",
+                message: "You can only access your own documents",
+            });
+        }
+
+        const document = await prisma.employeeDocument.findFirst({
+            where: {
+                id: documentId,
+                userId: targetEmployeeId,
+                ...(tenantId && { tenantId }),
+            },
+        });
+
+        if (!document) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Document not found",
+            });
+        }
+
+        const fileBuffer = await getFile(document.storedName);
+        res.setHeader("Content-Type", document.mimeType || "application/octet-stream");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${document.originalName.replace(/"/g, "")}"`
+        );
+        return res.status(200).send(fileBuffer);
+    } catch (error) {
+        logger.error(`Error downloading employee document: ${error.message}`, {
+            error: error.stack,
+            employeeId: req.params?.id,
+            documentId: req.params?.documentId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to download employee document",
+        });
+    }
+};
+
+export const deleteEmployeeDocument = async (req, res) => {
+    try {
+        const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
+        const actorId = req.user?.id;
+        const targetEmployeeId = req.params?.id;
+        const documentId = req.params?.documentId;
+
+        if (!targetEmployeeId || !documentId) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Employee id and document id are required",
+            });
+        }
+
+        const document = await prisma.employeeDocument.findFirst({
+            where: {
+                id: documentId,
+                userId: targetEmployeeId,
+                ...(tenantId && { tenantId }),
+            },
+        });
+
+        if (!document) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Document not found",
+            });
+        }
+
+        await prisma.employeeDocument.delete({
+            where: { id: document.id },
+        });
+
+        try {
+            const storageKey = extractFilenameFromUrl(document.filePath) || document.storedName;
+            if (storageKey) await deleteFile(storageKey);
+        } catch (deleteErr) {
+            logger.warn(`Could not delete employee document file: ${deleteErr.message}`);
+        }
+
+        await addLog(actorId, tenantId, "DELETE", "EmployeeDocument", document.id, {
+            employeeId: targetEmployeeId,
+            originalName: document.originalName,
+        }, req);
+
+        return res.status(200).json({
+            success: true,
+            message: "Employee document deleted successfully",
+        });
+    } catch (error) {
+        logger.error(`Error deleting employee document: ${error.message}`, {
+            error: error.stack,
+            employeeId: req.params?.id,
+            documentId: req.params?.documentId,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to delete employee document",
         });
     }
 };

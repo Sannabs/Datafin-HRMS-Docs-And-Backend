@@ -40,6 +40,28 @@ const leaveAttachmentFilter = (req, file, cb) => {
   }
 };
 
+// File filter for employee documents: images + PDF + common docs
+const employeeDocumentFilter = (req, file, cb) => {
+  const allowedMimes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ];
+
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Invalid file type. Allowed: images, PDF, Word."), false);
+  }
+};
+
 // Configure multer
 const upload = multer({
   storage: storage,
@@ -63,3 +85,11 @@ const uploadLeave = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
 });
 export const uploadLeaveAttachments = uploadLeave.array("attachments", 10);
+
+const uploadEmployeeDocumentStorage = multer.memoryStorage();
+const uploadEmployeeDocument = multer({
+  storage: uploadEmployeeDocumentStorage,
+  fileFilter: employeeDocumentFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+});
+export const uploadEmployeeDocuments = uploadEmployeeDocument.array("documents", 10);

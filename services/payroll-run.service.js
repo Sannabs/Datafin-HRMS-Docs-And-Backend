@@ -289,6 +289,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 employerSocialSecurityRate: true,
                 gambiaTaxAgeExemptionEnabled: true,
                 gambiaTaxExemptionAge: true,
+                overtimeEnabled: true,
                 overtimePayMultiplier: true,
             },
         });
@@ -387,7 +388,9 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             payPeriodEndDate: payPeriod.endDate,
         };
 
+        const overtimeEnabled = tenant?.overtimeEnabled !== false;
         const multiplier =
+            overtimeEnabled &&
             tenant?.overtimePayMultiplier != null &&
             Number(tenant.overtimePayMultiplier) > 0
                 ? Number(tenant.overtimePayMultiplier)
@@ -395,7 +398,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
 
         const supplementalAllowanceLines = [];
         let overtimeMeta = null;
-        if (payableOvertimeHours > 0) {
+        if (overtimeEnabled && payableOvertimeHours > 0) {
             const ot = await computeOvertimePayAmount(
                 baseSalaryMonthly,
                 tenantId,

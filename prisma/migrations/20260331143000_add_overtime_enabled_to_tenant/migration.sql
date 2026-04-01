@@ -1,0 +1,2 @@
+ALTER TABLE "Tenant"
+ADD COLUMN "overtimeEnabled" BOOLEAN NOT NULL DEFAULT true;

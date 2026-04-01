@@ -15,11 +15,18 @@ import {
     removeProfilePicture,
     getHomeStats,
     getEmployeePayrollOverview,
+    getEmployeeDocuments,
+    uploadEmployeeDocument,
+    downloadEmployeeDocument,
+    deleteEmployeeDocument,
 } from "../controllers/employee.controller.js";
 import { getEmployeeCombinedFeed } from "../controllers/employee-feed.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
-import { uploadSingleImage } from "../middlewares/upload.middleware.js";
+import {
+    uploadSingleImage,
+    uploadEmployeeDocuments,
+} from "../middlewares/upload.middleware.js";
 
 const router = express.Router();
 
@@ -38,6 +45,19 @@ router.get("/home-stats", getHomeStats);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.delete("/my-profile-picture", removeProfilePicture);
 router.get("/:userId/combined-feed", getEmployeeCombinedFeed);
+router.get("/:id/documents", getEmployeeDocuments);
+router.post(
+    "/:id/documents",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    uploadEmployeeDocuments,
+    uploadEmployeeDocument
+);
+router.get("/:id/documents/:documentId/download", downloadEmployeeDocument);
+router.delete(
+    "/:id/documents/:documentId",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    deleteEmployeeDocument
+);
 router.get("/:id/payroll-overview", getEmployeePayrollOverview);
 router.get("/:id", getEmployeeById);
 router.patch("/:id/employee-id", requireRole(["HR_ADMIN", "HR_STAFF"]), updateEmployeeIdDigits);

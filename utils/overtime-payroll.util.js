@@ -53,6 +53,14 @@ export const sumOvertimeHoursForPayPeriod = async (userId, tenantId, startDate, 
  * @returns {Promise<{ rawHours: number, payableHours: number, blocked: boolean, approval: object|null }>}
  */
 export const getOvertimePayrollState = async (userId, tenantId, payPeriodId, periodStart, periodEnd) => {
+    const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { overtimeEnabled: true },
+    });
+    if (tenant?.overtimeEnabled === false) {
+        return { rawHours: 0, payableHours: 0, blocked: false, approval: null };
+    }
+
     const rawHours = await sumOvertimeHoursForPayPeriod(userId, tenantId, periodStart, periodEnd);
     if (rawHours <= 0) {
         return { rawHours: 0, payableHours: 0, blocked: false, approval: null };

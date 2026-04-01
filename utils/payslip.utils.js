@@ -96,6 +96,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
                 gambiaSsnFundingMode: true,
                 gambiaTaxAgeExemptionEnabled: true,
                 gambiaTaxExemptionAge: true,
+                overtimeEnabled: true,
                 overtimePayMultiplier: true,
             },
         }),
@@ -163,13 +164,16 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         payPeriodEndDate,
     };
 
+    const overtimeEnabled = tenant?.overtimeEnabled !== false;
     const multiplier =
-        tenant?.overtimePayMultiplier != null && Number(tenant.overtimePayMultiplier) > 0
+        overtimeEnabled &&
+        tenant?.overtimePayMultiplier != null &&
+        Number(tenant.overtimePayMultiplier) > 0
             ? Number(tenant.overtimePayMultiplier)
             : 1.5;
 
     const supplementalAllowanceLines = [];
-    if (payableOvertimeHours > 0 && user) {
+    if (overtimeEnabled && payableOvertimeHours > 0 && user) {
         const ot = await computeOvertimePayAmount(
             baseSalaryMonthly,
             tenantId,

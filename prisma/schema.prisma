@@ -267,8 +267,10 @@ model Tenant {
   allowPastPayPeriodCreation Boolean @default(true)
   maxPayPeriodLookbackDays   Int? // null = unlimited; e.g. 365 = max 12 months back
 
+  /// Master switch for overtime payroll features (approvals + overtime pay)
+  overtimeEnabled Boolean @default(true)
   /// Overtime pay rate multiplier (e.g. 1.5 for time-and-a-half)
-  overtimePayMultiplier Float @default(1.5)
+  overtimePayMultiplier Float   @default(1.5)
 
   users                User[]
   departments          Department[]
@@ -301,6 +303,7 @@ model Tenant {
   attendanceStatSnapshots AttendanceStatSnapshot[]
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
   overtimePeriodApprovals OvertimePeriodApproval[]
+  employeeDocuments      EmployeeDocument[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -444,6 +447,7 @@ model User {
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
   overtimePeriodApprovalsAsEmployee OvertimePeriodApproval[] @relation("OvertimeApprovalSubject")
   overtimePeriodApprovalsAsApprover OvertimePeriodApproval[] @relation("OvertimeApprovalApprover")
+  employeeDocuments              EmployeeDocument[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -456,6 +460,27 @@ model User {
   @@index([isDeleted])
   @@index([status])
   @@map("User")
+}
+
+model EmployeeDocument {
+  id           String   @id @default(uuid())
+  tenantId     String
+  userId       String
+  originalName String
+  storedName   String
+  filePath     String
+  mimeType     String
+  extension    String?
+  sizeBytes    Int
+  uploadedBy   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)])
+  @@index([tenantId, mimeType])
 }
 
 model Session {
