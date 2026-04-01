@@ -52,14 +52,24 @@ This document defines:
   - owner and reviewer.
 - Progress checkpoints tracked through the monitoring window.
 
-### G. Closure
+### G. Appeal and Grievance
+- Employee can submit an appeal within a policy-defined window after warning issuance.
+- Appeal captures employee statement, supporting evidence, and requested remedy.
+- HR reviews appeal (and can involve legal/compliance for high-risk cases).
+- Appeal outcomes:
+  - uphold warning,
+  - amend warning (severity/details),
+  - void warning.
+- Appeal decision is communicated to employee and logged with reviewer metadata.
+
+### H. Closure
 - At review date, case resolves to one of:
   - `RESOLVED`,
   - `ESCALATED`,
   - `VOIDED`,
   - or extended monitoring.
 
-### H. Retention and Audit
+### I. Retention and Audit
 - Warning history is immutable in audit logs.
 - Visibility is role-based and tenant-scoped.
 - Retention follows local labor law and company policy.
@@ -82,6 +92,9 @@ This map is tailored to current platform role model.
 | View team warning list | Yes | Yes | Yes (direct reports only) | No |
 | View own warning records | Yes | Yes | Yes | Yes (self only) |
 | Acknowledge warning | Yes (on behalf, if needed) | Yes (on behalf, if needed) | No | Yes (self only) |
+| Open appeal | Yes (on behalf, if needed) | Yes (on behalf, if needed) | No | Yes (self only) |
+| Review appeal | Yes | Yes | No | No |
+| Decide appeal (uphold/amend/void) | Yes | Yes | No | No |
 | Resolve / Void warning | Yes | Yes | No | No |
 | Escalate severity | Yes | Yes | No | No |
 
@@ -89,7 +102,11 @@ This map is tailored to current platform role model.
 
 Recommended minimum state machine:
 
-`DRAFT -> PENDING_HR_REVIEW -> ISSUED -> ACKNOWLEDGED -> (RESOLVED | ESCALATED | VOIDED)`
+`DRAFT -> PENDING_HR_REVIEW -> ISSUED -> ACKNOWLEDGED -> (APPEAL_OPEN | RESOLVED | ESCALATED | VOIDED)`
+
+Appeal branch:
+
+`APPEAL_OPEN -> APPEAL_REVIEW -> (APPEAL_UPHELD | APPEAL_AMENDED | APPEAL_VOIDED)`
 
 Notes:
 - `DEPARTMENT_ADMIN` can initiate, but cannot issue without HR review.
@@ -129,6 +146,9 @@ Base namespace (recommended):
 - `POST /api/employees/:id/warnings/:warningId/submit`
 - `POST /api/employees/:id/warnings/:warningId/issue`
 - `POST /api/employees/:id/warnings/:warningId/acknowledge`
+- `POST /api/employees/:id/warnings/:warningId/appeal`
+- `POST /api/employees/:id/warnings/:warningId/appeal/review`
+- `POST /api/employees/:id/warnings/:warningId/appeal/decision`
 - `POST /api/employees/:id/warnings/:warningId/resolve`
 - `POST /api/employees/:id/warnings/:warningId/escalate`
 - `POST /api/employees/:id/warnings/:warningId/void`
@@ -230,6 +250,61 @@ Request:
 }
 ```
 
+#### Open appeal
+`POST /api/employees/:id/warnings/:warningId/appeal`
+
+Request:
+
+```json
+{
+  "appealReason": "Clock-in evidence was not considered.",
+  "employeeStatement": "I was on approved client travel and informed my manager.",
+  "attachments": []
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Appeal submitted successfully",
+  "data": {
+    "id": "wrn_123",
+    "status": "APPEAL_OPEN",
+    "appealOpenedAt": "2026-04-03T11:15:00.000Z"
+  }
+}
+```
+
+#### Appeal decision
+`POST /api/employees/:id/warnings/:warningId/appeal/decision`
+
+Request:
+
+```json
+{
+  "decision": "AMEND",
+  "decisionNote": "Severity reduced due to corroborating records.",
+  "updatedSeverity": "LOW"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Appeal decision recorded",
+  "data": {
+    "id": "wrn_123",
+    "status": "APPEAL_AMENDED",
+    "severity": "LOW",
+    "appealDecidedAt": "2026-04-05T09:00:00.000Z"
+  }
+}
+```
+
 Response:
 
 ```json
@@ -292,13 +367,19 @@ Response:
 - `POST /acknowledge`
   - self employee, or HR actor acting on behalf (with note).
 
+- `POST /appeal`
+  - self employee, or HR actor opening on behalf (with note).
+
+- `POST /appeal/review`, `POST /appeal/decision`
+  - `HR_ADMIN`, `HR_STAFF` only.
+
 ### 3.4 Suggested Audit Events
 
 Persist audit events (via existing audit utility):
 
 - `CREATE` warning draft
 - `UPDATE` warning fields
-- `OTHER` submit / issue / acknowledge / resolve / escalate / void transitions
+- `OTHER` submit / issue / acknowledge / appeal_open / appeal_review / appeal_decision / resolve / escalate / void transitions
 - entityType: `EmployeeWarning`
 - entityId: warning record id
 
@@ -336,8 +417,8 @@ Primary actions by role:
 
 For first release:
 
-1. Implement states: `DRAFT`, `PENDING_HR_REVIEW`, `ISSUED`, `ACKNOWLEDGED`, `RESOLVED`, `VOIDED`.
-2. Implement endpoints: list/create/submit/issue/acknowledge/resolve/void.
+1. Implement states: `DRAFT`, `PENDING_HR_REVIEW`, `ISSUED`, `ACKNOWLEDGED`, `APPEAL_OPEN`, `APPEAL_REVIEW`, `APPEAL_UPHELD`, `APPEAL_AMENDED`, `APPEAL_VOIDED`, `RESOLVED`, `VOIDED`.
+2. Implement endpoints: list/create/submit/issue/acknowledge/appeal/appeal-review/appeal-decision/resolve/void.
 3. Add audit logs for every transition.
 4. Add role/tenant enforcement exactly as mapped above.
 5. Add employee detail warning panel and optional feed integration.

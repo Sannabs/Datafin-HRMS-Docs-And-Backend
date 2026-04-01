@@ -26,7 +26,7 @@ Roles in scope:
 Access policy:
 - `HR_ADMIN`, `HR_STAFF`: full tenant access.
 - `DEPARTMENT_ADMIN`: direct reports only.
-- `STAFF`: self only for read and acknowledge.
+- `STAFF`: self only for read, acknowledge, and appeal.
 
 ---
 
@@ -40,6 +40,9 @@ Access policy:
 | POST | `/api/employees/:id/warnings/:warningId/submit` | Move draft to HR review queue | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN |
 | POST | `/api/employees/:id/warnings/:warningId/issue` | Issue warning to employee | HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/acknowledge` | Acknowledge issued warning | STAFF (self), HR_ADMIN, HR_STAFF |
+| POST | `/api/employees/:id/warnings/:warningId/appeal` | Open appeal on issued warning | STAFF (self), HR_ADMIN, HR_STAFF |
+| POST | `/api/employees/:id/warnings/:warningId/appeal/review` | Mark appeal under HR review | HR_ADMIN, HR_STAFF |
+| POST | `/api/employees/:id/warnings/:warningId/appeal/decision` | Decide appeal (uphold/amend/void) | HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/resolve` | Mark warning resolved | HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/escalate` | Escalate severity/state | HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/void` | Void warning record | HR_ADMIN, HR_STAFF |
@@ -50,11 +53,16 @@ Access policy:
 
 Recommended lifecycle:
 
-`DRAFT -> PENDING_HR_REVIEW -> ISSUED -> ACKNOWLEDGED -> (RESOLVED | ESCALATED | VOIDED)`
+`DRAFT -> PENDING_HR_REVIEW -> ISSUED -> ACKNOWLEDGED -> (APPEAL_OPEN | RESOLVED | ESCALATED | VOIDED)`
+
+Appeal branch:
+
+`APPEAL_OPEN -> APPEAL_REVIEW -> (APPEAL_UPHELD | APPEAL_AMENDED | APPEAL_VOIDED)`
 
 Transition notes:
 - Only HR can `ISSUE`, `RESOLVE`, `ESCALATE`, `VOID`.
 - `ACKNOWLEDGED` is valid only from `ISSUED`.
+- Appeal transitions are HR-owned except opening appeal (`STAFF` self or HR on behalf).
 - `VOIDED` is terminal.
 
 ---
@@ -97,7 +105,7 @@ Example warning object:
 `GET /api/employees/:id/warnings`
 
 Query params (optional):
-- `status`: `DRAFT|PENDING_HR_REVIEW|ISSUED|ACKNOWLEDGED|RESOLVED|ESCALATED|VOIDED`
+- `status`: `DRAFT|PENDING_HR_REVIEW|ISSUED|ACKNOWLEDGED|APPEAL_OPEN|APPEAL_REVIEW|APPEAL_UPHELD|APPEAL_AMENDED|APPEAL_VOIDED|RESOLVED|ESCALATED|VOIDED`
 - `severity`: `LOW|MEDIUM|HIGH|FINAL`
 - `category`: string
 - `page`: number (default 1)
@@ -338,7 +346,106 @@ Success `200`:
 
 ---
 
-## 5.8 Escalate Warning
+## 5.8 Open Appeal
+
+`POST /api/employees/:id/warnings/:warningId/appeal`
+
+Request body:
+
+```json
+{
+  "appealReason": "Clock-in evidence was not considered.",
+  "employeeStatement": "I was on approved client travel and informed my manager.",
+  "attachments": []
+}
+```
+
+Transition:
+- `ISSUED|ACKNOWLEDGED -> APPEAL_OPEN`
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "message": "Appeal submitted successfully",
+  "data": {
+    "id": "wrn_123",
+    "status": "APPEAL_OPEN",
+    "appealOpenedAt": "2026-04-03T11:15:00.000Z"
+  }
+}
+```
+
+---
+
+## 5.9 Appeal Review
+
+`POST /api/employees/:id/warnings/:warningId/appeal/review`
+
+Request body:
+
+```json
+{
+  "reviewNote": "Appeal evidence is being verified."
+}
+```
+
+Transition:
+- `APPEAL_OPEN -> APPEAL_REVIEW`
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "message": "Appeal moved to review",
+  "data": {
+    "id": "wrn_123",
+    "status": "APPEAL_REVIEW"
+  }
+}
+```
+
+---
+
+## 5.10 Appeal Decision
+
+`POST /api/employees/:id/warnings/:warningId/appeal/decision`
+
+Request body:
+
+```json
+{
+  "decision": "AMEND",
+  "decisionNote": "Severity reduced due to corroborating records.",
+  "updatedSeverity": "LOW"
+}
+```
+
+Decision outcomes:
+- `UPHOLD` -> `APPEAL_UPHELD`
+- `AMEND` -> `APPEAL_AMENDED`
+- `VOID` -> `APPEAL_VOIDED`
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "message": "Appeal decision recorded",
+  "data": {
+    "id": "wrn_123",
+    "status": "APPEAL_AMENDED",
+    "severity": "LOW",
+    "appealDecidedAt": "2026-04-05T09:00:00.000Z"
+  }
+}
+```
+
+---
+
+## 5.11 Escalate Warning
 
 `POST /api/employees/:id/warnings/:warningId/escalate`
 
@@ -370,7 +477,7 @@ Success `200`:
 
 ---
 
-## 5.9 Void Warning
+## 5.12 Void Warning
 
 `POST /api/employees/:id/warnings/:warningId/void`
 
@@ -435,7 +542,7 @@ For each mutation, create audit entries (existing pattern):
 - action:
   - `CREATE` for draft creation
   - `UPDATE` for field edits
-  - `OTHER` for state transitions (`submit`, `issue`, `acknowledge`, `resolve`, `escalate`, `void`)
+  - `OTHER` for state transitions (`submit`, `issue`, `acknowledge`, `appeal_open`, `appeal_review`, `appeal_decision`, `resolve`, `escalate`, `void`)
 - changes payload should include:
   - state before/after
   - severity changes where applicable
