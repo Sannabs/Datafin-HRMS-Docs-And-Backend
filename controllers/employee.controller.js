@@ -736,6 +736,7 @@ export const updateEmployee = async (req, res) => {
         // allowed fields to update
         const allowedFields = [
             "name",
+            "email",
             "phone",
             "address",
             "gender",
