@@ -13,7 +13,7 @@ import {
   closeExpiredSessions,
 } from "../automations/patrol.cron.js";
 import { processPatrolIntervalReminders } from "../services/patrol-notification.service.js";
-import "../automations/absent.automation.js";
+// import "../automations/absent.automation.js";
 import { startMonthlyAttendanceSnapshotJob } from "../automations/monthly-attendance-snapshot.job.js";
 
 // BullMQ is optional during development
