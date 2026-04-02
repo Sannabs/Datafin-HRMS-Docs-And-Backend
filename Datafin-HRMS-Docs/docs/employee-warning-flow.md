@@ -413,13 +413,97 @@ Primary actions by role:
 
 ---
 
-## 5) MVP Scope Recommendation
+## 5) Full Implementation — Sprint Breakdown
 
-For first release:
+Below is an end-to-end plan aligned to Sections 1–4: data model, all workflow states, full endpoint set, authorization, audit, notifications, escalation rules, and employee-detail UI. Sprint lengths assume a typical two-week cadence; adjust grouping if your team capacity differs.
 
-1. Implement states: `DRAFT`, `PENDING_HR_REVIEW`, `ISSUED`, `ACKNOWLEDGED`, `APPEAL_OPEN`, `APPEAL_REVIEW`, `APPEAL_UPHELD`, `APPEAL_AMENDED`, `APPEAL_VOIDED`, `RESOLVED`, `VOIDED`.
-2. Implement endpoints: list/create/submit/issue/acknowledge/appeal/appeal-review/appeal-decision/resolve/void.
-3. Add audit logs for every transition.
-4. Add role/tenant enforcement exactly as mapped above.
-5. Add employee detail warning panel and optional feed integration.
+### Sprint 1 — Domain model, tenancy, and read APIs
+
+**Goal:** Persist warnings and expose a role-safe list/detail view.
+
+- Schema and persistence for warnings (title, category, severity, incident date, reason, policy reference, attachments metadata, status, timestamps, issued/resolved metadata, tenant + user linkage).
+- Enums aligned to this doc: categories, severity (`LOW` through `FINAL`), and all statuses in the state machines in Section 2.
+- `GET /api/employees/:id/warnings` with tenant scoping and the visibility rules in Section 3.3 (HR vs department admin direct reports vs self-only).
+- Basic validation and consistent error shape (Section 3.5).
+- Audit: log `CREATE` once drafts can be created (Sprint 2) — or stub audit integration here if creation lands same sprint.
+
+**Exit criteria:** HR and department admins can list warnings they are allowed to see; employees can list only their own when records exist.
+
+### Sprint 2 — Draft lifecycle: create, edit, submit, HR issue
+
+**Goal:** Complete the path from intake to formal issuance.
+
+- `POST /api/employees/:id/warnings` (draft) and `PATCH .../warnings/:warningId` with role rules from the matrix (who can create/edit; department admin direct reports only).
+- `POST .../submit` → `PENDING_HR_REVIEW`; `POST .../issue` → `ISSUED` with issue metadata (`issueNote`, `reviewDueDate`, `issuedBy` / `issuedAt`).
+- State transition guards (no skipping steps; idempotent or clear errors on invalid transitions).
+- Audit: `CREATE`, `UPDATE`, and `OTHER` for submit and issue (Section 3.4).
+- Notifications: on submit (HR_ADMIN + HR_STAFF); on issue (target STAFF) — Section 2 “Datafin Notification Targets”.
+
+**Exit criteria:** A warning can move `DRAFT` → `PENDING_HR_REVIEW` → `ISSUED` with full audit and the intended notifications.
+
+### Sprint 3 — Acknowledgement and refusal handling
+
+**Goal:** Close the loop on Section 1(E) and employee-visible issuance.
+
+- `POST .../acknowledge` → `ACKNOWLEDGED` (employee self or HR on behalf with note, per Section 3.3).
+- Support recording a refusal event (status or parallel event log) with note when the employee does not acknowledge, without forcing invalid states — match your legal/UX choice (e.g. remain `ISSUED` with `acknowledgementRefusedAt` / sub-status).
+- Audit every acknowledgement or refusal outcome.
+- Notification: on acknowledgement (issuing HR + optional manager) — Section 2.
+
+**Exit criteria:** Issued warnings can be acknowledged or refusal can be recorded and audited; employees see only what policy allows.
+
+### Sprint 4 — Appeal branch (open, review, decision)
+
+**Goal:** Implement the full appeal sub-flow in Section 1(G) and Section 2.
+
+- `POST .../appeal` → `APPEAL_OPEN` (self or HR on behalf); store appeal reason, statement, attachments.
+- `POST .../appeal/review` → `APPEAL_REVIEW` (or equivalent in-progress state if you split “submitted” vs “under review”).
+- `POST .../appeal/decision` with outcomes: uphold, amend (e.g. severity change), void — map to `APPEAL_UPHELD`, `APPEAL_AMENDED`, `APPEAL_VOIDED` and return warning to a consistent post-decision status (e.g. back to `ACKNOWLEDGED` / `ISSUED` variant or straight to `VOIDED` per product rules).
+- Audit all appeal transitions; notifications as needed (employee + HR on decision).
+
+**Exit criteria:** Appeal path is exercisable end-to-end with role checks (HR only for review/decision) and immutable audit history.
+
+### Sprint 5 — Closure, escalation, and void
+
+**Goal:** Section 1(H) resolution paths and escalation tooling.
+
+- `POST .../resolve` → `RESOLVED`; `POST .../void` → `VOIDED`; `POST .../escalate` → `ESCALATED` (or severity/case escalation per your model).
+- HR-only enforcement for these endpoints; validate status prerequisites.
+- Audit resolve / void / escalate; notifications to HR team and direct manager where applicable (Section 2).
+- Implement or wire **Datafin Escalation Rules** (Section 2): rolling 12-month active warning count flag, mandatory follow-up for `FINAL`, suggestions when repeated same-category incidents occur during monitoring (can start as flags/recommendations in UI or reports before full automation).
+
+**Exit criteria:** HR can resolve, void, and escalate per policy; escalation signals are visible to HR (even if rule automation is MVP+ within this sprint).
+
+### Sprint 6 — Employee detail UI and activity feed
+
+**Goal:** Section 4 in production-quality form.
+
+- Warning list on employee detail: active first, then history; filters for status, severity, category.
+- Role-based action buttons (create draft, submit, issue, acknowledge, appeal, appeal review, resolve, escalate, void) wired to the APIs and disabled/hidden by state.
+- Optional: employee feed rows with `feedVariant: warning` for key events (issued, acknowledged, appeal, resolved).
+
+**Exit criteria:** Primary personas can complete their workflows from the UI without ad-hoc API calls.
+
+### Sprint 7 — Hardening: retention, immutability, and operational readiness
+
+**Goal:** Section 1(I) and production concerns.
+
+- Clarify immutability: append-only audit log; whether warning fields are editable only in `DRAFT` / specific states; retention and export aligned to tenant policy and labor law (implementation level depends on platform storage).
+- Performance: indexes for employee + tenant + status + date queries; pagination on list endpoints.
+- Documentation for support: state diagram, common errors, who can do what (short internal runbook).
+
+**Exit criteria:** Audit trail is trustworthy; list APIs scale for typical tenant size; support can troubleshoot permission and state errors.
+
+### Sprint 8 (optional) — Corrective monitoring (CAP/PIP) linkage
+
+**Goal:** Section 1(F) if product commits beyond core warnings.
+
+- Link warnings to CAP/PIP entities (action items, owners, due dates, checkpoints).
+- UI for monitoring window progress; optional notifications on overdue items.
+
+**Exit criteria:** HR can associate a warning with a corrective plan and track checkpoints.
+
+---
+
+**Summary dependency chain:** Sprint 1 → 2 → (3, 4, and 5 can parallelize on different branches once issue path exists; 5 benefits from 3–4 for complete notification coverage) → 6 after core APIs stable → 7 ongoing/last → 8 optional.
 
