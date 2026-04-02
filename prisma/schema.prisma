@@ -99,6 +99,12 @@ enum EmployeeWarningStatus {
   VOIDED
 }
 
+enum EmployeeWarningAppealOutcome {
+  UPHOLD
+  AMEND
+  VOID
+}
+
 model Invitation {
   id                  String            @id @default(uuid())
   senderId            String
@@ -482,6 +488,12 @@ model User {
   employeeWarningsAsSubject      EmployeeWarning[]            @relation("EmployeeWarningSubject")
   employeeWarningsCreated        EmployeeWarning[]            @relation("EmployeeWarningCreatedBy")
   employeeWarningsIssued         EmployeeWarning[]            @relation("EmployeeWarningIssuedBy")
+  employeeWarningsAcknowledged   EmployeeWarning[]            @relation("WarningAcknowledgedBy")
+  employeeWarningsAppealReviewed EmployeeWarning[]            @relation("WarningAppealReviewedBy")
+  employeeWarningsAppealDecided  EmployeeWarning[]            @relation("WarningAppealDecidedBy")
+  employeeWarningsResolved       EmployeeWarning[]            @relation("WarningResolvedBy")
+  employeeWarningsVoided         EmployeeWarning[]            @relation("WarningVoidedBy")
+  employeeWarningsEscalated      EmployeeWarning[]            @relation("WarningEscalatedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -535,6 +547,31 @@ model EmployeeWarning {
   reviewDueDate   DateTime?                @db.Date
   issuedAt        DateTime?
   issuedById      String?
+  acknowledgedAt               DateTime?
+  acknowledgedById             String?
+  acknowledgementNote          String?
+  acknowledgementRefusedAt     DateTime?
+  acknowledgementRefusedNote   String?
+  appealReason                 String?
+  appealStatement              String?
+  appealAttachments            Json?
+  appealOpenedAt               DateTime?
+  appealReviewedAt             DateTime?
+  appealReviewedById           String?
+  appealDecidedAt              DateTime?
+  appealDecidedById            String?
+  appealOutcome                EmployeeWarningAppealOutcome?
+  appealDecisionNote           String?
+  resolvedAt                   DateTime?
+  resolvedById                 String?
+  resolutionNote               String?
+  voidedAt                     DateTime?
+  voidedById                   String?
+  voidNote                     String?
+  escalatedAt                  DateTime?
+  escalatedById                String?
+  escalationNote               String?
+  finalFollowUpDueAt           DateTime?                @db.Date
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt
 
@@ -542,6 +579,12 @@ model EmployeeWarning {
   user      User   @relation("EmployeeWarningSubject", fields: [userId], references: [id], onDelete: Cascade)
   createdBy User?  @relation("EmployeeWarningCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   issuedBy  User?  @relation("EmployeeWarningIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  acknowledgedBy    User? @relation("WarningAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  appealReviewedBy  User? @relation("WarningAppealReviewedBy", fields: [appealReviewedById], references: [id], onDelete: SetNull)
+  appealDecidedBy   User? @relation("WarningAppealDecidedBy", fields: [appealDecidedById], references: [id], onDelete: SetNull)
+  resolvedBy        User? @relation("WarningResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  voidedBy          User? @relation("WarningVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  escalatedBy       User? @relation("WarningEscalatedBy", fields: [escalatedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, userId])
   @@index([tenantId, status])

@@ -227,4 +227,39 @@ export async function assertCanEditDraft(req, warning, targetUserId) {
   return { ok: true };
 }
 
+/** Employee self or HR acting on behalf (acknowledge, refuse, appeal). */
+export function assertCanActAsWarningEmployee(req, targetUserId) {
+  const requesterId = req.user?.id;
+  const requesterRole = req.user?.role;
+  if (!requesterId) {
+    return { ok: false, status: 401, message: "User not authenticated" };
+  }
+  if (
+    requesterRole === "STAFF" &&
+    targetUserId === requesterId
+  ) {
+    return { ok: true };
+  }
+   
+  if (
+    isHRAdminOrStaff(requesterRole) ||
+    requesterRole === "SUPER_ADMIN"
+  ) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    status: 403,
+    message: "Only the employee or HR may perform this action",
+  };
+}
+
+export function assertCanReviewAppeal(req) {
+  return assertCanIssueWarning(req);
+}
+
+export function assertCanResolveVoidEscalate(req) {
+  return assertCanIssueWarning(req);
+}
+
 export { getTenantId, isHRAdminOrStaff };

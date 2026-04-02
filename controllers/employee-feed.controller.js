@@ -49,6 +49,12 @@ function uiStatusToLower(s) {
   return String(s).toLowerCase();
 }
 
+function dateInRange(d, rangeStart, rangeEnd) {
+  if (!d) return false;
+  const t = new Date(d).getTime();
+  return t >= rangeStart.getTime() && t <= rangeEnd.getTime();
+}
+
 /**
  * GET /api/employees/:userId/combined-feed
  * Merged timeline: attendance, leave, tenant holidays, excused absences, issued warnings.
@@ -205,13 +211,18 @@ export const getEmployeeCombinedFeed = async (req, res) => {
         where: {
           tenantId: tId,
           userId,
-          status: EmployeeWarningStatus.ISSUED,
-          issuedAt: {
-            gte: rangeStart,
-            lte: rangeEnd,
+          status: {
+            notIn: [
+              EmployeeWarningStatus.DRAFT,
+              EmployeeWarningStatus.PENDING_HR_REVIEW,
+            ],
           },
+          OR: [
+            { issuedAt: { gte: rangeStart, lte: rangeEnd } },
+            { acknowledgedAt: { gte: rangeStart, lte: rangeEnd } },
+            { resolvedAt: { gte: rangeStart, lte: rangeEnd } },
+          ],
         },
-        orderBy: { issuedAt: "desc" },
         take: FEED_LIMIT_MAX,
       }),
     ]);
@@ -354,24 +365,65 @@ export const getEmployeeCombinedFeed = async (req, res) => {
     }
 
     for (const w of warningRows) {
-      const sortAt = w.issuedAt ?? w.updatedAt;
-      const { dayShort, dayNum } = dayParts(sortAt);
       const cat = String(w.category || "").replace(/_/g, " ");
-      const detailParts = [
+      const baseDetail = [
         `${cat} · ${String(w.severity || "").toLowerCase()}`,
         w.reason?.trim() ? w.reason.trim() : null,
       ].filter(Boolean);
-      items.push({
-        id: `warning:${w.id}`,
-        kind: "WARNING",
-        feedVariant: "warning_issued",
-        uiStatus: "present",
-        sortAt: sortAt.toISOString(),
-        dayShort,
-        dayNum,
-        title: w.title || "Formal warning",
-        detail: detailParts.join(". ") || "Formal warning issued",
-      });
+
+      if (w.issuedAt && dateInRange(w.issuedAt, rangeStart, rangeEnd)) {
+        const sortAt = w.issuedAt;
+        const { dayShort, dayNum } = dayParts(sortAt);
+        items.push({
+          id: `warning:${w.id}:issued`,
+          kind: "WARNING",
+          feedVariant: "warning_issued",
+          uiStatus: "present",
+          sortAt: sortAt.toISOString(),
+          dayShort,
+          dayNum,
+          title: w.title || "Formal warning",
+          detail: baseDetail.join(". ") || "Formal warning issued",
+        });
+      }
+
+      if (
+        w.acknowledgedAt &&
+        dateInRange(w.acknowledgedAt, rangeStart, rangeEnd)
+      ) {
+        const sortAt = w.acknowledgedAt;
+        const { dayShort, dayNum } = dayParts(sortAt);
+        items.push({
+          id: `warning:${w.id}:ack`,
+          kind: "WARNING",
+          feedVariant: "warning_acknowledged",
+          uiStatus: "present",
+          sortAt: sortAt.toISOString(),
+          dayShort,
+          dayNum,
+          title: `Acknowledged: ${w.title || "warning"}`,
+          detail: w.acknowledgementNote?.trim() || "Warning acknowledged",
+        });
+      }
+
+      if (
+        w.resolvedAt &&
+        dateInRange(w.resolvedAt, rangeStart, rangeEnd)
+      ) {
+        const sortAt = w.resolvedAt;
+        const { dayShort, dayNum } = dayParts(sortAt);
+        items.push({
+          id: `warning:${w.id}:resolved`,
+          kind: "WARNING",
+          feedVariant: "warning_resolved",
+          uiStatus: "present",
+          sortAt: sortAt.toISOString(),
+          dayShort,
+          dayNum,
+          title: `Resolved: ${w.title || "warning"}`,
+          detail: w.resolutionNote?.trim() || "Warning resolved",
+        });
+      }
     }
 
     items.sort((a, b) => new Date(b.sortAt) - new Date(a.sortAt));

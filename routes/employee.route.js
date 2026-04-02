@@ -27,6 +27,14 @@ import {
     updateEmployeeWarningDraft,
     submitEmployeeWarningForReview,
     issueEmployeeWarning,
+    acknowledgeEmployeeWarning,
+    refuseEmployeeWarningAcknowledgement,
+    submitEmployeeWarningAppeal,
+    reviewEmployeeWarningAppeal,
+    decideEmployeeWarningAppeal,
+    resolveEmployeeWarning,
+    voidEmployeeWarning,
+    escalateEmployeeWarning,
 } from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -76,6 +84,46 @@ router.post(
     "/:id/warnings/:warningId/issue",
     requireRole(["HR_ADMIN", "HR_STAFF"]),
     issueEmployeeWarning
+);
+router.post(
+    "/:id/warnings/:warningId/acknowledge",
+    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    acknowledgeEmployeeWarning
+);
+router.post(
+    "/:id/warnings/:warningId/refuse-acknowledgement",
+    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    refuseEmployeeWarningAcknowledgement
+);
+router.post(
+    "/:id/warnings/:warningId/appeal/review",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    reviewEmployeeWarningAppeal
+);
+router.post(
+    "/:id/warnings/:warningId/appeal/decision",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    decideEmployeeWarningAppeal
+);
+router.post(
+    "/:id/warnings/:warningId/appeal",
+    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    submitEmployeeWarningAppeal
+);
+router.post(
+    "/:id/warnings/:warningId/resolve",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    resolveEmployeeWarning
+);
+router.post(
+    "/:id/warnings/:warningId/void",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    voidEmployeeWarning
+);
+router.post(
+    "/:id/warnings/:warningId/escalate",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    escalateEmployeeWarning
 );
 router.get("/:id/documents", getEmployeeDocuments);
 router.post(

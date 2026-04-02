@@ -2,6 +2,7 @@ import {
   EmployeeWarningCategory,
   EmployeeWarningSeverity,
   EmployeeWarningStatus,
+  EmployeeWarningAppealOutcome,
   ActionEnum,
 } from "@prisma/client";
 import prisma from "../config/prisma.config.js";
@@ -14,7 +15,11 @@ import {
   assertCanIssueWarning,
   assertCanEditDraft,
   getTenantId,
+  assertCanActAsWarningEmployee,
+  assertCanReviewAppeal,
+  assertCanResolveVoidEscalate,
 } from "../utils/employee-warning-access.js";
+import { getWarningEscalationSummaryForEmployee } from "../utils/employee-warning-escalation.js";
 import {
   createNotification,
   notifyHRForWarningEvent,
@@ -70,6 +75,43 @@ function warningToDto(w) {
     issuedAt: w.issuedAt ? w.issuedAt.toISOString() : null,
     issuedById: w.issuedById,
     createdById: w.createdById,
+    acknowledgedAt: w.acknowledgedAt
+      ? w.acknowledgedAt.toISOString()
+      : null,
+    acknowledgedById: w.acknowledgedById,
+    acknowledgementNote: w.acknowledgementNote,
+    acknowledgementRefusedAt: w.acknowledgementRefusedAt
+      ? w.acknowledgementRefusedAt.toISOString()
+      : null,
+    acknowledgementRefusedNote: w.acknowledgementRefusedNote,
+    appealReason: w.appealReason,
+    appealStatement: w.appealStatement,
+    appealAttachments: w.appealAttachments ?? [],
+    appealOpenedAt: w.appealOpenedAt
+      ? w.appealOpenedAt.toISOString()
+      : null,
+    appealReviewedAt: w.appealReviewedAt
+      ? w.appealReviewedAt.toISOString()
+      : null,
+    appealReviewedById: w.appealReviewedById,
+    appealDecidedAt: w.appealDecidedAt
+      ? w.appealDecidedAt.toISOString()
+      : null,
+    appealDecidedById: w.appealDecidedById,
+    appealOutcome: w.appealOutcome,
+    appealDecisionNote: w.appealDecisionNote,
+    resolvedAt: w.resolvedAt ? w.resolvedAt.toISOString() : null,
+    resolvedById: w.resolvedById,
+    resolutionNote: w.resolutionNote,
+    voidedAt: w.voidedAt ? w.voidedAt.toISOString() : null,
+    voidedById: w.voidedById,
+    voidNote: w.voidNote,
+    escalatedAt: w.escalatedAt ? w.escalatedAt.toISOString() : null,
+    escalatedById: w.escalatedById,
+    escalationNote: w.escalationNote,
+    finalFollowUpDueAt: w.finalFollowUpDueAt
+      ? w.finalFollowUpDueAt.toISOString().slice(0, 10)
+      : null,
     createdAt: w.createdAt.toISOString(),
     updatedAt: w.updatedAt.toISOString(),
   };
@@ -103,16 +145,47 @@ export const listEmployeeWarnings = async (req, res) => {
       where.status = { notIn: STAFF_HIDDEN_STATUSES };
     }
 
-    const warnings = await prisma.employeeWarning.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
+    );
+    const skip = (page - 1) * limit;
 
-    return res.status(200).json({
+    const [total, warnings] = await Promise.all([
+      prisma.employeeWarning.count({ where }),
+      prisma.employeeWarning.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit) || 1;
+    const payload = {
       success: true,
       message: "Warnings retrieved",
       data: warnings.map(warningToDto),
-    });
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+
+    const showEscalation =
+      requesterRole !== "STAFF" ||
+      targetUserId === req.user?.id;
+    if (showEscalation && tenantId) {
+      payload.escalationSummary =
+        await getWarningEscalationSummaryForEmployee(tenantId, targetUserId);
+    }
+
+    return res.status(200).json(payload);
   } catch (error) {
     logger.error(`listEmployeeWarnings: ${error.message}`, {
       stack: error.stack,
@@ -579,6 +652,10 @@ export const issueEmployeeWarning = async (req, res) => {
     }
 
     const now = new Date();
+    const effectiveDue =
+      due !== undefined ? due : warning.reviewDueDate;
+    const isFinal = warning.severity === EmployeeWarningSeverity.FINAL;
+
     const updated = await prisma.employeeWarning.update({
       where: { id: warning.id },
       data: {
@@ -590,6 +667,7 @@ export const issueEmployeeWarning = async (req, res) => {
             ? issueNote.trim()
             : null,
         reviewDueDate: due !== undefined ? due : warning.reviewDueDate,
+        finalFollowUpDueAt: isFinal && effectiveDue ? effectiveDue : null,
       },
       include: {
         user: {
@@ -658,6 +736,893 @@ export const issueEmployeeWarning = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to issue warning",
+    });
+  }
+};
+
+async function loadWarningForRoutes(req, targetUserId, warningId) {
+  const tenantId = getTenantId(req);
+  return prisma.employeeWarning.findFirst({
+    where: {
+      id: warningId,
+      tenantId,
+      userId: targetUserId,
+    },
+  });
+}
+
+/** POST .../acknowledge */
+export const acknowledgeEmployeeWarning = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { acknowledgementNote } = req.body ?? {};
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const act = assertCanActAsWarningEmployee(req, targetUserId);
+    if (!act.ok) {
+      return res.status(act.status).json({
+        success: false,
+        error: "Forbidden",
+        message: act.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.ISSUED) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Only issued warnings can be acknowledged",
+      });
+    }
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.ACKNOWLEDGED,
+        acknowledgedAt: now,
+        acknowledgedById: actorId,
+        acknowledgementNote:
+          typeof acknowledgementNote === "string" && acknowledgementNote.trim()
+            ? acknowledgementNote.trim()
+            : null,
+        acknowledgementRefusedAt: null,
+        acknowledgementRefusedNote: null,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "ACKNOWLEDGE" },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
+      if (warning.issuedById) {
+        await createNotification(
+          tenantId,
+          warning.issuedById,
+          "Warning acknowledged",
+          `The employee acknowledged the warning "${updated.title}".`,
+          "PERFORMANCE",
+          actionUrl
+        );
+      }
+    } catch (e) {
+      logger.error(`acknowledgeEmployeeWarning notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning acknowledged",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`acknowledgeEmployeeWarning: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to acknowledge warning",
+    });
+  }
+};
+
+/** POST .../refuse-acknowledgement */
+export const refuseEmployeeWarningAcknowledgement = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { refuseNote } = req.body ?? {};
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const act = assertCanActAsWarningEmployee(req, targetUserId);
+    if (!act.ok) {
+      return res.status(act.status).json({
+        success: false,
+        error: "Forbidden",
+        message: act.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.ISSUED) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Only issued warnings can be refused for acknowledgement",
+      });
+    }
+
+    const note =
+      typeof refuseNote === "string" && refuseNote.trim()
+        ? refuseNote.trim()
+        : null;
+
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        acknowledgementRefusedAt: new Date(),
+        acknowledgementRefusedNote: note,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "REFUSE_ACKNOWLEDGEMENT", note },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await notifyHRForWarningEvent(
+        tenantId,
+        "Employee refused warning acknowledgement",
+        `An employee refused to acknowledge the warning "${updated.title}".`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`refuseEmployeeWarningAcknowledgement notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Refusal recorded",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`refuseEmployeeWarningAcknowledgement: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to record refusal",
+    });
+  }
+};
+
+/** POST .../appeal */
+export const submitEmployeeWarningAppeal = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { appealReason, employeeStatement, attachments } = req.body ?? {};
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const act = assertCanActAsWarningEmployee(req, targetUserId);
+    if (!act.ok) {
+      return res.status(act.status).json({
+        success: false,
+        error: "Forbidden",
+        message: act.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const appealableFrom = new Set([
+      EmployeeWarningStatus.ISSUED,
+      EmployeeWarningStatus.ACKNOWLEDGED,
+      EmployeeWarningStatus.ESCALATED,
+    ]);
+
+    if (!appealableFrom.has(warning.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "This warning cannot be appealed in its current state",
+      });
+    }
+
+    if (!appealReason || typeof appealReason !== "string" || !appealReason.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "appealReason is required",
+      });
+    }
+    if (
+      !employeeStatement ||
+      typeof employeeStatement !== "string" ||
+      !employeeStatement.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "employeeStatement is required",
+      });
+    }
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.APPEAL_OPEN,
+        appealReason: appealReason.trim(),
+        appealStatement: employeeStatement.trim(),
+        appealAttachments: Array.isArray(attachments) ? attachments : [],
+        appealOpenedAt: now,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "APPEAL_OPEN" },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await notifyHRForWarningEvent(
+        tenantId,
+        "Warning appeal submitted",
+        `An appeal was submitted for warning "${updated.title}".`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`submitEmployeeWarningAppeal notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Appeal submitted successfully",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`submitEmployeeWarningAppeal: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to submit appeal",
+    });
+  }
+};
+
+/** POST .../appeal/review */
+export const reviewEmployeeWarningAppeal = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const hr = assertCanReviewAppeal(req);
+    if (!hr.ok) {
+      return res.status(hr.status).json({
+        success: false,
+        error: "Forbidden",
+        message: hr.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.APPEAL_OPEN) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "No open appeal to move to review",
+      });
+    }
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.APPEAL_REVIEW,
+        appealReviewedAt: now,
+        appealReviewedById: actorId,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "APPEAL_REVIEW" },
+      req
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Appeal marked under review",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`reviewEmployeeWarningAppeal: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update appeal review",
+    });
+  }
+};
+
+/** decision: UPHOLD | AMEND | VOID (doc: AMEND) */
+export const decideEmployeeWarningAppeal = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { decision, decisionNote, updatedSeverity } = req.body ?? {};
+
+    const hr = assertCanReviewAppeal(req);
+    if (!hr.ok) {
+      return res.status(hr.status).json({
+        success: false,
+        error: "Forbidden",
+        message: hr.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.APPEAL_REVIEW) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Appeal must be under HR review before a decision",
+      });
+    }
+
+    let outcome = null;
+    if (decision === "UPHOLD") outcome = EmployeeWarningAppealOutcome.UPHOLD;
+    else if (decision === "AMEND") outcome = EmployeeWarningAppealOutcome.AMEND;
+    else if (decision === "VOID") outcome = EmployeeWarningAppealOutcome.VOID;
+    else {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "decision must be UPHOLD, AMEND, or VOID",
+      });
+    }
+
+    const note =
+      typeof decisionNote === "string" && decisionNote.trim()
+        ? decisionNote.trim()
+        : null;
+
+    const now = new Date();
+    let newStatus = EmployeeWarningStatus.APPEAL_UPHELD;
+    let newSeverity = warning.severity;
+
+    if (outcome === EmployeeWarningAppealOutcome.UPHOLD) {
+      newStatus = EmployeeWarningStatus.APPEAL_UPHELD;
+    } else if (outcome === EmployeeWarningAppealOutcome.AMEND) {
+      newStatus = EmployeeWarningStatus.APPEAL_AMENDED;
+      if (updatedSeverity == null || !Object.values(EmployeeWarningSeverity).includes(updatedSeverity)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "updatedSeverity is required for AMEND",
+        });
+      }
+      newSeverity = updatedSeverity;
+    } else {
+      newStatus = EmployeeWarningStatus.APPEAL_VOIDED;
+    }
+
+    const appealUpdateData = {
+      status: newStatus,
+      severity: newSeverity,
+      appealDecidedAt: now,
+      appealDecidedById: actorId,
+      appealOutcome: outcome,
+      appealDecisionNote: note,
+    };
+
+    if (outcome === EmployeeWarningAppealOutcome.AMEND) {
+      appealUpdateData.finalFollowUpDueAt =
+        newSeverity === EmployeeWarningSeverity.FINAL
+          ? warning.reviewDueDate ?? warning.finalFollowUpDueAt
+          : null;
+    }
+
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: appealUpdateData,
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "APPEAL_DECISION", decision: outcome },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await createNotification(
+        tenantId,
+        targetUserId,
+        "Appeal decision recorded",
+        `Your appeal for "${updated.title}" was ${String(outcome).toLowerCase()}.`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`decideEmployeeWarningAppeal notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Appeal decision recorded",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`decideEmployeeWarningAppeal: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to record appeal decision",
+    });
+  }
+};
+
+export const resolveEmployeeWarning = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { resolutionNote } = req.body ?? {};
+
+    const hr = assertCanResolveVoidEscalate(req);
+    if (!hr.ok) {
+      return res.status(hr.status).json({
+        success: false,
+        error: "Forbidden",
+        message: hr.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const resolvable = new Set([
+      EmployeeWarningStatus.ISSUED,
+      EmployeeWarningStatus.ACKNOWLEDGED,
+      EmployeeWarningStatus.APPEAL_UPHELD,
+      EmployeeWarningStatus.APPEAL_AMENDED,
+      EmployeeWarningStatus.ESCALATED,
+    ]);
+
+    if (!resolvable.has(warning.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Warning cannot be resolved in its current state",
+      });
+    }
+
+    const note =
+      typeof resolutionNote === "string" && resolutionNote.trim()
+        ? resolutionNote.trim()
+        : null;
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.RESOLVED,
+        resolvedAt: now,
+        resolvedById: actorId,
+        resolutionNote: note,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "RESOLVE" },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await createNotification(
+        tenantId,
+        targetUserId,
+        "Warning resolved",
+        `The warning "${updated.title}" has been marked resolved.`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`resolveEmployeeWarning notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning resolved",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`resolveEmployeeWarning: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to resolve warning",
+    });
+  }
+};
+
+export const voidEmployeeWarning = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { voidNote } = req.body ?? {};
+
+    const hr = assertCanResolveVoidEscalate(req);
+    if (!hr.ok) {
+      return res.status(hr.status).json({
+        success: false,
+        error: "Forbidden",
+        message: hr.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status === EmployeeWarningStatus.VOIDED) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Warning is already voided",
+      });
+    }
+
+    if (
+      warning.status === EmployeeWarningStatus.DRAFT ||
+      warning.status === EmployeeWarningStatus.PENDING_HR_REVIEW
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Void applies to warnings that have left the draft pipeline",
+      });
+    }
+
+    const note =
+      typeof voidNote === "string" && voidNote.trim() ? voidNote.trim() : null;
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.VOIDED,
+        voidedAt: now,
+        voidedById: actorId,
+        voidNote: note,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "VOID" },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await createNotification(
+        tenantId,
+        targetUserId,
+        "Warning voided",
+        `The warning "${updated.title}" has been voided.`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`voidEmployeeWarning notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning voided",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`voidEmployeeWarning: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to void warning",
+    });
+  }
+};
+
+export const escalateEmployeeWarning = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { escalationNote } = req.body ?? {};
+
+    const hr = assertCanResolveVoidEscalate(req);
+    if (!hr.ok) {
+      return res.status(hr.status).json({
+        success: false,
+        error: "Forbidden",
+        message: hr.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const escalatable = new Set([
+      EmployeeWarningStatus.ISSUED,
+      EmployeeWarningStatus.ACKNOWLEDGED,
+      EmployeeWarningStatus.APPEAL_UPHELD,
+      EmployeeWarningStatus.APPEAL_AMENDED,
+    ]);
+
+    if (!escalatable.has(warning.status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Warning cannot be escalated in its current state",
+      });
+    }
+
+    const note =
+      typeof escalationNote === "string" && escalationNote.trim()
+        ? escalationNote.trim()
+        : null;
+
+    const now = new Date();
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.ESCALATED,
+        escalatedAt: now,
+        escalatedById: actorId,
+        escalationNote: note,
+      },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "ESCALATE" },
+      req
+    );
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      await notifyHRForWarningEvent(
+        tenantId,
+        "Warning escalated",
+        `Warning "${updated.title}" for employee was marked escalated.`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+      await createNotification(
+        tenantId,
+        targetUserId,
+        "Warning escalated",
+        `Your warning "${updated.title}" has been escalated for further review.`,
+        "PERFORMANCE",
+        `${frontend}/dashboard/employee/${targetUserId}`
+      );
+    } catch (e) {
+      logger.error(`escalateEmployeeWarning notify: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning escalated",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`escalateEmployeeWarning: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to escalate warning",
     });
   }
 };
