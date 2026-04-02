@@ -210,7 +210,8 @@ export async function assertCanEditDraft(req, warning, targetUserId) {
     return {
       ok: false,
       status: 400,
-      message: "Only draft warnings can be edited",
+      message:
+        "Only draft warnings can be edited; core fields are immutable after submit/issue",
     };
   }
 

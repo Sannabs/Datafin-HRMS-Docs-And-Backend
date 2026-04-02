@@ -588,6 +588,7 @@ model EmployeeWarning {
 
   @@index([tenantId, userId])
   @@index([tenantId, status])
+  @@index([tenantId, userId, createdAt(sort: Desc)])
   @@map("employee_warning")
 }
 

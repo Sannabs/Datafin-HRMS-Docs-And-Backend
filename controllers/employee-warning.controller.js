@@ -25,6 +25,15 @@ import {
   notifyHRForWarningEvent,
 } from "../services/notification.service.js";
 import { sendWarningIssuedEmail } from "../views/sendWarningIssuedEmail.js";
+import { sendWarningSubmittedForReviewEmail } from "../views/sendWarningSubmittedForReviewEmail.js";
+
+/**
+ * Field immutability (aligned to docs — employee-warning-flow.md §3.6):
+ * - Core case facts (title, category, severity, incidentDate, reason, policyReference, attachments)
+ *   are editable only via PATCH while status is DRAFT.
+ * - After issue, those fields are not updated by any endpoint; workflow uses dedicated transitions only.
+ * - Severity may change only via appeal decision AMEND (or at issue time from draft content).
+ */
 
 const STAFF_HIDDEN_STATUSES = [
   EmployeeWarningStatus.DRAFT,
@@ -568,6 +577,33 @@ export const submitEmployeeWarningForReview = async (req, res) => {
         "PERFORMANCE",
         actionUrl
       );
+
+      const hrWithEmail = await prisma.user.findMany({
+        where: {
+          tenantId,
+          isDeleted: false,
+          status: "ACTIVE",
+          role: { in: ["HR_ADMIN", "HR_STAFF"] },
+        },
+        select: { email: true, name: true },
+      });
+
+      for (const hr of hrWithEmail) {
+        if (!hr.email) continue;
+        try {
+          await sendWarningSubmittedForReviewEmail({
+            to: hr.email,
+            recipientName: hr.name,
+            employeeName: label,
+            warningTitle: updated.title,
+            reviewUrl: actionUrl,
+          });
+        } catch (emailErr) {
+          logger.error(
+            `submitEmployeeWarningForReview email to ${hr.email}: ${emailErr.message}`
+          );
+        }
+      }
     } catch (notifyErr) {
       logger.error(
         `submitEmployeeWarningForReview notifications: ${notifyErr.message}`,

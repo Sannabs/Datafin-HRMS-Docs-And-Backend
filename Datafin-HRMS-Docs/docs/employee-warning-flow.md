@@ -395,6 +395,28 @@ Follow existing error shape:
 }
 ```
 
+### 3.6 Immutability and mutability (backend contract)
+
+This is the enforcement matrix implemented in the API (see `PATCH` vs workflow `POST`s).
+
+| Field group | Editable how / when |
+|-------------|---------------------|
+| **Core case facts** (`title`, `category`, `severity`, `incidentDate`, `reason`, `policyReference`, `attachments`) | Only while status is **`DRAFT`**, via `PATCH .../warnings/:warningId`. Not editable after submit or issue. |
+| **`reviewNote`** | Set or updated on **`POST .../submit`** (from `DRAFT`). |
+| **Issue metadata** (`issueNote`, `reviewDueDate`, `issuedAt`, `issuedById`, `finalFollowUpDueAt` for `FINAL`) | Set on **`POST .../issue`** only. |
+| **Acknowledgement** | `acknowledgementNote`, `acknowledgedAt`, `acknowledgedById` on **`POST .../acknowledge`**; refusal timestamps/note on **`POST .../refuse-acknowledgement`**. |
+| **Appeal** | Appeal fields on **`POST .../appeal`**; review metadata on **`POST .../appeal/review`**; outcome, `appealDecisionNote`, and severity (if `AMEND`) on **`POST .../appeal/decision`**. |
+| **Resolve / void / escalate** | `resolutionNote`, `voidNote`, `escalationNote` and terminal metadata only on their respective **`POST`** endpoints. |
+
+**Severity after issue:** may change only through an appeal decision of type **`AMEND`** (not via `PATCH`).
+
+**Audit:** `AuditLog` rows are append-only; correcting mistakes after issue is done via **void**, **appeal/amend**, or a new draft/warning per policy—not by rewriting history without a logged transition.
+
+### 3.7 Retention and export
+
+- **Retention:** No automatic purge or anonymization is defined in the product layer; align storage duration with tenant legal/policy (jurisdiction and company rules). Archival or deletion jobs are a future platform concern unless required earlier.
+- **Export:** No dedicated “warnings export” endpoint ships by default. If audit or labor-law requires bulk export, add an HR-gated report or export feature with explicit scope (tenant, date range, PII handling).
+
 ---
 
 ## 4) Frontend Sequence (Employee Detail Page)
@@ -488,9 +510,9 @@ Below is an end-to-end plan aligned to Sections 1–4: data model, all workflow 
 
 **Goal:** Section 1(I) and production concerns.
 
-- Clarify immutability: append-only audit log; whether warning fields are editable only in `DRAFT` / specific states; retention and export aligned to tenant policy and labor law (implementation level depends on platform storage).
-- Performance: indexes for employee + tenant + status + date queries; pagination on list endpoints.
-- Documentation for support: state diagram, common errors, who can do what (short internal runbook).
+- **Done (backend):** Immutability contract documented in **§3.6**; `PATCH` limited to `DRAFT`; workflow-only updates thereafter; controller header + clearer 400 message on illegal draft edits. Composite index `@@index([tenantId, userId, createdAt(sort: Desc)])` for list ordering; `GET .../warnings` supports pagination; optional **Resend email** to HR on submit-for-review (in-app notify unchanged).
+- **Retention / export:** Policy-only guidance in **§3.7** (no automated retention or export API unless product later requires it).
+- **Support runbook:** Use §3.6 (who can change what), §2 role matrix, and state lists under §2 for common 403/400 cases.
 
 **Exit criteria:** Audit trail is trustworthy; list APIs scale for typical tenant size; support can troubleshoot permission and state errors.
 
