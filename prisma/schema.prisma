@@ -69,6 +69,36 @@ enum OvertimeApprovalStatus {
   REJECTED
 }
 
+enum EmployeeWarningCategory {
+  ATTENDANCE
+  CONDUCT
+  PERFORMANCE
+  COMPLIANCE
+  SAFETY
+}
+
+enum EmployeeWarningSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  FINAL
+}
+
+enum EmployeeWarningStatus {
+  DRAFT
+  PENDING_HR_REVIEW
+  ISSUED
+  ACKNOWLEDGED
+  APPEAL_OPEN
+  APPEAL_REVIEW
+  APPEAL_UPHELD
+  APPEAL_AMENDED
+  APPEAL_VOIDED
+  RESOLVED
+  ESCALATED
+  VOIDED
+}
+
 model Invitation {
   id                  String            @id @default(uuid())
   senderId            String
@@ -304,6 +334,7 @@ model Tenant {
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
   overtimePeriodApprovals OvertimePeriodApproval[]
   employeeDocuments      EmployeeDocument[]
+  employeeWarnings       EmployeeWarning[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -448,6 +479,9 @@ model User {
   overtimePeriodApprovalsAsEmployee OvertimePeriodApproval[] @relation("OvertimeApprovalSubject")
   overtimePeriodApprovalsAsApprover OvertimePeriodApproval[] @relation("OvertimeApprovalApprover")
   employeeDocuments              EmployeeDocument[]
+  employeeWarningsAsSubject      EmployeeWarning[]            @relation("EmployeeWarningSubject")
+  employeeWarningsCreated        EmployeeWarning[]            @relation("EmployeeWarningCreatedBy")
+  employeeWarningsIssued         EmployeeWarning[]            @relation("EmployeeWarningIssuedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, employeeId])
@@ -481,6 +515,37 @@ model EmployeeDocument {
 
   @@index([tenantId, userId, createdAt(sort: Desc)])
   @@index([tenantId, mimeType])
+}
+
+model EmployeeWarning {
+  id              String                   @id @default(uuid())
+  tenantId        String
+  userId          String
+  createdById     String?
+  status          EmployeeWarningStatus    @default(DRAFT)
+  title           String
+  category        EmployeeWarningCategory
+  severity        EmployeeWarningSeverity
+  incidentDate    DateTime                 @db.Date
+  reason          String
+  policyReference String?
+  attachments     Json?
+  reviewNote      String?
+  issueNote       String?
+  reviewDueDate   DateTime?                @db.Date
+  issuedAt        DateTime?
+  issuedById      String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User   @relation("EmployeeWarningSubject", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("EmployeeWarningCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  issuedBy  User?  @relation("EmployeeWarningIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+  @@map("employee_warning")
 }
 
 model Session {

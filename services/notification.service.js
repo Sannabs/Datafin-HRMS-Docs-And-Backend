@@ -143,6 +143,58 @@ export const notifyAllAdmins = async (
   }
 };
 
+/** Notify all HR_ADMIN and HR_STAFF in tenant (e.g. warning submitted for review). */
+export const notifyHRForWarningEvent = async (
+  tenantId,
+  title,
+  message,
+  type,
+  actionUrl
+) => {
+  try {
+    if (!tenantId || typeof tenantId !== "string") {
+      logger.error("Invalid tenantId", tenantId);
+      throw new Error("Invalid tenantId");
+    }
+
+    const hrUsers = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isDeleted: false,
+        status: "ACTIVE",
+        role: { in: ["HR_ADMIN", "HR_STAFF"] },
+      },
+    });
+
+    if (hrUsers.length === 0) {
+      logger.warn("No HR users found to notify for warning event");
+      return { successfully: 0, failed: 0, total: 0 };
+    }
+
+    const notification = await Promise.allSettled(
+      hrUsers.map((user) =>
+        createNotification(tenantId, user.id, title, message, type, actionUrl)
+      )
+    );
+
+    const successfully = notification.filter(
+      (n) => n.status === "fulfilled"
+    ).length;
+
+    const failed = notification.filter((n) => n.status === "rejected").length;
+
+    logger.info(
+      `Warning event: notified ${successfully} HR users, ${failed} failed`
+    );
+    return { successfully, failed, total: hrUsers.length };
+  } catch (error) {
+    logger.error(`Error notifyHRForWarningEvent: ${error.message}`, error, {
+      stack: error.stack,
+    });
+    throw error;
+  }
+};
+
 export const notifyAllHRstaff = async (
   title,
   tenantId,

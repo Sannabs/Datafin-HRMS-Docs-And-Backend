@@ -21,6 +21,13 @@ import {
     deleteEmployeeDocument,
 } from "../controllers/employee.controller.js";
 import { getEmployeeCombinedFeed } from "../controllers/employee-feed.controller.js";
+import {
+    listEmployeeWarnings,
+    createEmployeeWarningDraft,
+    updateEmployeeWarningDraft,
+    submitEmployeeWarningForReview,
+    issueEmployeeWarning,
+} from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
 import {
@@ -45,6 +52,31 @@ router.get("/home-stats", getHomeStats);
 router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.delete("/my-profile-picture", removeProfilePicture);
 router.get("/:userId/combined-feed", getEmployeeCombinedFeed);
+router.get(
+    "/:id/warnings",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    listEmployeeWarnings
+);
+router.post(
+    "/:id/warnings",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    createEmployeeWarningDraft
+);
+router.patch(
+    "/:id/warnings/:warningId",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    updateEmployeeWarningDraft
+);
+router.post(
+    "/:id/warnings/:warningId/submit",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    submitEmployeeWarningForReview
+);
+router.post(
+    "/:id/warnings/:warningId/issue",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    issueEmployeeWarning
+);
 router.get("/:id/documents", getEmployeeDocuments);
 router.post(
     "/:id/documents",

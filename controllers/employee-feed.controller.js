@@ -1,3 +1,4 @@
+import { EmployeeWarningStatus } from "@prisma/client";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 
@@ -50,7 +51,7 @@ function uiStatusToLower(s) {
 
 /**
  * GET /api/employees/:userId/combined-feed
- * Merged timeline: attendance, leave, tenant holidays, excused absences.
+ * Merged timeline: attendance, leave, tenant holidays, excused absences, issued warnings.
  */
 export const getEmployeeCombinedFeed = async (req, res) => {
   try {
@@ -151,7 +152,8 @@ export const getEmployeeCombinedFeed = async (req, res) => {
     const rangeEndDateOnly = new Date(rangeEnd);
     rangeEndDateOnly.setHours(0, 0, 0, 0);
 
-    const [attendanceRows, leaveRows, holidayRows, exceptionRows] = await Promise.all([
+    const [attendanceRows, leaveRows, holidayRows, exceptionRows, warningRows] =
+      await Promise.all([
       prisma.attendance.findMany({
         where: {
           tenantId: tId,
@@ -197,6 +199,19 @@ export const getEmployeeCombinedFeed = async (req, res) => {
           date: { gte: rangeStartDateOnly, lte: rangeEndDateOnly },
         },
         orderBy: { date: "desc" },
+        take: FEED_LIMIT_MAX,
+      }),
+      prisma.employeeWarning.findMany({
+        where: {
+          tenantId: tId,
+          userId,
+          status: EmployeeWarningStatus.ISSUED,
+          issuedAt: {
+            gte: rangeStart,
+            lte: rangeEnd,
+          },
+        },
+        orderBy: { issuedAt: "desc" },
         take: FEED_LIMIT_MAX,
       }),
     ]);
@@ -335,6 +350,27 @@ export const getEmployeeCombinedFeed = async (req, res) => {
         dayNum,
         title: "Excused absence",
         detail: [cat, ex.reason].filter(Boolean).join(" — ") || "Excused absence",
+      });
+    }
+
+    for (const w of warningRows) {
+      const sortAt = w.issuedAt ?? w.updatedAt;
+      const { dayShort, dayNum } = dayParts(sortAt);
+      const cat = String(w.category || "").replace(/_/g, " ");
+      const detailParts = [
+        `${cat} · ${String(w.severity || "").toLowerCase()}`,
+        w.reason?.trim() ? w.reason.trim() : null,
+      ].filter(Boolean);
+      items.push({
+        id: `warning:${w.id}`,
+        kind: "WARNING",
+        feedVariant: "warning_issued",
+        uiStatus: "present",
+        sortAt: sortAt.toISOString(),
+        dayShort,
+        dayNum,
+        title: w.title || "Formal warning",
+        detail: detailParts.join(". ") || "Formal warning issued",
       });
     }
 
