@@ -739,7 +739,7 @@ export const createSalaryStructure = async (req, res) => {
                 salaryPeriodType: periodType,
                 effectiveDate: effective,
                 endDate: end,
-                currency: currency || "USD",
+                currency: currency || "GMD",
             },
         });
 

@@ -125,7 +125,7 @@ model Invitation {
   baseSalary          Float?
   salaryPeriodType    SalaryPeriodType? @default(MONTHLY)
   salaryEffectiveDate DateTime?
-  salaryCurrency      String?           @default("USD")
+  salaryCurrency      String?           @default("GMD")
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   sender              User              @relation(fields: [senderId], references: [id], onDelete: Cascade)
@@ -339,8 +339,9 @@ model Tenant {
   attendanceStatSnapshots AttendanceStatSnapshot[]
   monthlyAttendanceStatSnapshots MonthlyAttendanceStatSnapshot[]
   overtimePeriodApprovals OvertimePeriodApproval[]
-  employeeDocuments      EmployeeDocument[]
-  employeeWarnings       EmployeeWarning[]
+  employeeDocuments            EmployeeDocument[]
+  employeeWarnings             EmployeeWarning[]
+  employeeWarningAttachments   EmployeeWarningAttachment[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -541,7 +542,6 @@ model EmployeeWarning {
   incidentDate    DateTime                 @db.Date
   reason          String
   policyReference String?
-  attachments     Json?
   reviewNote      String?
   issueNote       String?
   reviewDueDate   DateTime?                @db.Date
@@ -585,11 +585,34 @@ model EmployeeWarning {
   resolvedBy        User? @relation("WarningResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
   voidedBy          User? @relation("WarningVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
   escalatedBy       User? @relation("WarningEscalatedBy", fields: [escalatedById], references: [id], onDelete: SetNull)
+  attachments       EmployeeWarningAttachment[]
 
   @@index([tenantId, userId])
   @@index([tenantId, status])
   @@index([tenantId, userId, createdAt(sort: Desc)])
   @@map("employee_warning")
+}
+
+model EmployeeWarningAttachment {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  employeeWarningId  String
+  originalName       String
+  storedName         String
+  filePath           String
+  mimeType           String
+  extension          String?
+  sizeBytes          Int
+  uploadedBy         String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employeeWarning   EmployeeWarning @relation(fields: [employeeWarningId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeWarningId, createdAt(sort: Desc)])
+  @@index([tenantId, mimeType])
+  @@map("employee_warning_attachment")
 }
 
 model Session {
@@ -661,7 +684,7 @@ model SalaryStructure {
   salaryPeriodType SalaryPeriodType @default(MONTHLY)
   effectiveDate    DateTime
   endDate          DateTime?
-  currency         String           @default("USD")
+  currency         String           @default("GMD")
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

@@ -63,7 +63,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
     if (!salaryStructure) {
         return {
             baseSalary: 0,
-            currency: "USD",
+            currency: "GMD",
             allowances: [],
             deductions: [],
         };
@@ -217,7 +217,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
 
     return {
         baseSalary: baseSalaryMonthly,
-        currency: salaryStructure.currency || "USD",
+        currency: salaryStructure.currency || "GMD",
         allowances: itemized.allowanceLines.map((line) => ({
             name: line.name,
             amount: line.amount,
@@ -246,10 +246,10 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
 /**
  * Format currency value
  * @param {number} amount - Amount to format
- * @param {string} currency - Currency code (default: USD)
+ * @param {string} currency - Currency code (default: GMD)
  * @returns {string} Formatted currency string
  */
-export const formatCurrency = (amount, currency = "USD") => {
+export const formatCurrency = (amount, currency = "GMD") => {
     return new Intl.NumberFormat("en-US", {
         style: "currency",
         currency,
@@ -483,7 +483,7 @@ export const getCurrentCompensationFromSalaryStructure = async (userId, tenantId
         baseSalaryMonthly: Math.round(monthly * 100) / 100,
         salaryPeriodType: row.salaryPeriodType,
         payFrequencyLabel: row.salaryPeriodType === "ANNUAL" ? "Annual" : "Monthly",
-        currency: row.currency || "USD",
+        currency: row.currency || "GMD",
     };
 };
 

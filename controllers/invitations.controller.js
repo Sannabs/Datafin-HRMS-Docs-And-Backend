@@ -256,7 +256,7 @@ export const sendInvitation = async (req, res, next) => {
     const salaryCurrencyVal =
       salaryCurrency != null && String(salaryCurrency).trim() !== ""
         ? String(salaryCurrency).trim()
-        : "USD";
+        : "GMD";
 
     // Create invitation
     const newInvitation = await prisma.invitation.create({
@@ -802,7 +802,7 @@ export const acceptInvitation = async (req, res, next) => {
         const currency =
           invitation.salaryCurrency && String(invitation.salaryCurrency).trim()
             ? String(invitation.salaryCurrency).trim()
-            : "USD";
+            : "GMD";
         const periodType = invitation.salaryPeriodType ?? "MONTHLY";
         await prisma.salaryStructure.create({
           data: {

@@ -184,7 +184,7 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
     const salaryCurrencyVal =
         salaryCurrency != null && String(salaryCurrency).trim() !== ""
             ? String(salaryCurrency).trim()
-            : "USD";
+            : "GMD";
 
     const hireDateParsed = hireDate ? parseFlexibleDate(hireDate) : null;
     const dateOfBirthParsed = dateOfBirth ? parseFlexibleDate(dateOfBirth) : null;

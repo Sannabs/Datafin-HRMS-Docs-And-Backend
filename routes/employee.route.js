@@ -35,6 +35,9 @@ import {
     resolveEmployeeWarning,
     voidEmployeeWarning,
     escalateEmployeeWarning,
+    uploadEmployeeWarningAttachments,
+    downloadEmployeeWarningAttachment,
+    deleteEmployeeWarningAttachment,
 } from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -74,6 +77,21 @@ router.patch(
     "/:id/warnings/:warningId",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
     updateEmployeeWarningDraft
+);
+router.post(
+    "/:id/warnings/:warningId/attachments",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    uploadEmployeeDocuments,
+    uploadEmployeeWarningAttachments
+);
+router.get(
+    "/:id/warnings/:warningId/attachments/:attachmentId/download",
+    downloadEmployeeWarningAttachment
+);
+router.delete(
+    "/:id/warnings/:warningId/attachments/:attachmentId",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    deleteEmployeeWarningAttachment
 );
 router.post(
     "/:id/warnings/:warningId/submit",

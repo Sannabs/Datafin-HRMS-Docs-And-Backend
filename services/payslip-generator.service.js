@@ -69,7 +69,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
         // Load HTML template
         let template = await readFile(templatePath, "utf-8");
 
-        const currency = payslipData.currency || "USD";
+        const currency = payslipData.currency || "GMD";
 
         // Prepare template data (use passed company name so PDF shows actual company)
         const companyName =

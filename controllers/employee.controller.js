@@ -1962,7 +1962,7 @@ export const getEmployeePayrollOverview = async (req, res) => {
                 baseSalaryMonthly: bundle.breakdown.baseSalary ?? 0,
                 salaryPeriodType: "MONTHLY",
                 payFrequencyLabel: "Monthly",
-                currency: bundle.breakdown.currency || "USD",
+                currency: bundle.breakdown.currency || "GMD",
             };
         }
 
@@ -2000,7 +2000,7 @@ export const getEmployeePayrollOverview = async (req, res) => {
             : null;
 
         const currency =
-            compensation?.currency || bundle.breakdown?.currency || "USD";
+            compensation?.currency || bundle.breakdown?.currency || "GMD";
 
         let latestBreakdown = null;
         if (bundle.payslip && bundle.breakdown) {

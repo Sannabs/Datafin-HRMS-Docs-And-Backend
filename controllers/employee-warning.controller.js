@@ -26,10 +26,50 @@ import {
 } from "../services/notification.service.js";
 import { sendWarningIssuedEmail } from "../views/sendWarningIssuedEmail.js";
 import { sendWarningSubmittedForReviewEmail } from "../views/sendWarningSubmittedForReviewEmail.js";
+import {
+  uploadFile,
+  generateFilename,
+  extractFilenameFromUrl,
+  deleteFile,
+  getFile,
+} from "../config/storage.config.js";
+
+const warningWithAttachmentsInclude = {
+  attachments: { orderBy: { createdAt: "desc" } },
+};
+
+function parseDocumentExtension(originalName, mimeType) {
+  if (typeof originalName === "string" && originalName.includes(".")) {
+    const ext = originalName.split(".").pop()?.trim().toLowerCase();
+    if (ext) return ext;
+  }
+  if (typeof mimeType === "string" && mimeType.includes("/")) {
+    return mimeType.split("/")[1]?.toLowerCase() || null;
+  }
+  return null;
+}
+
+function attachmentToDto(a) {
+  return {
+    id: a.id,
+    tenantId: a.tenantId,
+    employeeWarningId: a.employeeWarningId,
+    originalName: a.originalName,
+    storedName: a.storedName,
+    filePath: a.filePath,
+    mimeType: a.mimeType,
+    extension: a.extension,
+    sizeBytes: a.sizeBytes,
+    uploadedBy: a.uploadedBy,
+    createdAt: a.createdAt.toISOString(),
+    updatedAt: a.updatedAt.toISOString(),
+  };
+}
 
 /**
  * Field immutability (aligned to docs — employee-warning-flow.md §3.6):
- * - Core case facts (title, category, severity, incidentDate, reason, policyReference, attachments)
+ * - Core case facts (title, category, severity, incidentDate, reason, policyReference)
+ * - File evidence: EmployeeWarningAttachment rows (upload/delete while DRAFT only)
  *   are editable only via PATCH while status is DRAFT.
  * - After issue, those fields are not updated by any endpoint; workflow uses dedicated transitions only.
  * - Severity may change only via appeal decision AMEND (or at issue time from draft content).
@@ -75,7 +115,9 @@ function warningToDto(w) {
       : null,
     reason: w.reason,
     policyReference: w.policyReference,
-    attachments: w.attachments ?? [],
+    attachments: Array.isArray(w.attachments)
+      ? w.attachments.map(attachmentToDto)
+      : [],
     reviewNote: w.reviewNote,
     issueNote: w.issueNote,
     reviewDueDate: w.reviewDueDate
@@ -168,6 +210,7 @@ export const listEmployeeWarnings = async (req, res) => {
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
+        include: warningWithAttachmentsInclude,
       }),
     ]);
 
@@ -232,7 +275,6 @@ export const createEmployeeWarningDraft = async (req, res) => {
       incidentDate,
       reason,
       policyReference,
-      attachments,
     } = req.body ?? {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
@@ -288,13 +330,8 @@ export const createEmployeeWarningDraft = async (req, res) => {
           typeof policyReference === "string" && policyReference.trim()
             ? policyReference.trim()
             : null,
-        attachments:
-          attachments !== undefined
-            ? Array.isArray(attachments)
-              ? attachments
-              : null
-            : undefined,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -370,7 +407,6 @@ export const updateEmployeeWarningDraft = async (req, res) => {
       incidentDate,
       reason,
       policyReference,
-      attachments,
     } = req.body ?? {};
 
     const updateData = {};
@@ -431,9 +467,6 @@ export const updateEmployeeWarningDraft = async (req, res) => {
           ? policyReference.trim()
           : null;
     }
-    if (attachments !== undefined) {
-      updateData.attachments = Array.isArray(attachments) ? attachments : null;
-    }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
@@ -450,12 +483,12 @@ export const updateEmployeeWarningDraft = async (req, res) => {
       incidentDate: warning.incidentDate,
       reason: warning.reason,
       policyReference: warning.policyReference,
-      attachments: warning.attachments,
     };
 
     const updated = await prisma.employeeWarning.update({
       where: { id: warning.id },
       data: updateData,
+      include: warningWithAttachmentsInclude,
     });
 
     const after = {
@@ -465,7 +498,6 @@ export const updateEmployeeWarningDraft = async (req, res) => {
       incidentDate: updated.incidentDate,
       reason: updated.reason,
       policyReference: updated.policyReference,
-      attachments: updated.attachments,
     };
 
     const changes = getChangesDiff(before, after);
@@ -547,6 +579,7 @@ export const submitEmployeeWarningForReview = async (req, res) => {
             ? reviewNote.trim()
             : warning.reviewNote,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -706,6 +739,7 @@ export const issueEmployeeWarning = async (req, res) => {
         finalFollowUpDueAt: isFinal && effectiveDue ? effectiveDue : null,
       },
       include: {
+        attachments: warningWithAttachmentsInclude.attachments,
         user: {
           select: {
             id: true,
@@ -845,6 +879,7 @@ export const acknowledgeEmployeeWarning = async (req, res) => {
         acknowledgementRefusedAt: null,
         acknowledgementRefusedNote: null,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -946,6 +981,7 @@ export const refuseEmployeeWarningAcknowledgement = async (req, res) => {
         acknowledgementRefusedAt: new Date(),
         acknowledgementRefusedNote: note,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1067,6 +1103,7 @@ export const submitEmployeeWarningAppeal = async (req, res) => {
         appealAttachments: Array.isArray(attachments) ? attachments : [],
         appealOpenedAt: now,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1160,6 +1197,7 @@ export const reviewEmployeeWarningAppeal = async (req, res) => {
         appealReviewedAt: now,
         appealReviewedById: actorId,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1289,6 +1327,7 @@ export const decideEmployeeWarningAppeal = async (req, res) => {
     const updated = await prisma.employeeWarning.update({
       where: { id: warning.id },
       data: appealUpdateData,
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1397,6 +1436,7 @@ export const resolveEmployeeWarning = async (req, res) => {
         resolvedById: actorId,
         resolutionNote: note,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1506,6 +1546,7 @@ export const voidEmployeeWarning = async (req, res) => {
         voidedById: actorId,
         voidNote: note,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1613,6 +1654,7 @@ export const escalateEmployeeWarning = async (req, res) => {
         escalatedById: actorId,
         escalationNote: note,
       },
+      include: warningWithAttachmentsInclude,
     });
 
     await addLog(
@@ -1659,6 +1701,268 @@ export const escalateEmployeeWarning = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to escalate warning",
+    });
+  }
+};
+
+/** POST .../warnings/:warningId/attachments — multipart field "documents" (same as employee docs) */
+export const uploadEmployeeWarningAttachments = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const auth = await assertCanEditDraft(req, warning, targetUserId);
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        error: auth.status === 400 ? "Bad Request" : "Forbidden",
+        message: auth.message,
+      });
+    }
+
+    const files = Array.isArray(req.files)
+      ? req.files
+      : req.file
+        ? [req.file]
+        : [];
+
+    if (files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "No files uploaded",
+      });
+    }
+
+    const uploaded = [];
+    for (const file of files) {
+      const storedName = generateFilename(
+        file.originalname,
+        `employee-warning-attachments/${tenantId}/${warningId}`
+      );
+      const filePath = await uploadFile(file.buffer, storedName, file.mimetype);
+      const extension = parseDocumentExtension(file.originalname, file.mimetype);
+
+      const row = await prisma.employeeWarningAttachment.create({
+        data: {
+          tenantId,
+          employeeWarningId: warningId,
+          originalName: file.originalname,
+          storedName,
+          filePath,
+          mimeType: file.mimetype,
+          extension,
+          sizeBytes: file.size,
+          uploadedBy: actorId,
+        },
+      });
+      uploaded.push(row);
+
+      await addLog(
+        actorId,
+        tenantId,
+        ActionEnum.CREATE,
+        "EmployeeWarningAttachment",
+        row.id,
+        {
+          after: {
+            warningId,
+            originalName: row.originalName,
+            sizeBytes: row.sizeBytes,
+          },
+        },
+        req
+      );
+    }
+
+    const fresh = await prisma.employeeWarning.findFirst({
+      where: { id: warningId, tenantId, userId: targetUserId },
+      include: warningWithAttachmentsInclude,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message:
+        uploaded.length === 1
+          ? "Attachment uploaded"
+          : `${uploaded.length} attachments uploaded`,
+      data: uploaded.map(attachmentToDto),
+      warning: fresh ? warningToDto(fresh) : null,
+    });
+  } catch (error) {
+    logger.error(`uploadEmployeeWarningAttachments: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to upload attachments",
+    });
+  }
+};
+
+export const downloadEmployeeWarningAttachment = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const { warningId, attachmentId } = req.params;
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const attachment = await prisma.employeeWarningAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        employeeWarningId: warningId,
+        tenantId,
+        employeeWarning: { userId: targetUserId },
+      },
+    });
+
+    if (!attachment) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Attachment not found",
+      });
+    }
+
+    const fileBuffer = await getFile(attachment.storedName);
+    res.setHeader(
+      "Content-Type",
+      attachment.mimeType || "application/octet-stream"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${String(attachment.originalName).replace(/"/g, "")}"`
+    );
+    return res.status(200).send(fileBuffer);
+  } catch (error) {
+    logger.error(`downloadEmployeeWarningAttachment: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to download attachment",
+    });
+  }
+};
+
+export const deleteEmployeeWarningAttachment = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId, attachmentId } = req.params;
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const auth = await assertCanEditDraft(req, warning, targetUserId);
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        error: auth.status === 400 ? "Bad Request" : "Forbidden",
+        message: auth.message,
+      });
+    }
+
+    const attachment = await prisma.employeeWarningAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        employeeWarningId: warningId,
+        tenantId,
+      },
+    });
+
+    if (!attachment) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Attachment not found",
+      });
+    }
+
+    await prisma.employeeWarningAttachment.delete({
+      where: { id: attachment.id },
+    });
+
+    try {
+      const storageKey =
+        extractFilenameFromUrl(attachment.filePath) || attachment.storedName;
+      if (storageKey) await deleteFile(storageKey);
+    } catch (deleteErr) {
+      logger.warn(
+        `Could not delete warning attachment file: ${deleteErr.message}`
+      );
+    }
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.DELETE,
+      "EmployeeWarningAttachment",
+      attachmentId,
+      { before: { originalName: attachment.originalName } },
+      req
+    );
+
+    const fresh = await prisma.employeeWarning.findFirst({
+      where: { id: warningId, tenantId, userId: targetUserId },
+      include: warningWithAttachmentsInclude,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Attachment removed",
+      data: fresh ? warningToDto(fresh) : null,
+    });
+  } catch (error) {
+    logger.error(`deleteEmployeeWarningAttachment: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to delete attachment",
     });
   }
 };

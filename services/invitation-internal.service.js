@@ -206,7 +206,7 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
     const salaryCurrencyVal =
         salaryCurrency != null && String(salaryCurrency).trim() !== ""
             ? String(salaryCurrency).trim()
-            : "USD";
+            : "GMD";
 
     const newInvitation = await prisma.invitation.create({
         data: {

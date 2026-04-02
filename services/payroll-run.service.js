@@ -499,7 +499,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
         const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
         const breakdownSnapshot = {
             baseSalary: baseSalaryMonthly,
-            currency: salaryStructure.currency || "USD",
+            currency: salaryStructure.currency || "GMD",
             allowances: itemized.allowanceLines.map((line) => ({
                 name: line.name,
                 amount: line.amount,
