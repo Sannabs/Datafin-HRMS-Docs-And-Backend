@@ -18,6 +18,7 @@ import {
   assertCanActAsWarningEmployee,
   assertCanReviewAppeal,
   assertCanResolveVoidEscalate,
+  getManagedDepartmentIds,
 } from "../utils/employee-warning-access.js";
 import { getWarningEscalationSummaryForEmployee } from "../utils/employee-warning-escalation.js";
 import {
@@ -1963,6 +1964,473 @@ export const deleteEmployeeWarningAttachment = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to delete attachment",
+    });
+  }
+};
+
+/** DELETE .../warnings/:warningId — draft only; removes attachments from storage */
+export const deleteEmployeeWarningDraft = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+      include: warningWithAttachmentsInclude,
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const auth = await assertCanEditDraft(req, warning, targetUserId);
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        error: auth.status === 400 ? "Bad Request" : "Forbidden",
+        message: auth.message,
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.DRAFT) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Only draft warnings can be deleted",
+      });
+    }
+
+    for (const att of warning.attachments ?? []) {
+      try {
+        const storageKey =
+          extractFilenameFromUrl(att.filePath) || att.storedName;
+        if (storageKey) await deleteFile(storageKey);
+      } catch (e) {
+        logger.warn(`deleteEmployeeWarningDraft file cleanup: ${e.message}`);
+      }
+    }
+
+    await prisma.employeeWarning.delete({
+      where: { id: warning.id },
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.DELETE,
+      "EmployeeWarning",
+      warningId,
+      { before: { title: warning.title, status: warning.status } },
+      req
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning draft deleted",
+      data: { id: warningId },
+    });
+  } catch (error) {
+    logger.error(`deleteEmployeeWarningDraft: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to delete warning",
+    });
+  }
+};
+
+/**
+ * POST .../warnings/:warningId/return-to-draft
+ * HR returns a case from PENDING_HR_REVIEW to DRAFT so the creator can revise.
+ */
+export const returnEmployeeWarningToDraft = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+    const { changesRequestedNote } = req.body ?? {};
+
+    const gate = assertCanIssueWarning(req);
+    if (!gate.ok) {
+      return res.status(gate.status).json({
+        success: false,
+        error: "Forbidden",
+        message: gate.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.PENDING_HR_REVIEW) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Only warnings pending HR review can be returned to draft",
+      });
+    }
+
+    const note =
+      typeof changesRequestedNote === "string" && changesRequestedNote.trim()
+        ? changesRequestedNote.trim()
+        : null;
+
+    const updated = await prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: {
+        status: EmployeeWarningStatus.DRAFT,
+        reviewNote: note ?? warning.reviewNote,
+      },
+      include: warningWithAttachmentsInclude,
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      {
+        transition: "RETURN_TO_DRAFT",
+        changesRequestedNote: note,
+      },
+      req
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning returned to draft for revision",
+      data: warningToDto(updated),
+    });
+  } catch (error) {
+    logger.error(`returnEmployeeWarningToDraft: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to return warning to draft",
+    });
+  }
+};
+
+/**
+ * POST .../warnings/:warningId/resend-issued-notification
+ * Re-sends in-app + email issuance notification (ISSUED only).
+ */
+export const resendWarningIssuedNotification = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const gate = assertCanIssueWarning(req);
+    if (!gate.ok) {
+      return res.status(gate.status).json({
+        success: false,
+        error: "Forbidden",
+        message: gate.message,
+      });
+    }
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            employeeId: true,
+          },
+        },
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (warning.status !== EmployeeWarningStatus.ISSUED) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Resend is only available for issued warnings",
+      });
+    }
+
+    try {
+      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
+
+      await createNotification(
+        tenantId,
+        targetUserId,
+        "Formal warning issued",
+        `A formal warning "${warning.title}" has been issued. Please review your profile for details.`,
+        "PERFORMANCE",
+        actionUrl
+      );
+
+      if (warning.user?.email) {
+        await sendWarningIssuedEmail({
+          to: warning.user.email,
+          employeeName: warning.user.name || warning.user.employeeId,
+          warningTitle: warning.title,
+          severity: warning.severity,
+          detailUrl: actionUrl,
+        });
+      }
+    } catch (notifyErr) {
+      logger.error(
+        `resendWarningIssuedNotification: ${notifyErr.message}`,
+        { stack: notifyErr.stack }
+      );
+      return res.status(502).json({
+        success: false,
+        error: "Bad Gateway",
+        message: "Could not send notification; try again later",
+      });
+    }
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.OTHER,
+      "EmployeeWarning",
+      warning.id,
+      { transition: "RESEND_ISSUED_NOTIFICATION" },
+      req
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Issuance notification resent",
+      data: { id: warning.id },
+    });
+  } catch (error) {
+    logger.error(`resendWarningIssuedNotification: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to resend notification",
+    });
+  }
+};
+
+function warningToDashboardRow(w) {
+  const dto = warningToDto(w);
+  const u = w.user;
+  return {
+    ...dto,
+    subject: u
+      ? {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          employeeId: u.employeeId,
+          departmentId: u.departmentId,
+          departmentName: u.department?.name ?? null,
+        }
+      : null,
+  };
+}
+
+/**
+ * GET /api/employees/warnings/dashboard
+ * Tenant-scoped warning list for discipline table (HR: full tenant; dept admin: managed depts).
+ */
+export const listDisciplineWarningsDashboard = async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const requesterRole = req.user?.role;
+    const requesterId = req.user?.id;
+
+    if (!requesterId) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+        message: "User not authenticated",
+      });
+    }
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant context required",
+      });
+    }
+
+    if (
+      requesterRole !== "HR_ADMIN" &&
+      requesterRole !== "HR_STAFF" &&
+      requesterRole !== "DEPARTMENT_ADMIN" &&
+      requesterRole !== "SUPER_ADMIN"
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Insufficient permissions",
+      });
+    }
+
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query.limit || "50"), 10) || 50)
+    );
+    const skip = (page - 1) * limit;
+
+    const where = { tenantId };
+
+    const statusParam = req.query.status;
+    if (typeof statusParam === "string" && statusParam.trim()) {
+      const parts = statusParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const valid = parts.filter((s) =>
+        isValidEnumValue(EmployeeWarningStatus, s)
+      );
+      if (valid.length === 1) {
+        where.status = valid[0];
+      } else if (valid.length > 1) {
+        where.status = { in: valid };
+      }
+    }
+
+    if (requesterRole === "DEPARTMENT_ADMIN") {
+      const managedDeptIds = await getManagedDepartmentIds(
+        tenantId,
+        requesterId
+      );
+      if (managedDeptIds.length === 0) {
+        return res.status(200).json({
+          success: true,
+          message: "Warnings retrieved",
+          data: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        });
+      }
+      const scopedUsers = await prisma.user.findMany({
+        where: {
+          tenantId,
+          isDeleted: false,
+          departmentId: { in: managedDeptIds },
+        },
+        select: { id: true },
+      });
+      where.userId = { in: scopedUsers.map((u) => u.id) };
+    }
+
+    const [total, warnings] = await Promise.all([
+      prisma.employeeWarning.count({ where }),
+      prisma.employeeWarning.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          ...warningWithAttachmentsInclude,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+              departmentId: true,
+              department: { select: { name: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return res.status(200).json({
+      success: true,
+      message: "Warnings retrieved",
+      data: warnings.map(warningToDashboardRow),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    });
+  } catch (error) {
+    logger.error(`listDisciplineWarningsDashboard: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to list warnings",
     });
   }
 };

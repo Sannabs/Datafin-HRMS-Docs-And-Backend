@@ -34,11 +34,15 @@ Access policy:
 
 | Method | Path | Purpose | Allowed Roles |
 |---|---|---|---|
+| GET | `/api/employees/warnings/dashboard` | Paginated warnings across the tenant for discipline UI; optional `?status=` filter (comma-separated) | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments) |
 | GET | `/api/employees/:id/warnings` | List warning records for employee | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
 | POST | `/api/employees/:id/warnings` | Create warning draft | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports) |
 | PATCH | `/api/employees/:id/warnings/:warningId` | Update draft or editable fields | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (own/direct report draft scope) |
+| DELETE | `/api/employees/:id/warnings/:warningId` | Delete warning **draft** and remove attachment files | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (draft scope); status must be `DRAFT` |
 | POST | `/api/employees/:id/warnings/:warningId/submit` | Move draft to HR review queue | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN |
+| POST | `/api/employees/:id/warnings/:warningId/return-to-draft` | HR sends case back from `PENDING_HR_REVIEW` to `DRAFT` | HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/issue` | Issue warning to employee | HR_ADMIN, HR_STAFF |
+| POST | `/api/employees/:id/warnings/:warningId/resend-issued-notification` | Re-send issuance in-app + email notification | HR_ADMIN, HR_STAFF; status must be `ISSUED` |
 | POST | `/api/employees/:id/warnings/:warningId/acknowledge` | Acknowledge issued warning | STAFF (self), HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/appeal` | Open appeal on issued warning | STAFF (self), HR_ADMIN, HR_STAFF |
 | POST | `/api/employees/:id/warnings/:warningId/appeal/review` | Mark appeal under HR review | HR_ADMIN, HR_STAFF |

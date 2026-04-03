@@ -36,11 +36,15 @@ Use this alongside the main flow doc for lifecycle context; this file focuses on
 
 | Action | Method | Path | Body (JSON) | Who (route guard) |
 |--------|--------|------|-------------|-------------------|
+| Discipline / tenant list | GET | `/api/employees/warnings/dashboard` | Query: `page`, `limit`, optional `status` (comma-separated statuses) | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments only) |
 | List | GET | `/api/employees/:id/warnings` | Query: `page`, `limit` | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN, STAFF |
 | Create draft | POST | `/api/employees/:id/warnings` | `title`, `category`, `severity`, `incidentDate`, `reason`, optional `policyReference`, `attachments` | HR + dept admin (scoped) |
 | Edit draft | PATCH | `/api/employees/:id/warnings/:warningId` | Partial core fields (draft only) | HR + dept admin |
+| Delete draft | DELETE | `/api/employees/:id/warnings/:warningId` | — | HR + dept admin (same rules as edit draft; **DRAFT** only) |
 | Submit | POST | `/api/employees/:id/warnings/:warningId/submit` | Optional `reviewNote` | HR + dept admin |
+| Return to draft | POST | `/api/employees/:id/warnings/:warningId/return-to-draft` | Optional `changesRequestedNote` (stored as `reviewNote`) | HR only; **`PENDING_HR_REVIEW` → `DRAFT`** |
 | Issue | POST | `/api/employees/:id/warnings/:warningId/issue` | `issueNote`, `reviewDueDate` | HR only |
+| Resend issued notification | POST | `/api/employees/:id/warnings/:warningId/resend-issued-notification` | — | HR only; **`ISSUED` only** — repeats in-app + email issuance notify |
 | Acknowledge | POST | `/api/employees/:id/warnings/:warningId/acknowledge` | Optional `acknowledgementNote` | Subject employee or HR |
 | Refuse ack | POST | `/api/employees/:id/warnings/:warningId/refuse-acknowledgement` | Optional `refuseNote` | Subject or HR |
 | Open appeal | POST | `/api/employees/:id/warnings/:warningId/appeal` | `appealReason`, `employeeStatement`, optional `attachments` | Subject or HR |
@@ -93,9 +97,9 @@ Derive visible actions from **`user.role`** (from session/store) + **`warning.st
 
 | Status | Suggested primary actions |
 |--------|---------------------------|
-| `DRAFT` | Edit draft, Submit (optional delete not in API — omit) |
-| `PENDING_HR_REVIEW` | Issue (opens issue modal: note + review due date) |
-| `ISSUED` | Acknowledge on behalf, Refuse ack on behalf, Open appeal on behalf, Resolve, Void, Escalate |
+| `DRAFT` | Edit draft, Submit, Delete draft (`DELETE .../warnings/:warningId`) |
+| `PENDING_HR_REVIEW` | Issue (opens issue modal); **More:** Return to draft (`POST .../return-to-draft`) |
+| `ISSUED` | Acknowledge on behalf, Refuse ack on behalf, Open appeal on behalf, Resolve, Void, Escalate; **More:** resend issued notification (`POST .../resend-issued-notification`) |
 | `ACKNOWLEDGED` | Open appeal on behalf, Resolve, Void, Escalate |
 | `APPEAL_OPEN` | Move to review, Void |
 | `APPEAL_REVIEW` | Decision modal: Uphold / Amend / Void |

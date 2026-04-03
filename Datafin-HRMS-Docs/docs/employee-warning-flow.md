@@ -140,11 +140,15 @@ The sequence below follows existing API style:
 
 Base namespace (recommended):
 
+- `GET /api/employees/warnings/dashboard` — tenant- or dept-scoped list for discipline UI (`page`, `limit`, optional `status`)
 - `GET /api/employees/:id/warnings`
 - `POST /api/employees/:id/warnings`
 - `PATCH /api/employees/:id/warnings/:warningId`
+- `DELETE /api/employees/:id/warnings/:warningId` — abandon draft (`DRAFT` only)
 - `POST /api/employees/:id/warnings/:warningId/submit`
+- `POST /api/employees/:id/warnings/:warningId/return-to-draft` — HR: `PENDING_HR_REVIEW` → `DRAFT`
 - `POST /api/employees/:id/warnings/:warningId/issue`
+- `POST /api/employees/:id/warnings/:warningId/resend-issued-notification` — `ISSUED` only
 - `POST /api/employees/:id/warnings/:warningId/acknowledge`
 - `POST /api/employees/:id/warnings/:warningId/appeal`
 - `POST /api/employees/:id/warnings/:warningId/appeal/review`
@@ -348,6 +352,11 @@ Response:
 
 ### 3.3 Expected Authorization Rules Per Endpoint
 
+- `GET /employees/warnings/dashboard`
+  - `HR_ADMIN`, `HR_STAFF`: all warnings in tenant.
+  - `DEPARTMENT_ADMIN`: warnings for employees in departments they manage.
+  - `STAFF`: denied.
+
 - `GET /employees/:id/warnings`
   - `HR_ADMIN`, `HR_STAFF`: any employee in tenant.
   - `DEPARTMENT_ADMIN`: direct reports only.
@@ -358,8 +367,17 @@ Response:
   - `DEPARTMENT_ADMIN`: allowed for direct reports only.
   - `STAFF`: denied.
 
+- `DELETE /employees/:id/warnings/:warningId` (delete draft)
+  - Same scope as draft edit: `HR_ADMIN`, `HR_STAFF`, or `DEPARTMENT_ADMIN` for scoped drafts they may edit; `DRAFT` only.
+
 - `POST /submit`
   - same as create.
+
+- `POST /return-to-draft`
+  - `HR_ADMIN`, `HR_STAFF` only; from `PENDING_HR_REVIEW` to `DRAFT`.
+
+- `POST /resend-issued-notification`
+  - `HR_ADMIN`, `HR_STAFF` only; `ISSUED` only.
 
 - `POST /issue`, `/resolve`, `/escalate`, `/void`
   - `HR_ADMIN`, `HR_STAFF` only.

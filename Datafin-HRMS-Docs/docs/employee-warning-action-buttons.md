@@ -162,3 +162,18 @@ Render **primary** + **secondary** as `Button`s and **more** as `DropdownMenuIte
 - [ ] Department admin: submit/edit only in `DRAFT`; no HR actions visible.
 - [ ] Staff: simplified strip; acknowledge / refuse / appeal only where applicable.
 - [ ] Modals carry the JSON fields expected by each endpoint.
+
+---
+
+## 10) Backend bridge (§4 UI actions ↔ API)
+
+These endpoints exist so the §4 strip can be wired without new gaps for the common cases:
+
+| §4 / UI intent | Endpoint |
+|----------------|----------|
+| Delete draft (More) | `DELETE /api/employees/:id/warnings/:warningId` (`DRAFT` only; same auth as edit draft) |
+| Return to draft / request changes (`PENDING_HR_REVIEW`) | `POST /api/employees/:id/warnings/:warningId/return-to-draft` — optional body `{ "changesRequestedNote": "..." }` |
+| Resend notification (`ISSUED`) | `POST /api/employees/:id/warnings/:warningId/resend-issued-notification` |
+| Discipline table (tenant / dept scope) | `GET /api/employees/warnings/dashboard?page=&limit=&status=` — each row includes `subject` (`id`, `name`, `email`, `employeeId`, `departmentId`, `departmentName`) plus full warning DTO fields |
+
+**Still optional / product-specific (no dedicated warning export API):** bulk **Export** from the UI guide §3.7. **`ESCALATED` → “issue final”** remains a policy choice: use existing **`resolve` / `void` / `escalate`** (or a new warning record), not an extra `issue` from `ESCALATED` unless you extend the state machine deliberately.

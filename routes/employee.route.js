@@ -38,6 +38,10 @@ import {
     uploadEmployeeWarningAttachments,
     downloadEmployeeWarningAttachment,
     deleteEmployeeWarningAttachment,
+    deleteEmployeeWarningDraft,
+    returnEmployeeWarningToDraft,
+    resendWarningIssuedNotification,
+    listDisciplineWarningsDashboard,
 } from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -64,6 +68,11 @@ router.patch("/my-profile-picture", uploadSingleImage, updateProfilePicture);
 router.delete("/my-profile-picture", removeProfilePicture);
 router.get("/:userId/combined-feed", getEmployeeCombinedFeed);
 router.get(
+    "/warnings/dashboard",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    listDisciplineWarningsDashboard
+);
+router.get(
     "/:id/warnings",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
     listEmployeeWarnings
@@ -77,6 +86,11 @@ router.patch(
     "/:id/warnings/:warningId",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
     updateEmployeeWarningDraft
+);
+router.delete(
+    "/:id/warnings/:warningId",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    deleteEmployeeWarningDraft
 );
 router.post(
     "/:id/warnings/:warningId/attachments",
@@ -99,9 +113,19 @@ router.post(
     submitEmployeeWarningForReview
 );
 router.post(
+    "/:id/warnings/:warningId/return-to-draft",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    returnEmployeeWarningToDraft
+);
+router.post(
     "/:id/warnings/:warningId/issue",
     requireRole(["HR_ADMIN", "HR_STAFF"]),
     issueEmployeeWarning
+);
+router.post(
+    "/:id/warnings/:warningId/resend-issued-notification",
+    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    resendWarningIssuedNotification
 );
 router.post(
     "/:id/warnings/:warningId/acknowledge",
