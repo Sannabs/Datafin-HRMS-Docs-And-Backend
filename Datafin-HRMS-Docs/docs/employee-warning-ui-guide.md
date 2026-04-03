@@ -85,6 +85,8 @@ This avoids confusing users with 400 errors from the API.
 
 ## 6) Action matrix (recommended UI buttons)
 
+For **how to lay out** those actions (primary / secondary / “More” menu, placement in the detail dialog), see [**employee-warning-action-buttons.md**](./employee-warning-action-buttons.md).
+
 Derive visible actions from **`user.role`** (from session/store) + **`warning.status`** + **target employee id vs current user**.
 
 ### HR_ADMIN / HR_STAFF (viewing an employee they can access)
