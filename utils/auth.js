@@ -11,7 +11,7 @@ const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
 
 export const auth = betterAuth({
   baseURL,
-  trustedOrigins: [clientUrl, baseURL, "staffledger://"],
+  trustedOrigins: [clientUrl, baseURL, "staffledger://", process.env.API_BASE_URL],
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
@@ -75,13 +75,14 @@ export const auth = betterAuth({
         callbackURL = parsed.searchParams.get("callbackURL") || "";
       } catch {}
 
-      const isMobile = callbackURL.startsWith("staffledger://");
-
+      const isMobile = callbackURL.includes('/api/auth/redirect/reset-password') || 
+      callbackURL.startsWith('staffledger://');
+      
       console.log("callbackURL:", callbackURL);
       console.log("isMobile:", isMobile);
 
       const resetUrl = isMobile
-        ? `staffledger://reset-password?token=${token}`
+        ? `${process.env.API_BASE_URL}/api/auth/redirect/reset-password?token=${token}`
         : `${clientUrl}/reset-password/${token}`;
 
       await sendPasswordResetEmail({

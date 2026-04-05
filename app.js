@@ -70,6 +70,13 @@ app.use(
 );
 app.use(cookieParser());
 
+
+app.get('/api/auth/redirect/reset-password', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).send('Missing token');
+  res.redirect(`staffledger://reset-password?token=${token}`);
+});
+
 // Log every request to /api/auth so mobile app auth calls are visible
 app.use("/api/auth", (req, res, next) => {
   logger.info(`[Auth] ${req.method} ${req.path}`);
@@ -112,6 +119,7 @@ app.get("/health", (req, res) => {
     bullmqEnabled: ENABLE_BULLMQ,
   });
 });
+
 
 app.use(errorHandler);
 
