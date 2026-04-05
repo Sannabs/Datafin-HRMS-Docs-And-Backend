@@ -176,7 +176,7 @@ export const isSameWifi = async (wifiSSID, locationOrLocations) => {
   if (!Array.isArray(locationOrLocations)) {
     const location = locationOrLocations;
 
-    if (location.wifiSSID === wifiSSID) {
+    if (location.wifiSSID === wifiSSID.toLowerCase()) {
       return {
         valid: true,
         message: "WifiSSd Matched Yours",
@@ -186,7 +186,7 @@ export const isSameWifi = async (wifiSSID, locationOrLocations) => {
   }
 
   for (const location of locationOrLocations) {
-    if (location.wifiSSID === wifiSSID) {
+    if (location.wifiSSID === wifiSSID.toLowerCase()) {
       return {
         valid: true,
         message: "WifiSSd Matched Yours",
