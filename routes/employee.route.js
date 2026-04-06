@@ -43,6 +43,11 @@ import {
     resendWarningIssuedNotification,
     listDisciplineWarningsDashboard,
     getEmployeeWarningEscalationSummary,
+    getEmployeeWarningById,
+    getEmployeeWarningTimeline,
+    duplicateEmployeeWarningAsDraft,
+    exportEmployeeWarningPackage,
+    downloadEmployeeWarningLetterPdf,
 } from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -77,6 +82,31 @@ router.get(
     "/:id/warnings/escalation-summary",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
     getEmployeeWarningEscalationSummary
+);
+router.get(
+    "/:id/warnings/:warningId/timeline",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    getEmployeeWarningTimeline
+);
+router.get(
+    "/:id/warnings/:warningId/export",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    exportEmployeeWarningPackage
+);
+router.get(
+    "/:id/warnings/:warningId/letter-pdf",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    downloadEmployeeWarningLetterPdf
+);
+router.post(
+    "/:id/warnings/:warningId/duplicate",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    duplicateEmployeeWarningAsDraft
+);
+router.get(
+    "/:id/warnings/:warningId",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    getEmployeeWarningById
 );
 router.get(
     "/:id/warnings",

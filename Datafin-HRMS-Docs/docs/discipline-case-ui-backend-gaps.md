@@ -14,7 +14,12 @@ Related:
 The **case / employee-warning lifecycle** used by the discipline detail view and action strip is largely implemented:
 
 - List cases for an employee (`GET /api/employees/:id/warnings`)
-- Discipline queue list (`GET /api/employees/warnings/dashboard`) with **status** filter and pagination
+- Discipline queue list (`GET /api/employees/warnings/dashboard`) with **status**, **search**, **severity**, pagination
+- Single case read (`GET /api/employees/:id/warnings/:warningId`)
+- Per-case **timeline** (`GET /api/employees/:id/warnings/:warningId/timeline`) from `AuditLog` (`entityType: EmployeeWarning`, `entityId: warningId`). HR-wide audit list can also filter by **`entityId`** + **`entityType`** (`GET /api/audit-logs`, HR_ADMIN).
+- **Duplicate as draft** (`POST /api/employees/:id/warnings/:warningId/duplicate`) — copies core fields; attachments are **not** copied
+- **Formal letter PDF** (`GET /api/employees/:id/warnings/:warningId/letter-pdf`) — HTML template + Puppeteer (see `backend/services/warning-letter-pdf.service.js`)
+- **Export package** (`GET /api/employees/:id/warnings/:warningId/export`) — ZIP: `case-manifest.json`, `warning-letter.pdf`, `attachments/*`
 - Draft CRUD, submit, return to draft, issue, resend notification, attachments upload/download/delete
 - Acknowledge, refuse acknowledgement, appeal + review + decision, resolve, void, escalate
 
@@ -24,42 +29,30 @@ Routes live in `backend/routes/employee.route.js`; handlers in `backend/controll
 
 ## Gaps — UI or product expectation without a dedicated backend (yet)
 
-### 1. Per-case Activity / workflow timeline
+### ~~1. Per-case Activity / workflow timeline~~ **Addressed**
 
-The detail UI is designed around a **chronological activity feed** per case.
+- `GET /api/employees/:id/warnings/:warningId/timeline` returns audit-derived events (newest first). Optional `?limit=` (default 100, max 200).
 
-- There is **no** `GET …/warnings/:warningId/timeline` (or equivalent) on the employee routes.
-- **Audit data** is written (`addLog`, `AuditLog` with `entityType` / `entityId` in Prisma), but **`getAuditLogs`** does not expose filtering by **`entityId` + `entityType`** for a single case—it is tenant-scoped with generic search.
+### ~~2. Formal warning letter PDF~~ **Addressed**
 
-**Implication:** Either extend the audit API to filter by entity, or add a warning-scoped “activity” endpoint that maps audit rows (or a future events table) to the UI timeline shape.
+- `GET .../letter-pdf` returns `application/pdf`. Template: `backend/templates/warning-letter.html` (override path: `WARNING_LETTER_TEMPLATE_PATH`).
 
-### 2. Formal warning letter PDF
+### ~~3. Export case record~~ **Addressed**
 
-- Issue flow sends **email** (`sendWarningIssuedEmail`).
-- There is **no** backend service that **generates a warning letter PDF** (by contrast, payslips use PDF generation in `backend/services/payslip-generator.service.js`).
-- Product copy may refer to an **attachment**; attaching a generated letter is **not** implemented end-to-end.
+- `GET .../export` returns `application/zip` with manifest, generated letter PDF, and attachment files (best-effort per file).
 
-### 3. Export case record
+### ~~4. Duplicate as draft~~ **Addressed**
 
-- The UI includes **export (coming soon)**-style actions.
-- There is **no** endpoint that exports a case (e.g. PDF bundle, zip of attachments + metadata).
+- `POST .../duplicate` creates a new **DRAFT** for the same employee; **`duplicatedFromWarningId`** is included in the JSON response (`data`).
 
-### 4. Duplicate as draft
+### ~~5. GET single case by id~~ **Addressed**
 
-- Row actions may offer **duplicate as draft**.
-- There is **no** **clone / duplicate** API that creates a new draft from an existing case.
+- `GET /api/employees/:id/warnings/:warningId` returns the same **warningToDto** shape as list items.
 
-### 5. GET single case by id
+### ~~6. Discipline header: search and severity (and richer filters)~~ **Addressed**
 
-- **`GET /api/employees/:id/warnings`** returns a **paginated list**.
-- Mutations use `:warningId`, but there is **no** **`GET /api/employees/:id/warnings/:warningId`** for a single resource read.
-- This can be worked around by finding an item in the list response, but a **dedicated read** is not present.
-
-### 6. Discipline header: search and severity (and richer filters)
-
-- **`listDisciplineWarningsDashboard`** supports **pagination** and **status** (`status` query param).
-- It does **not** implement **free-text search** (e.g. employee name, case title, policy reference) or **severity** filtering as query parameters.
-- **`listEmployeeWarnings`** similarly exposes list + pagination (and staff visibility rules), not the same filter set the Discipline header UI suggests.
+- **`GET /api/employees/warnings/dashboard`**: optional `search` (title, policy reference, employee name / email / employeeId) and `severity` (comma-separated `LOW|MEDIUM|HIGH|FINAL`). Existing `status` unchanged.
+- **`GET /api/employees/:id/warnings`**: same **`search`** and **`severity`**; optional **`status`** (single) and **`category`** apply when the caller is **not** `STAFF` (staff list remains “non-hidden” statuses only).
 
 ### 7. Compliance management tab
 
@@ -74,3 +67,4 @@ The detail UI is designed around a **chronological activity feed** per case.
 | Date       | Notes |
 | ---------- | ----- |
 | 2026-04-06 | Initial list from UI vs `employee.route.js` / `employee-warning.controller.js` review. |
+| 2026-04-06 | Items 1–6 bridged: timeline, letter PDF, ZIP export, duplicate, GET by id, dashboard/employee list search + severity (+ list status/category for non-staff). |

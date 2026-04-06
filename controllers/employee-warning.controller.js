@@ -21,10 +21,13 @@ import {
   getManagedDepartmentIds,
 } from "../utils/employee-warning-access.js";
 import { getWarningEscalationSummaryForEmployee } from "../utils/employee-warning-escalation.js";
+import archiver from "archiver";
 import {
   createNotification,
   notifyHRForWarningEvent,
 } from "../services/notification.service.js";
+import { generateWarningLetterPdfBuffer } from "../services/warning-letter-pdf.service.js";
+import { mapAuditLogToTimelineEvent } from "../utils/employee-warning-timeline.js";
 import { sendWarningIssuedEmail } from "../views/sendWarningIssuedEmail.js";
 import { sendWarningSubmittedForReviewEmail } from "../views/sendWarningSubmittedForReviewEmail.js";
 import {
@@ -173,6 +176,63 @@ function isValidEnumValue(enumObj, val) {
   return Object.values(enumObj).includes(val);
 }
 
+/**
+ * @param {import("@prisma/client").Prisma.EmployeeWarningWhereInput} where
+ * @param {import("express").Request} req
+ */
+function applyWarningSearchAndSeverityFilters(where, req) {
+  const search =
+    typeof req.query.search === "string" ? req.query.search.trim() : "";
+  if (search) {
+    const searchClause = {
+      OR: [
+        { title: { contains: search, mode: "insensitive" } },
+        {
+          policyReference: { contains: search, mode: "insensitive" },
+        },
+        {
+          user: {
+            OR: [
+              { name: { contains: search, mode: "insensitive" } },
+              { email: { contains: search, mode: "insensitive" } },
+              { employeeId: { contains: search, mode: "insensitive" } },
+            ],
+          },
+        },
+      ],
+    };
+    if (where.AND) {
+      where.AND = Array.isArray(where.AND)
+        ? [...where.AND, searchClause]
+        : [where.AND, searchClause];
+    } else {
+      where.AND = [searchClause];
+    }
+  }
+
+  const sevParam = req.query.severity;
+  if (typeof sevParam === "string" && sevParam.trim()) {
+    const parts = sevParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const valid = parts.filter((s) =>
+      isValidEnumValue(EmployeeWarningSeverity, s)
+    );
+    if (valid.length === 1) {
+      where.severity = valid[0];
+    } else if (valid.length > 1) {
+      where.severity = { in: valid };
+    }
+  }
+  return where;
+}
+
+function staffCannotViewWarning(requesterRole, status) {
+  if (requesterRole !== "STAFF") return false;
+  return STAFF_HIDDEN_STATUSES.includes(status);
+}
+
 export const listEmployeeWarnings = async (req, res) => {
   try {
     const targetUserId = resolveEmployeeRouteId(req);
@@ -195,6 +255,28 @@ export const listEmployeeWarnings = async (req, res) => {
 
     if (requesterRole === "STAFF") {
       where.status = { notIn: STAFF_HIDDEN_STATUSES };
+    }
+
+    applyWarningSearchAndSeverityFilters(where, req);
+
+    if (requesterRole !== "STAFF") {
+      const singleStatus = req.query.status;
+      if (
+        typeof singleStatus === "string" &&
+        singleStatus.trim() &&
+        isValidEnumValue(EmployeeWarningStatus, singleStatus.trim())
+      ) {
+        where.status = singleStatus.trim();
+      }
+    }
+
+    const catParam = req.query.category;
+    if (
+      typeof catParam === "string" &&
+      catParam.trim() &&
+      isValidEnumValue(EmployeeWarningCategory, catParam.trim())
+    ) {
+      where.category = catParam.trim();
     }
 
     const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
@@ -298,6 +380,476 @@ export const getEmployeeWarningEscalationSummary = async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to load escalation summary",
+    });
+  }
+};
+
+/** GET …/warnings/:warningId — single case (same dto as list items). */
+export const getEmployeeWarningById = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const requesterRole = req.user?.role;
+    const { warningId } = req.params;
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+      include: warningWithAttachmentsInclude,
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (staffCannotViewWarning(requesterRole, warning.status)) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Warning retrieved",
+      data: warningToDto(warning),
+    });
+  } catch (error) {
+    logger.error(`getEmployeeWarningById: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to load warning",
+    });
+  }
+};
+
+/** GET …/warnings/:warningId/timeline — audit-derived activity feed. */
+export const getEmployeeWarningTimeline = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const requesterRole = req.user?.role;
+    const { warningId } = req.params;
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await loadWarningForRoutes(req, targetUserId, warningId);
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (staffCannotViewWarning(requesterRole, warning.status)) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const limit = Math.min(
+      200,
+      Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100)
+    );
+
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        tenantId,
+        entityType: "EmployeeWarning",
+        entityId: warningId,
+      },
+      orderBy: { timestamp: "desc" },
+      take: limit,
+      include: {
+        user: { select: { name: true, email: true } },
+      },
+    });
+
+    const events = logs.map(mapAuditLogToTimelineEvent);
+
+    return res.status(200).json({
+      success: true,
+      message: "Timeline retrieved",
+      data: events,
+    });
+  } catch (error) {
+    logger.error(`getEmployeeWarningTimeline: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to load timeline",
+    });
+  }
+};
+
+/** POST …/warnings/:warningId/duplicate — new draft from existing case (no attachments copied). */
+export const duplicateEmployeeWarningAsDraft = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const auth = await assertCanCreateOrMutateNonIssuedWarning(
+      req,
+      targetUserId
+    );
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        error: auth.status === 404 ? "Not Found" : "Forbidden",
+        message: auth.message,
+      });
+    }
+
+    const source = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+    });
+
+    if (!source) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const copy = await prisma.employeeWarning.create({
+      data: {
+        tenantId,
+        userId: targetUserId,
+        createdById: actorId,
+        status: EmployeeWarningStatus.DRAFT,
+        title:
+          typeof source.title === "string" && source.title.trim()
+            ? `[Copy] ${source.title.trim()}`.slice(0, 450)
+            : "[Copy] Case",
+        category: source.category,
+        severity: source.severity,
+        incidentDate: source.incidentDate,
+        reason: (() => {
+          const r =
+            typeof source.reason === "string" ? source.reason.trim() : "";
+          return r || "Duplicated from prior case record.";
+        })(),
+        policyReference:
+          typeof source.policyReference === "string" && source.policyReference.trim()
+            ? source.policyReference.trim()
+            : null,
+      },
+      include: warningWithAttachmentsInclude,
+    });
+
+    await addLog(
+      actorId,
+      tenantId,
+      ActionEnum.CREATE,
+      "EmployeeWarning",
+      copy.id,
+      {
+        after: {
+          duplicatedFrom: source.id,
+          title: copy.title,
+          status: copy.status,
+        },
+      },
+      req
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Draft created from existing case",
+      data: {
+        ...warningToDto(copy),
+        duplicatedFromWarningId: source.id,
+      },
+    });
+  } catch (error) {
+    logger.error(`duplicateEmployeeWarningAsDraft: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to duplicate case",
+    });
+  }
+};
+
+/** GET …/warnings/:warningId/export — ZIP: manifest JSON + attachments + generated letter PDF. */
+export const exportEmployeeWarningPackage = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+      include: {
+        ...warningWithAttachmentsInclude,
+        user: {
+          select: { id: true, name: true, employeeId: true, email: true },
+        },
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (staffCannotViewWarning(req.user?.role, warning.status)) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const tenant = tenantId
+      ? await prisma.tenant.findFirst({
+          where: { id: tenantId },
+          select: { name: true },
+        })
+      : null;
+
+    const safeSlug = String(warning.id).replace(/[^a-zA-Z0-9-_]/g, "").slice(0, 12);
+    const zipName = `case-export-${safeSlug || "record"}.zip`;
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename=${zipName}`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      logger.error(`exportEmployeeWarningPackage archive: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: "Internal Server Error",
+          message: "Failed to build export",
+        });
+      }
+    });
+    archive.pipe(res);
+
+    const manifest = {
+      exportedAt: new Date().toISOString(),
+      warning: warningToDto(warning),
+      attachmentFiles: [],
+    };
+
+    manifest.letterPdfIncluded = false;
+    try {
+      const letterPdf = await generateWarningLetterPdfBuffer({
+        tenant,
+        subjectUser: warning.user,
+        warning,
+      });
+      archive.append(Buffer.from(letterPdf), { name: "warning-letter.pdf" });
+      manifest.letterPdfIncluded = true;
+    } catch (pdfErr) {
+      logger.warn(
+        `exportEmployeeWarningPackage letter PDF skipped: ${pdfErr.message}`
+      );
+      manifest.letterPdfError = pdfErr.message;
+    }
+
+    for (const att of warning.attachments ?? []) {
+      try {
+        const buf = await getFile(att.storedName);
+        const safeOriginal = String(att.originalName || "attachment").replace(
+          /[/\\?%*:|"<>]/g,
+          "_"
+        );
+        const pathInZip = `attachments/${safeOriginal}`;
+        archive.append(buf, { name: pathInZip });
+        manifest.attachmentFiles.push({
+          storedName: att.storedName,
+          pathInZip,
+          originalName: att.originalName,
+        });
+      } catch (e) {
+        manifest.attachmentFiles.push({
+          storedName: att.storedName,
+          error: e.message,
+          originalName: att.originalName,
+        });
+      }
+    }
+
+    archive.append(JSON.stringify(manifest, null, 2), {
+      name: "case-manifest.json",
+    });
+
+    await archive.finalize();
+
+    if (actorId && tenantId) {
+      await addLog(
+        actorId,
+        tenantId,
+        ActionEnum.EXPORT,
+        "EmployeeWarning",
+        warning.id,
+        { transition: "EXPORT_ZIP" },
+        req
+      );
+    }
+  } catch (error) {
+    logger.error(`exportEmployeeWarningPackage: ${error.message}`, {
+      stack: error.stack,
+    });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: "Internal Server Error",
+        message: "Failed to export case",
+      });
+    }
+  }
+};
+
+/** GET …/warnings/:warningId/letter-pdf — single formal letter PDF (HTML render). */
+export const downloadEmployeeWarningLetterPdf = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const actorId = req.user?.id;
+    const { warningId } = req.params;
+
+    const view = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!view.ok) {
+      return res.status(view.status).json({
+        success: false,
+        error: view.status === 404 ? "Not Found" : "Forbidden",
+        message: view.message,
+      });
+    }
+
+    const warning = await prisma.employeeWarning.findFirst({
+      where: {
+        id: warningId,
+        tenantId,
+        userId: targetUserId,
+      },
+      include: {
+        user: {
+          select: { id: true, name: true, employeeId: true, email: true },
+        },
+      },
+    });
+
+    if (!warning) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    if (staffCannotViewWarning(req.user?.role, warning.status)) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Warning not found",
+      });
+    }
+
+    const tenant = tenantId
+      ? await prisma.tenant.findFirst({
+          where: { id: tenantId },
+          select: { name: true },
+        })
+      : null;
+
+    const pdf = await generateWarningLetterPdfBuffer({
+      tenant,
+      subjectUser: warning.user,
+      warning,
+    });
+
+    const safeTitle = String(warning.title || "warning")
+      .replace(/[/\\?%*:|"<>]/g, "_")
+      .slice(0, 80);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=warning-letter-${safeTitle}.pdf`
+    );
+
+    if (actorId && tenantId) {
+      await addLog(
+        actorId,
+        tenantId,
+        ActionEnum.DOWNLOAD,
+        "EmployeeWarning",
+        warning.id,
+        { transition: "LETTER_PDF" },
+        req
+      );
+    }
+
+    return res.status(200).send(Buffer.from(pdf));
+  } catch (error) {
+    logger.error(`downloadEmployeeWarningLetterPdf: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to generate letter PDF",
     });
   }
 };
@@ -2430,6 +2982,8 @@ export const listDisciplineWarningsDashboard = async (req, res) => {
       });
       where.userId = { in: scopedUsers.map((u) => u.id) };
     }
+
+    applyWarningSearchAndSeverityFilters(where, req);
 
     const [total, warnings] = await Promise.all([
       prisma.employeeWarning.count({ where }),

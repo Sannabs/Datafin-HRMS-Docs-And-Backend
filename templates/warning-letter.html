@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Formal warning — {{title}}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 11pt; color: #111; line-height: 1.45; }
+    h1 { font-size: 14pt; margin: 0 0 12px; }
+    .muted { color: #444; font-size: 9pt; }
+    .block { margin: 10px 0; }
+    .label { font-weight: 600; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 16px 0; }
+    .reason { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <p class="muted">{{companyName}} · Formal warning letter (record)</p>
+  <h1>{{title}}</h1>
+  <div class="block"><span class="label">Employee:</span> {{employeeName}} ({{employeeCode}})</div>
+  <div class="block"><span class="label">Category:</span> {{category}} &nbsp;·&nbsp; <span class="label">Severity:</span> {{severity}}</div>
+  <div class="block"><span class="label">Incident date:</span> {{incidentDate}}</div>
+  <div class="block"><span class="label">Record status:</span> {{status}}</div>
+  <div class="block"><span class="label">Policy reference:</span> {{policyReference}}</div>
+  <hr />
+  <div class="block"><span class="label">Summary / observations</span></div>
+  <div class="reason">{{reason}}</div>
+  <hr />
+  <p class="muted">Issued: {{issuedAt}} · Generated: {{generatedAt}}</p>
+  <p class="muted">This PDF is a system-generated copy for the case file. Official process may require separate signed documentation.</p>
+</body>
+</html>

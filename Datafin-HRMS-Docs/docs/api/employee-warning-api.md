@@ -34,9 +34,14 @@ Access policy:
 
 | Method | Path | Purpose | Allowed Roles |
 |---|---|---|---|
-| GET | `/api/employees/warnings/dashboard` | Paginated warnings across the tenant for discipline UI; optional `?status=` filter (comma-separated). Each row includes **`escalationSummary`** for the case subject (employee). | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments) |
-| GET | `/api/employees/:id/warnings` | List warning records for employee | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
+| GET | `/api/employees/warnings/dashboard` | Paginated discipline queue; `?status=` (comma-separated), **`?search=`** (title, policy ref, subject name/email/employeeId), **`?severity=`** (comma-separated). Each row includes **`escalationSummary`**. | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments) |
+| GET | `/api/employees/:id/warnings` | List warning records for employee; **`search`**, **`severity`**; **`status`** / **`category`** when caller is not STAFF | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
 | GET | `/api/employees/:id/warnings/escalation-summary` | Employee-level escalation signals only (12‑month active count, suggest review, active FINAL) — same data as `escalationSummary` on list; no case rows returned | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
+| GET | `/api/employees/:id/warnings/:warningId` | Single case (**warningToDto**) | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (scoped), STAFF (self) |
+| GET | `/api/employees/:id/warnings/:warningId/timeline` | Activity feed from audit logs (`?limit=` default 100, max 200) | Same as read |
+| GET | `/api/employees/:id/warnings/:warningId/letter-pdf` | Formal warning letter **PDF** (`application/pdf`) | Same as read |
+| GET | `/api/employees/:id/warnings/:warningId/export` | Case **ZIP**: `case-manifest.json`, `warning-letter.pdf`, `attachments/*` | Same as read |
+| POST | `/api/employees/:id/warnings/:warningId/duplicate` | New **draft** copied from case (no attachments); `data` includes `duplicatedFromWarningId` | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN |
 | POST | `/api/employees/:id/warnings` | Create warning draft | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports) |
 | PATCH | `/api/employees/:id/warnings/:warningId` | Update draft or editable fields | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (own/direct report draft scope) |
 | DELETE | `/api/employees/:id/warnings/:warningId` | Delete warning **draft** and remove attachment files | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (draft scope); status must be `DRAFT` |
@@ -111,6 +116,43 @@ Example warning object:
 
 Same auth as the summary table. Response `data` is an array of dashboard rows: each item is **`warningToDto` fields** plus **`subject`** (`id`, `name`, `email`, `employeeId`, `departmentId`, `departmentName`) and **`escalationSummary`** (`activeWarningsLast12Months`, `suggestEscalationReview`, `hasActiveFinalWarning`) for that row’s `userId`. Repeated rows for the same employee repeat the same `escalationSummary` (client may dedupe for banners).
 
+Optional query params:
+
+- **`search`**: case-insensitive match on **title**, **policyReference**, or subject **name**, **email**, **employeeId** (via related `user`).
+- **`severity`**: comma-separated `LOW`, `MEDIUM`, `HIGH`, `FINAL` (invalid tokens ignored).
+
+Existing **`status`** (comma-separated) and pagination **`page` / `limit`** behave as before.
+
+## 5.0b Get single warning
+
+`GET /api/employees/:id/warnings/:warningId`
+
+Returns **`data: warningToDto`**. **404** if the case does not exist, is outside scope, or (for **STAFF**) is a hidden status (`DRAFT`, `PENDING_HR_REVIEW`).
+
+## 5.0c Timeline
+
+`GET /api/employees/:id/warnings/:warningId/timeline`
+
+Returns **`data`**: array of `{ id, at, title, detail?, actorName?, actorRole?, tag? }` derived from **`AuditLog`** rows with `entityType: "EmployeeWarning"` and `entityId: warningId`, newest first.
+
+## 5.0d Letter PDF
+
+`GET /api/employees/:id/warnings/:warningId/letter-pdf`
+
+Response **200** with **`Content-Type: application/pdf`**. Uses Puppeteer and `backend/templates/warning-letter.html` (env **`WARNING_LETTER_TEMPLATE_PATH`** optional override).
+
+## 5.0e Export ZIP
+
+`GET /api/employees/:id/warnings/:warningId/export`
+
+Response **200** with **`Content-Type: application/zip`**. Contains **`case-manifest.json`** (warning snapshot + export metadata), **`warning-letter.pdf`**, and **`attachments/…`** (original filenames; failed storage reads are listed in the manifest with `error`).
+
+## 5.0f Duplicate as draft
+
+`POST /api/employees/:id/warnings/:warningId/duplicate`
+
+Creates a new **DRAFT** for the **same employee** with copied **title** (prefixed `[Copy]`), **category**, **severity**, **incidentDate**, **reason**, **policyReference**. **Attachments are not copied.** **201** with **`data`** including **`duplicatedFromWarningId`**.
+
 ## 5.0a Escalation summary only
 
 `GET /api/employees/:id/warnings/escalation-summary`
@@ -125,11 +167,12 @@ Same auth as the summary table. Response `data` is an array of dashboard rows: e
 `GET /api/employees/:id/warnings`
 
 Query params (optional):
-- `status`: `DRAFT|PENDING_HR_REVIEW|ISSUED|ACKNOWLEDGED|APPEAL_OPEN|APPEAL_REVIEW|APPEAL_UPHELD|APPEAL_AMENDED|APPEAL_VOIDED|RESOLVED|ESCALATED|VOIDED`
-- `severity`: `LOW|MEDIUM|HIGH|FINAL`
-- `category`: string
-- `page`: number (default 1)
-- `limit`: number (default 20, max 100)
+- **`search`**: free text on **title**, **policyReference** (this employee’s cases only)
+- **`severity`**: comma-separated `LOW|MEDIUM|HIGH|FINAL`
+- **`status`**: single enum value — applied only when the caller is **not** `STAFF` (staff always see non-hidden statuses only)
+- **`category`**: `EmployeeWarningCategory` enum value
+- **`page`**: number (default 1)
+- **`limit`**: number (default 50, max 100)
 
 Success `200`:
 

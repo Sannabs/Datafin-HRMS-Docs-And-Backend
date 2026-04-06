@@ -20,6 +20,19 @@ export const getAuditLogs = async (req, res, next) => {
 
     const where = { tenantId };
 
+    const entityId =
+      typeof req.query.entityId === "string" ? req.query.entityId.trim() : "";
+    const entityType =
+      typeof req.query.entityType === "string"
+        ? req.query.entityType.trim()
+        : "";
+    if (entityId) {
+      where.entityId = entityId;
+    }
+    if (entityType) {
+      where.entityType = entityType;
+    }
+
     if (search) {
       where.OR = [
         { entityType: { contains: search, mode: "insensitive" } },
