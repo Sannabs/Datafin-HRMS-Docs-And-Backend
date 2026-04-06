@@ -28,12 +28,12 @@ export const sendWarningSubmittedForReviewEmail = async ({
         <p style="margin-top: 24px;">
           <a href="${reviewUrl}"
              style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-            Review in Datafin HRMS
+            Review in StaffLedger
           </a>
         </p>
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         <p style="color: #999; font-size: 12px; margin: 0;">
-          This is an automated message from Datafin HRMS. Please do not reply to this email.
+          This is an automated message from StaffLedger. Please do not reply to this email.
         </p>
       </div>
     </body>
@@ -49,7 +49,7 @@ A warning for ${employeeName} titled "${warningTitle}" has been submitted and ne
 
 ${reviewUrl}
 
-This is an automated message from Datafin HRMS.
+This is an automated message from StaffLedger.
   `.trim();
 
   await sendEmail({

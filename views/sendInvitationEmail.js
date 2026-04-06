@@ -20,7 +20,7 @@ export const sendInvitationEmail = async ({
       })
     : "see link";
 
-  const subject = `You're invited to join ${tenantName} - Datafin HRMS`;
+  const subject = `You're invited to join ${tenantName} - StaffLedger`;
 
   const html = `
     <!DOCTYPE html>
@@ -36,7 +36,7 @@ export const sendInvitationEmail = async ({
         
         <p>Hi there,</p>
         
-        <p>You have been invited to join <strong>${tenantName}</strong> on Datafin HRMS. Click the button below to accept the invitation and set up your account:</p>
+        <p>You have been invited to join <strong>${tenantName}</strong> on StaffLedger. Click the button below to accept the invitation and set up your account:</p>
         
         <div style="text-align: center; margin: 30px 0;">
           <a href="${acceptLink}" 
@@ -55,7 +55,7 @@ export const sendInvitationEmail = async ({
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         
         <p style="color: #999; font-size: 12px; margin: 0;">
-          This is an automated message from Datafin HRMS. Please do not reply to this email.
+          This is an automated message from StaffLedger. Please do not reply to this email.
         </p>
       </div>
     </body>
@@ -67,13 +67,13 @@ You're invited to join ${tenantName}
 
 Hi there,
 
-You have been invited to join ${tenantName} on Datafin HRMS. Open the link below to accept the invitation and set up your account:
+You have been invited to join ${tenantName} on StaffLedger. Open the link below to accept the invitation and set up your account:
 
 ${acceptLink}
 
 This invitation link expires on ${expiresFormatted}. If you did not expect this email, you can safely ignore it.
 
-This is an automated message from Datafin HRMS.
+This is an automated message from StaffLedger.
   `;
 
   return await sendEmail({

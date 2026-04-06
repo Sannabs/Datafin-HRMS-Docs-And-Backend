@@ -39,7 +39,7 @@ export const sendPatrolSessionsScheduledEmail = async ({
         </table>
         <p style="color:#666;font-size:14px;">Interval reminders will also appear in the app about 10 minutes before each round starts.</p>
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-        <p style="color: #999; font-size: 12px; margin: 0;">This is an automated message from Datafin HRMS.</p>
+        <p style="color: #999; font-size: 12px; margin: 0;">This is an automated message from StaffLedger.</p>
       </div>
     </body>
     </html>
@@ -48,7 +48,7 @@ export const sendPatrolSessionsScheduledEmail = async ({
   const textLines = rounds.map(
     (r) => `- ${r.siteName} / ${r.scheduleName}: ${r.slotLabel}`
   );
-  const text = `${subject}\n\nHello ${employeeName},\n\n${textLines.join("\n")}\n\n— Datafin HRMS`;
+  const text = `${subject}\n\nHello ${employeeName},\n\n${textLines.join("\n")}\n\n— StaffLedger`;
 
   return sendEmail({ to, subject, html, text });
 };

@@ -6,7 +6,7 @@ export const sendPasswordResetEmail = async ({
   token,
   userName,
 }) => {
-  const subject = "Reset Your Password - Datafin HRMS";
+  const subject = "Reset Your Password - StaffLedger";
 
   const html = `
     <!DOCTYPE html>
@@ -22,7 +22,7 @@ export const sendPasswordResetEmail = async ({
         
         <p>Hi ${userName || "there"},</p>
         
-        <p>We received a request to reset your password for your Datafin HRMS account. Click the button below to create a new password:</p>
+        <p>We received a request to reset your password for your StaffLedger account. Click the button below to create a new password:</p>
         
         <div style="text-align: center; margin: 30px 0;">
           <a href="${resetUrl}" 
@@ -45,7 +45,7 @@ export const sendPasswordResetEmail = async ({
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         
         <p style="color: #999; font-size: 12px; margin: 0;">
-          This is an automated message from Datafin HRMS. Please do not reply to this email.
+          This is an automated message from StaffLedger. Please do not reply to this email.
         </p>
       </div>
     </body>
@@ -57,7 +57,7 @@ Password Reset Request
 
 Hi ${userName || "there"},
 
-We received a request to reset your password for your Datafin HRMS account. Click the link below to create a new password:
+We received a request to reset your password for your StaffLedger account. Click the link below to create a new password:
 
 ${resetUrl}
 
@@ -65,7 +65,7 @@ Important: This link will expire in 1 hour for security reasons.
 
 If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
 
-This is an automated message from Datafin HRMS.
+This is an automated message from StaffLedger.
   `;
 
   return await sendEmail({

@@ -15,7 +15,7 @@ export const sendEmail = async ({ to, subject, html, text, attachments }) => {
   try {
     const result = await resend.emails.send({
       from:
-        process.env.RESEND_FROM_EMAIL || "Datafin HRMS <support@datafin.info>",
+        process.env.RESEND_FROM_EMAIL || "StaffLedger <support@datafin.info>",
       to: [to],
       subject,
       html,

@@ -5,7 +5,7 @@ export const sendPlatformAdminInviteEmail = async ({
   resetUrl,
   userName,
 }) => {
-  const subject = "You're invited as a platform admin - Datafin HRMS";
+  const subject = "You're invited as a platform admin - StaffLedger";
 
   const html = `
     <!DOCTYPE html>
@@ -17,11 +17,11 @@ export const sendPlatformAdminInviteEmail = async ({
     </head>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background-color: #f8f9fa; padding: 30px; border-radius: 8px;">
-        <h1 style="color: #2563eb; margin-top: 0;">You're invited to Datafin HRMS</h1>
+        <h1 style="color: #2563eb; margin-top: 0;">You're invited to StaffLedger</h1>
         
         <p>Hi ${userName || "there"},</p>
         
-        <p>You've been invited to join Datafin HRMS as a <strong>platform admin</strong>. Platform admins can manage companies and access the platform-wide dashboard.</p>
+        <p>You've been invited to join StaffLedger as a <strong>platform admin</strong>. Platform admins can manage companies and access the platform-wide dashboard.</p>
         
         <p>Click the button below to set your password and sign in. This link will take you to a secure page where you can create your password.</p>
         
@@ -46,7 +46,7 @@ export const sendPlatformAdminInviteEmail = async ({
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         
         <p style="color: #999; font-size: 12px; margin: 0;">
-          This is an automated message from Datafin HRMS. Please do not reply to this email.
+          This is an automated message from StaffLedger. Please do not reply to this email.
         </p>
       </div>
     </body>
@@ -54,11 +54,11 @@ export const sendPlatformAdminInviteEmail = async ({
   `;
 
   const text = `
-You're invited to Datafin HRMS
+You're invited to StaffLedger
 
 Hi ${userName || "there"},
 
-You've been invited to join Datafin HRMS as a platform admin. Platform admins can manage companies and access the platform-wide dashboard.
+You've been invited to join StaffLedger as a platform admin. Platform admins can manage companies and access the platform-wide dashboard.
 
 Set your password and sign in by visiting this link:
 
@@ -68,7 +68,7 @@ This link will expire in 1 hour.
 
 If you didn't expect this invitation, you can safely ignore this email.
 
-This is an automated message from Datafin HRMS.
+This is an automated message from StaffLedger.
   `;
 
   return await sendEmail({

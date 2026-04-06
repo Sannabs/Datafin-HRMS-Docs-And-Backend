@@ -40,7 +40,7 @@ export const sendLeaveRequestConfirmationEmail = async ({
         
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         <p style="color: #999; font-size: 12px; margin: 0;">
-          This is an automated message from Datafin HRMS. Please do not reply to this email.
+          This is an automated message from StaffLedger. Please do not reply to this email.
         </p>
       </div>
     </body>
@@ -63,7 +63,7 @@ ${reason ? `Reason: ${reason}` : ""}
 
 You will be notified once your manager reviews the request.
 
-This is an automated message from Datafin HRMS.
+This is an automated message from StaffLedger.
   `;
 
   return await sendEmail({
