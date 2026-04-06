@@ -767,14 +767,14 @@ export const issueEmployeeWarning = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
-      const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
+      const actionUrl =
+        (process.env.STAFFLEDGER_NOTIFICATION_URL || "").trim() || null;
 
       await createNotification(
         tenantId,
         targetUserId,
-        "Formal warning issued",
-        `A formal warning "${updated.title}" has been issued. Please review your profile for details.`,
+        "Formal Warning Issued",
+        `A formal warning letter has been issued to you. Open the StaffLedger mobile app to review, acknowledge, and take any required action.`,
         "PERFORMANCE",
         actionUrl
       );
@@ -783,9 +783,6 @@ export const issueEmployeeWarning = async (req, res) => {
         await sendWarningIssuedEmail({
           to: updated.user.email,
           employeeName: updated.user.name || updated.user.employeeId,
-          warningTitle: updated.title,
-          severity: updated.severity,
-          detailUrl: actionUrl,
         });
       }
     } catch (notifyErr) {
@@ -2213,14 +2210,14 @@ export const resendWarningIssuedNotification = async (req, res) => {
     }
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
-      const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
+      const actionUrl =
+        (process.env.STAFFLEDGER_NOTIFICATION_URL || "").trim() || null;
 
       await createNotification(
         tenantId,
         targetUserId,
-        "Formal warning issued",
-        `A formal warning "${warning.title}" has been issued. Please review your profile for details.`,
+        "Formal Warning Issued",
+        `A formal warning letter has been issued to you. Open the StaffLedger mobile app to review, acknowledge, and take any required action.`,
         "PERFORMANCE",
         actionUrl
       );
@@ -2229,9 +2226,6 @@ export const resendWarningIssuedNotification = async (req, res) => {
         await sendWarningIssuedEmail({
           to: warning.user.email,
           employeeName: warning.user.name || warning.user.employeeId,
-          warningTitle: warning.title,
-          severity: warning.severity,
-          detailUrl: actionUrl,
         });
       }
     } catch (notifyErr) {
