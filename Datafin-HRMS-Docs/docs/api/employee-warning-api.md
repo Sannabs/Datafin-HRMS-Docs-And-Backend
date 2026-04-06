@@ -141,6 +141,8 @@ Returns **`data`**: array of `{ id, at, title, detail?, actorName?, actorRole?, 
 
 Response **200** with **`Content-Type: application/pdf`**. Uses Puppeteer and `backend/templates/warning-letter.html` (env **`WARNING_LETTER_TEMPLATE_PATH`** optional override).
 
+Letter layout matches the issue modal / `WarningActionBar` template (subject line, “Dear …”, category sentence, **“It has been observed that:”** block, incident date, policy reference, corrective-action paragraph, StaffLedger acknowledgment, sign-off). The paragraph under **“It has been observed that:”** uses **`issueNote`** when set (issuance / HR note from **`POST …/issue`**), otherwise falls back to **`reason`**. Signatory uses **`issuedBy`** (name + job **position** title when available); otherwise placeholder “Human Resources”. **Company** line uses **tenant** `name`.
+
 ## 5.0e Export ZIP
 
 `GET /api/employees/:id/warnings/:warningId/export`

@@ -638,7 +638,20 @@ export const exportEmployeeWarningPackage = async (req, res) => {
       include: {
         ...warningWithAttachmentsInclude,
         user: {
-          select: { id: true, name: true, employeeId: true, email: true },
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+            email: true,
+            position: { select: { title: true } },
+            department: { select: { name: true } },
+          },
+        },
+        issuedBy: {
+          select: {
+            name: true,
+            position: { select: { title: true } },
+          },
         },
       },
     });
@@ -786,7 +799,20 @@ export const downloadEmployeeWarningLetterPdf = async (req, res) => {
       },
       include: {
         user: {
-          select: { id: true, name: true, employeeId: true, email: true },
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+            email: true,
+            position: { select: { title: true } },
+            department: { select: { name: true } },
+          },
+        },
+        issuedBy: {
+          select: {
+            name: true,
+            position: { select: { title: true } },
+          },
         },
       },
     });
