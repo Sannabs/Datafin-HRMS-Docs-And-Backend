@@ -34,8 +34,9 @@ Access policy:
 
 | Method | Path | Purpose | Allowed Roles |
 |---|---|---|---|
-| GET | `/api/employees/warnings/dashboard` | Paginated warnings across the tenant for discipline UI; optional `?status=` filter (comma-separated) | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments) |
+| GET | `/api/employees/warnings/dashboard` | Paginated warnings across the tenant for discipline UI; optional `?status=` filter (comma-separated). Each row includes **`escalationSummary`** for the case subject (employee). | HR_ADMIN, HR_STAFF (full tenant); DEPARTMENT_ADMIN (managed departments) |
 | GET | `/api/employees/:id/warnings` | List warning records for employee | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
+| GET | `/api/employees/:id/warnings/escalation-summary` | Employee-level escalation signals only (12‑month active count, suggest review, active FINAL) — same data as `escalationSummary` on list; no case rows returned | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports), STAFF (self) |
 | POST | `/api/employees/:id/warnings` | Create warning draft | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (direct reports) |
 | PATCH | `/api/employees/:id/warnings/:warningId` | Update draft or editable fields | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (own/direct report draft scope) |
 | DELETE | `/api/employees/:id/warnings/:warningId` | Delete warning **draft** and remove attachment files | HR_ADMIN, HR_STAFF, DEPARTMENT_ADMIN (draft scope); status must be `DRAFT` |
@@ -104,6 +105,21 @@ Example warning object:
 
 ## 5) Detailed Endpoint Contracts
 
+## 5.0 Discipline dashboard list
+
+`GET /api/employees/warnings/dashboard`
+
+Same auth as the summary table. Response `data` is an array of dashboard rows: each item is **`warningToDto` fields** plus **`subject`** (`id`, `name`, `email`, `employeeId`, `departmentId`, `departmentName`) and **`escalationSummary`** (`activeWarningsLast12Months`, `suggestEscalationReview`, `hasActiveFinalWarning`) for that row’s `userId`. Repeated rows for the same employee repeat the same `escalationSummary` (client may dedupe for banners).
+
+## 5.0a Escalation summary only
+
+`GET /api/employees/:id/warnings/escalation-summary`
+
+- `:id` may be a user id or `me` (same resolution as other employee routes).
+- **`200`** with `data` matching `getWarningEscalationSummaryForEmployee` when the caller may view that employee’s warnings.
+- **`200`** with `data: null` when escalation metadata is withheld (e.g. staff viewing another user).
+- Uses the same access checks as `GET /api/employees/:id/warnings`.
+
 ## 5.1 List Warnings
 
 `GET /api/employees/:id/warnings`
@@ -116,6 +132,8 @@ Query params (optional):
 - `limit`: number (default 20, max 100)
 
 Success `200`:
+
+Response may include top-level **`escalationSummary`** (same shape as `GET .../escalation-summary`) for the **employee** when the caller is allowed that metadata (HR/dept admin, or staff viewing self).
 
 ```json
 {
@@ -135,6 +153,11 @@ Success `200`:
     "limit": 20,
     "total": 1,
     "totalPages": 1
+  },
+  "escalationSummary": {
+    "activeWarningsLast12Months": 2,
+    "suggestEscalationReview": false,
+    "hasActiveFinalWarning": false
   }
 }
 ```

@@ -68,9 +68,11 @@ The detail UI is designed around a **chronological activity feed** per case.
 
 ---
 
-## Related backend behavior (not a 1:1 UI match)
+## Related backend behavior (escalation summary)
 
-- **`escalationSummary`** is attached to the **`listEmployeeWarnings`** response at the **employee** level (metadata for the list call), not as a per-row field on each case in the dashboard DTO. Any UI that expects a **per-case escalation banner** may need additional fields or a separate read.
+- **`GET /api/employees/:id/warnings`** — top-level **`escalationSummary`** for the employee.
+- **`GET /api/employees/:id/warnings/escalation-summary`** — same payload without loading the case list.
+- **`GET /api/employees/warnings/dashboard`** — each row includes **`escalationSummary`** for that row’s subject (employee-level pattern signals; repeated per row for the same person).
 
 ---
 
@@ -79,3 +81,4 @@ The detail UI is designed around a **chronological activity feed** per case.
 | Date       | Notes |
 | ---------- | ----- |
 | 2026-04-06 | Initial list from UI vs `employee.route.js` / `employee-warning.controller.js` review. |
+| 2026-04-06 | Bridged escalation: dashboard per-row `escalationSummary` + dedicated `GET .../warnings/escalation-summary`. |

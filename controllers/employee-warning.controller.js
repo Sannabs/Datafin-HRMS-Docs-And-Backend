@@ -251,6 +251,57 @@ export const listEmployeeWarnings = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/employees/:id/warnings/escalation-summary
+ * Employee-level rolling-window signals (same helper as list payload); no full list fetch.
+ */
+export const getEmployeeWarningEscalationSummary = async (req, res) => {
+  try {
+    const targetUserId = resolveEmployeeRouteId(req);
+    const tenantId = getTenantId(req);
+    const requesterRole = req.user?.role;
+
+    const auth = await assertCanViewEmployeeWarnings(req, targetUserId);
+    if (!auth.ok) {
+      return res.status(auth.status).json({
+        success: false,
+        error: auth.status === 401 ? "Unauthorized" : "Forbidden",
+        message: auth.message,
+      });
+    }
+
+    const showEscalation =
+      requesterRole !== "STAFF" || targetUserId === req.user?.id;
+    if (!showEscalation || !tenantId) {
+      return res.status(200).json({
+        success: true,
+        message: "Escalation summary not available for this context",
+        data: null,
+      });
+    }
+
+    const data = await getWarningEscalationSummaryForEmployee(
+      tenantId,
+      targetUserId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Escalation summary retrieved",
+      data,
+    });
+  } catch (error) {
+    logger.error(`getEmployeeWarningEscalationSummary: ${error.message}`, {
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to load escalation summary",
+    });
+  }
+};
+
 export const createEmployeeWarningDraft = async (req, res) => {
   try {
     const targetUserId = resolveEmployeeRouteId(req);
@@ -2267,7 +2318,7 @@ export const resendWarningIssuedNotification = async (req, res) => {
   }
 };
 
-function warningToDashboardRow(w) {
+function warningToDashboardRow(w, escalationSummary) {
   const dto = warningToDto(w);
   const u = w.user;
   return {
@@ -2282,6 +2333,7 @@ function warningToDashboardRow(w) {
           departmentName: u.department?.name ?? null,
         }
       : null,
+    escalationSummary,
   };
 }
 
@@ -2404,10 +2456,25 @@ export const listDisciplineWarningsDashboard = async (req, res) => {
 
     const totalPages = Math.ceil(total / limit) || 1;
 
+    const uniqueUserIds = [...new Set(warnings.map((w) => w.userId))];
+    const escalationByUserId = Object.fromEntries(
+      await Promise.all(
+        uniqueUserIds.map(async (uid) => {
+          const summary = await getWarningEscalationSummaryForEmployee(
+            tenantId,
+            uid
+          );
+          return [uid, summary];
+        })
+      )
+    );
+
     return res.status(200).json({
       success: true,
       message: "Warnings retrieved",
-      data: warnings.map(warningToDashboardRow),
+      data: warnings.map((w) =>
+        warningToDashboardRow(w, escalationByUserId[w.userId])
+      ),
       pagination: {
         page,
         limit,

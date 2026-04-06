@@ -42,6 +42,7 @@ import {
     returnEmployeeWarningToDraft,
     resendWarningIssuedNotification,
     listDisciplineWarningsDashboard,
+    getEmployeeWarningEscalationSummary,
 } from "../controllers/employee-warning.controller.js";
 import { requireAuth } from "../middlewares/auth.middleware.js";
 import { requireRole } from "../middlewares/rbac.middleware.js";
@@ -71,6 +72,11 @@ router.get(
     "/warnings/dashboard",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
     listDisciplineWarningsDashboard
+);
+router.get(
+    "/:id/warnings/escalation-summary",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    getEmployeeWarningEscalationSummary
 );
 router.get(
     "/:id/warnings",
