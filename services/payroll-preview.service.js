@@ -5,6 +5,7 @@ import {
     getActiveEmployeesForPayroll,
 } from "./payroll-run.service.js";
 import { getOvertimePayrollState } from "../utils/overtime-payroll.util.js";
+import { resolvePayrollPeriodEligibility } from "../utils/payroll-eligibility.util.js";
 
 /**
  * Validate employee eligibility for payroll processing
@@ -44,7 +45,30 @@ export const validateEmployees = async (employeeIds, tenantId, payPeriodId) => {
         const eligible = [];
         const ineligible = [];
 
-        for (const employee of employees) {
+        const { eligibleIds: periodEligibleIds, skipped: periodSkipped } = await resolvePayrollPeriodEligibility(
+            tenantId,
+            payPeriod,
+            employeeIds
+        );
+
+        for (const row of periodSkipped) {
+            ineligible.push({
+                employeeId: row.userId,
+                name: row.name,
+                reason: row.reason,
+            });
+            warnings.push({
+                employeeId: row.userId,
+                name: row.name,
+                warning: row.reason,
+            });
+        }
+
+        for (const employeeId of periodEligibleIds) {
+            const employee = employees.find((e) => e.id === employeeId);
+            if (!employee) {
+                continue;
+            }
             if (employee.isDeleted || employee.status !== "ACTIVE") {
                 ineligible.push({
                     employeeId: employee.id,
@@ -54,56 +78,30 @@ export const validateEmployees = async (employeeIds, tenantId, payPeriodId) => {
                 continue;
             }
 
-            // Check for active salary structure
-            const salaryStructure = await prisma.salaryStructure.findFirst({
-                where: {
-                    userId: employee.id,
-                    tenantId,
-                    effectiveDate: { lte: payPeriod.endDate },
-                    OR: [
-                        { endDate: null },
-                        { endDate: { gte: payPeriod.startDate } },
-                    ],
-                },
-            });
-
-            if (!salaryStructure) {
+            const otState = await getOvertimePayrollState(
+                employee.id,
+                tenantId,
+                payPeriodId,
+                payPeriod.startDate,
+                payPeriod.endDate
+            );
+            if (otState.blocked) {
                 warnings.push({
                     employeeId: employee.id,
                     name: employee.name,
-                    warning: "No active salary structure found",
+                    warning: `Overtime recorded (${otState.rawHours.toFixed(2)}h) but not approved or rejected by HR`,
                 });
                 ineligible.push({
                     employeeId: employee.id,
                     name: employee.name,
-                    reason: "No active salary structure",
+                    reason: "Overtime requires HR approval or rejection (Payroll → Overtime)",
                 });
             } else {
-                const otState = await getOvertimePayrollState(
-                    employee.id,
-                    tenantId,
-                    payPeriodId,
-                    payPeriod.startDate,
-                    payPeriod.endDate
-                );
-                if (otState.blocked) {
-                    warnings.push({
-                        employeeId: employee.id,
-                        name: employee.name,
-                        warning: `Overtime recorded (${otState.rawHours.toFixed(2)}h) but not approved or rejected by HR`,
-                    });
-                    ineligible.push({
-                        employeeId: employee.id,
-                        name: employee.name,
-                        reason: "Overtime requires HR approval or rejection (Payroll → Overtime)",
-                    });
-                } else {
-                    eligible.push({
-                        employeeId: employee.id,
-                        name: employee.name,
-                        employeeCode: employee.employeeId,
-                    });
-                }
+                eligible.push({
+                    employeeId: employee.id,
+                    name: employee.name,
+                    employeeCode: employee.employeeId,
+                });
             }
         }
 
@@ -221,7 +219,7 @@ export const generatePreview = async (payPeriodId, employeeIds, tenantId) => {
                     ineligible: [],
                     warnings: [],
                 },
-                message: "No eligible employees found",
+                message: "No active employees to preview for this selection",
             };
         }
 
@@ -241,6 +239,9 @@ export const generatePreview = async (payPeriodId, employeeIds, tenantId) => {
                     employeeEstimates: [],
                 };
 
+        const noneEligibleButSomeInScope =
+            validation.eligible.length === 0 && employeeIdsToProcess.length > 0;
+
         return {
             payPeriod: {
                 id: payPeriod.id,
@@ -259,6 +260,10 @@ export const generatePreview = async (payPeriodId, employeeIds, tenantId) => {
             },
             validation,
             employeeEstimates: estimatedTotals.employeeEstimates,
+            ...(noneEligibleButSomeInScope && {
+                message:
+                    "No one in this selection can be paid for this period (hire date, salary, or overtime approval). See validation details.",
+            }),
         };
     } catch (error) {
         logger.error(`Error generating preview: ${error.message}`, {

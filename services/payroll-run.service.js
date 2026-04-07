@@ -15,6 +15,12 @@ import {
     buildGambiaEmployerContributionLines,
     resolveEmployerSocialSecurityRatePercent,
 } from "../constants/gambia-payroll.defaults.js";
+import {
+    resolvePayrollPeriodEligibility,
+    isUserHiredAfterPeriodEnd,
+    REASON_HIRED_AFTER_PERIOD,
+    REASON_NO_SALARY_IN_PERIOD,
+} from "../utils/payroll-eligibility.util.js";
 
 /**
  * Get active employees for payroll processing
@@ -46,6 +52,18 @@ export const getActiveEmployeesForPayroll = async (tenantId, employeeIds = null)
         });
         throw error;
     }
+};
+
+/**
+ * Active employees in scope → eligible to queue for this pay period (hire date + salary overlap).
+ * @param {string} tenantId
+ * @param {{ startDate: Date, endDate: Date }} payPeriod
+ * @param {string[] | null} employeeIdsFilter
+ * @returns {Promise<{ eligibleIds: string[], skipped: Array<{ userId: string, name: string | null, employeeCode: string | null, reason: string }> }>}
+ */
+export const getPayrollEligibleForPeriod = async (tenantId, payPeriod, employeeIdsFilter = null) => {
+    const candidateIds = await getActiveEmployeesForPayroll(tenantId, employeeIdsFilter);
+    return resolvePayrollPeriodEligibility(tenantId, payPeriod, candidateIds);
 };
 
 /**
@@ -330,6 +348,10 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             throw new Error(`Pay period ${payPeriodId} not found`);
         }
 
+        if (isUserHiredAfterPeriodEnd(employee.hireDate, payPeriod.endDate)) {
+            throw new Error(REASON_HIRED_AFTER_PERIOD);
+        }
+
         // Get active salary structure for the pay period
         const salaryStructure = await prisma.salaryStructure.findFirst({
             where: {
@@ -359,7 +381,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
         });
 
         if (!salaryStructure) {
-            throw new Error(`No active salary structure found for employee ${employeeId}`);
+            throw new Error(REASON_NO_SALARY_IN_PERIOD);
         }
 
         // Use monthly base for all calculations (convert annual to monthly once)
