@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { expo } from "@better-auth/expo";
 import prisma from "../config/prisma.config.js";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { emailOTP } from "better-auth/plugins";
@@ -9,9 +10,20 @@ const isProd = process.env.NODE_ENV === "production";
 const baseURL = process.env.BETTER_AUTH_URL || "http://localhost:5000";
 const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
 
+const trustedOrigins = [
+  clientUrl,
+  baseURL,
+  "staffledger://",
+  "staffledger://*",
+  ...(process.env.API_BASE_URL ? [process.env.API_BASE_URL] : []),
+  ...(process.env.NODE_ENV === "development"
+    ? ["exp://", "exp://**", "exp://192.168.*.*:*/**"]
+    : []),
+];
+
 export const auth = betterAuth({
   baseURL,
-  trustedOrigins: [clientUrl, baseURL, "staffledger://", process.env.API_BASE_URL],
+  trustedOrigins,
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
@@ -73,11 +85,11 @@ export const auth = betterAuth({
       try {
         const parsed = new URL(url);
         callbackURL = parsed.searchParams.get("callbackURL") || "";
-      } catch {}
+      } catch { }
 
-      const isMobile = callbackURL.includes('/api/auth/redirect/reset-password') || 
-      callbackURL.startsWith('staffledger://');
-      
+      const isMobile = callbackURL.includes('/api/auth/redirect/reset-password') ||
+        callbackURL.startsWith('staffledger://');
+
       console.log("callbackURL:", callbackURL);
       console.log("isMobile:", isMobile);
 
@@ -96,6 +108,7 @@ export const auth = betterAuth({
     resetPasswordCallbackURL: process.env.CLIENT_URL || "http://localhost:3000",
   },
   plugins: [
+    expo(),
     emailOTP({
       overrideDefaultEmailVerification: true,
       async sendVerificationOTP({ email, otp }) {
