@@ -5,9 +5,11 @@ import {
     processEmployeePayroll,
     queuePayrollRun,
     getActiveEmployeesForPayroll,
+    getPayrollEligibleForPeriod,
     calculatePayrollRunTotals,
     createOrUpdatePayslip,
 } from "../services/payroll-run.service.js";
+import { resolvePayrollPeriodEligibility } from "../utils/payroll-eligibility.util.js";
 import { updatePayPeriodStatusAutomatically } from "../services/pay-period-automation.service.js";
 import { getProgress, calculateEstimatedCompletion } from "../services/payroll-progress.service.js";
 import { createSSEConnection } from "../utils/sse.utils.js";
@@ -60,19 +62,24 @@ export const createPayrollRun = async (req, res) => {
             });
         }
 
-        // Get employees to process (if not specified, get all active employees)
-        const employeesToProcess = await getActiveEmployeesForPayroll(
-            tenantId,
-            employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0 ? employeeIds : null
-        );
+        const employeeFilter =
+            employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0 ? employeeIds : null;
 
-        if (employeesToProcess.length === 0) {
+        const { eligibleIds, skipped } = await getPayrollEligibleForPeriod(tenantId, payPeriod, employeeFilter);
+
+        if (eligibleIds.length === 0) {
+            const noActiveInScope = skipped.length === 0;
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No eligible employees found for payroll processing",
+                message: noActiveInScope
+                    ? "No active employees found for payroll processing."
+                    : "No employees are eligible for this pay period.",
+                skipped: skipped.length > 0 ? skipped : undefined,
             });
         }
+
+        const candidateScope = await getActiveEmployeesForPayroll(tenantId, employeeFilter);
 
         // Generate unique payroll run code if not provided
         let runCode = customRunCode;
@@ -104,8 +111,9 @@ export const createPayrollRun = async (req, res) => {
                 runCode,
                 processedBy: userId,
                 status: "DRAFT",
-                totalEmployees: employeesToProcess.length,
-                selectedEmployeeIds: employeesToProcess,
+                totalEmployees: eligibleIds.length,
+                selectedEmployeeIds: candidateScope,
+                eligibilitySkipped: skipped.length > 0 ? skipped : undefined,
             },
         });
 
@@ -136,10 +144,14 @@ export const createPayrollRun = async (req, res) => {
             },
         });
 
+        const skippedCount = skipped.length;
         return res.status(201).json({
             success: true,
             data: payrollRunWithRelations ?? payrollRun,
-            message: "Payroll run created successfully",
+            message:
+                skippedCount > 0
+                    ? `Payroll run created. ${eligibleIds.length} employee(s) will be processed; ${skippedCount} excluded for this period (hire date or salary). Open run details for the list.`
+                    : "Payroll run created successfully",
         });
     } catch (error) {
         logger.error(`Error creating payroll run: ${error.message}`, {
@@ -216,23 +228,34 @@ export const startPayrollRun = async (req, res) => {
             });
         }
 
-        // Use stored selected employees if set, otherwise all active employees for tenant
-        let employeeIds = null;
         const rawSelected = payrollRun.selectedEmployeeIds;
-        if (rawSelected && Array.isArray(rawSelected) && rawSelected.length > 0) {
-            employeeIds = await getActiveEmployeesForPayroll(tenantId, rawSelected);
-        }
-        if (!employeeIds || employeeIds.length === 0) {
-            employeeIds = await getActiveEmployeesForPayroll(tenantId);
-        }
+        const scopeFilter =
+            rawSelected && Array.isArray(rawSelected) && rawSelected.length > 0 ? rawSelected : null;
+        const { eligibleIds: employeeIds, skipped } = await getPayrollEligibleForPeriod(
+            tenantId,
+            payrollRun.payPeriod,
+            scopeFilter
+        );
 
         if (employeeIds.length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No eligible employees found for payroll processing",
+                message:
+                    skipped.length === 0
+                        ? "No active employees found for payroll processing."
+                        : "No employees are eligible for this pay period.",
+                skipped: skipped.length > 0 ? skipped : undefined,
             });
         }
+
+        await prisma.payrollRun.update({
+            where: { id },
+            data: {
+                totalEmployees: employeeIds.length,
+                eligibilitySkipped: skipped.length > 0 ? skipped : null,
+            },
+        });
 
         logger.info(`Starting payroll run ${id} with ${employeeIds.length} employees`);
         await addLog(userId, tenantId, "START_PAYROLL_RUN", "PayrollRun", id, {
@@ -424,23 +447,70 @@ export const updatePayrollRun = async (req, res) => {
         if (rawEmployeeIds !== undefined) {
             const ids = Array.isArray(rawEmployeeIds) ? rawEmployeeIds.filter((x) => typeof x === "string") : [];
             if (ids.length === 0) {
-                // "All employees" – clear selection; totalEmployees = count of all active
-                const allActive = await getActiveEmployeesForPayroll(tenantId);
                 updateData.selectedEmployeeIds = null;
-                updateData.totalEmployees = allActive.length;
-                logChanges.employeeCount = { before: payrollRun.totalEmployees, after: allActive.length };
             } else {
                 const validatedIds = await getActiveEmployeesForPayroll(tenantId, ids);
                 if (validatedIds.length === 0) {
                     return res.status(400).json({
                         success: false,
                         error: "Bad Request",
-                        message: "No eligible employees found; select at least one active employee",
+                        message: "No active employees match the selection.",
                     });
                 }
                 updateData.selectedEmployeeIds = validatedIds;
-                updateData.totalEmployees = validatedIds.length;
-                logChanges.employeeCount = { before: payrollRun.totalEmployees, after: validatedIds.length };
+            }
+        }
+
+        const scopeOrPeriodChanged = newPayPeriodId !== undefined || rawEmployeeIds !== undefined;
+        if (scopeOrPeriodChanged) {
+            const periodId = updateData.payPeriodId ?? payrollRun.payPeriodId;
+            const payPeriodForScope = await prisma.payPeriod.findFirst({
+                where: { id: periodId, tenantId },
+            });
+            if (!payPeriodForScope) {
+                return res.status(404).json({
+                    success: false,
+                    error: "Not Found",
+                    message: "Pay period not found",
+                });
+            }
+
+            let employeeFilter = null;
+            if (rawEmployeeIds !== undefined) {
+                employeeFilter =
+                    updateData.selectedEmployeeIds === null
+                        ? null
+                        : updateData.selectedEmployeeIds;
+            } else if (
+                payrollRun.selectedEmployeeIds &&
+                Array.isArray(payrollRun.selectedEmployeeIds) &&
+                payrollRun.selectedEmployeeIds.length > 0
+            ) {
+                employeeFilter = payrollRun.selectedEmployeeIds;
+            }
+
+            const { eligibleIds, skipped } = await getPayrollEligibleForPeriod(
+                tenantId,
+                payPeriodForScope,
+                employeeFilter
+            );
+
+            if (eligibleIds.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Bad Request",
+                    message:
+                        skipped.length === 0
+                            ? "No active employees in scope."
+                            : "No employees are eligible for this pay period.",
+                    skipped: skipped.length > 0 ? skipped : undefined,
+                });
+            }
+
+            updateData.totalEmployees = eligibleIds.length;
+            updateData.eligibilitySkipped = skipped.length > 0 ? skipped : null;
+            if (rawEmployeeIds !== undefined) {
+                logChanges.employeeCount = { before: payrollRun.totalEmployees, after: eligibleIds.length };
             }
         }
 
@@ -891,6 +961,21 @@ export const processSingleEmployee = async (req, res) => {
                 success: false,
                 error: "Bad Request",
                 message: "Cannot process employee for closed payroll run",
+            });
+        }
+
+        const { eligibleIds, skipped } = await resolvePayrollPeriodEligibility(
+            tenantId,
+            payrollRun.payPeriod,
+            [employeeId]
+        );
+
+        if (eligibleIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: skipped[0]?.reason ?? "This employee is not eligible for this pay period.",
+                skipped,
             });
         }
 

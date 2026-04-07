@@ -1020,6 +1020,9 @@ model PayrollRun {
   // Optional: when set, only these employees are processed when run is started (User ids)
   selectedEmployeeIds Json?
 
+  /// Employees in scope who were not queued (hire date after period, no salary in period, etc.)
+  eligibilitySkipped Json?
+
   runDate         DateTime         @default(now())
   totalEmployees  Int              @default(0)
   totalGrossPay   Float            @default(0)
