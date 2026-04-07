@@ -863,26 +863,8 @@ export const getPayrollRunById = async (req, res) => {
                         image: true,
                     },
                 },
-                payslips: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                name: true,
-                                employeeId: true,
-                                image: true,
-                                department: {
-                                    select: { id: true, name: true },
-                                },
-                                position: {
-                                    select: { id: true, title: true },
-                                },
-                            },
-                        },
-                    },
-                    orderBy: {
-                        netSalary: "desc",
-                    },
+                _count: {
+                    select: { payslips: true },
                 },
             },
         });
@@ -917,6 +899,153 @@ export const getPayrollRunById = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch payroll run",
+        });
+    }
+};
+
+/**
+ * Paginated payroll run rows: successful (payslips) or skipped (eligibility), with optional search.
+ * Query: status=SUCCESS|SKIPPED, page, limit (max 100), q
+ */
+export const getPayrollRunRecords = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 100));
+        const skip = (page - 1) * limit;
+        const statusRaw = String(req.query.status || "")
+            .trim()
+            .toUpperCase();
+        const q = req.query.q != null ? String(req.query.q).trim() : "";
+
+        const run = await prisma.payrollRun.findFirst({
+            where: { id, tenantId },
+            select: { id: true, eligibilitySkipped: true },
+        });
+
+        if (!run) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        if (statusRaw === "SUCCESS" || statusRaw === "SUCCESSFUL") {
+            const where = {
+                payrollRunId: id,
+                ...(q
+                    ? {
+                        user: {
+                            OR: [
+                                { name: { contains: q, mode: "insensitive" } },
+                                { employeeId: { contains: q, mode: "insensitive" } },
+                                { department: { name: { contains: q, mode: "insensitive" } } },
+                                { position: { title: { contains: q, mode: "insensitive" } } },
+                            ],
+                        },
+                    }
+                    : {}),
+            };
+
+            const [payslips, total] = await Promise.all([
+                prisma.payslip.findMany({
+                    where,
+                    skip,
+                    take: limit,
+                    orderBy: { netSalary: "desc" },
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                name: true,
+                                employeeId: true,
+                                image: true,
+                                department: { select: { name: true } },
+                                position: { select: { title: true } },
+                            },
+                        },
+                    },
+                }),
+                prisma.payslip.count({ where }),
+            ]);
+
+            const data = payslips.map((p) => ({
+                type: "SUCCESS",
+                payslipId: p.id,
+                userId: p.userId,
+                name: p.user?.name ?? "—",
+                employeeCode: p.user?.employeeId ?? "",
+                position: p.user?.position?.title ?? "—",
+                department: p.user?.department?.name ?? "—",
+                image: p.user?.image ?? null,
+            }));
+
+            return res.status(200).json({
+                success: true,
+                data,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.max(1, Math.ceil(total / limit)),
+                },
+            });
+        }
+
+        if (statusRaw === "SKIPPED") {
+            const raw = run.eligibilitySkipped;
+            const rows = Array.isArray(raw) ? raw : [];
+            const filtered = q
+                ? rows.filter((row) => {
+                    const blob = [row.userId, row.name, row.employeeCode, row.reason]
+                        .filter((x) => x != null && String(x).trim() !== "")
+                        .join(" ")
+                        .toLowerCase();
+                    return blob.includes(q.toLowerCase());
+                })
+                : rows;
+
+            const total = filtered.length;
+            const slice = filtered.slice(skip, skip + limit);
+            const data = slice.map((row) => ({
+                type: "SKIPPED",
+                userId: row.userId,
+                name: row.name,
+                employeeCode: row.employeeCode,
+                reason: row.reason,
+            }));
+
+            return res.status(200).json({
+                success: true,
+                data,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.max(1, Math.ceil(total / limit)),
+                },
+            });
+        }
+
+        return res.status(400).json({
+            success: false,
+            error: "Bad Request",
+            message: "Query parameter status must be SUCCESS or SKIPPED",
+        });
+    } catch (error) {
+        logger.error(`Error fetching payroll run records: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+            tenantId: req.user?.tenantId,
+        });
+
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to fetch payroll run records",
         });
     }
 };
