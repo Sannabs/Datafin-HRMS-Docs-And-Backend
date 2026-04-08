@@ -1115,11 +1115,17 @@ export const getAllLeaveRequests = async (req, res, next) => {
       awaitingHrApproval,
       leaveTypeId,
       userId: filterUserId,
+      search: searchParam,
     } = req.query;
+
+    const userDeptFilter = { ...getDepartmentFilter(req.user) };
+    const search =
+      typeof searchParam === "string" && searchParam.trim()
+        ? searchParam.trim()
+        : "";
 
     const where = {
       tenantId,
-      user: { ...getDepartmentFilter(req.user) },
     };
 
     if (filterUserId && String(filterUserId).trim()) {
@@ -1148,6 +1154,32 @@ export const getAllLeaveRequests = async (req, res, next) => {
     // Filter by leave type
     if (leaveTypeId) {
       where.leaveTypeId = leaveTypeId;
+    }
+
+    if (search) {
+      where.AND = [
+        {
+          OR: [
+            {
+              user: {
+                ...userDeptFilter,
+                OR: [
+                  { name: { contains: search, mode: "insensitive" } },
+                  { email: { contains: search, mode: "insensitive" } },
+                  { employeeId: { contains: search, mode: "insensitive" } },
+                ],
+              },
+            },
+            {
+              leaveType: {
+                name: { contains: search, mode: "insensitive" },
+              },
+            },
+          ],
+        },
+      ];
+    } else {
+      where.user = userDeptFilter;
     }
 
     const [leaveRequests, total] = await Promise.all([

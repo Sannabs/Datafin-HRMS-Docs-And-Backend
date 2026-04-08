@@ -38,9 +38,29 @@ import {
   getFile,
 } from "../config/storage.config.js";
 
+const warningUserActorSelect = {
+  select: {
+    id: true,
+    name: true,
+    employeeId: true,
+  },
+};
+
 const warningWithAttachmentsInclude = {
   attachments: { orderBy: { createdAt: "desc" } },
+  createdBy: warningUserActorSelect,
+  issuedBy: warningUserActorSelect,
 };
+
+function warningActorDisplayName(user) {
+  if (!user) return null;
+  const name =
+    typeof user.name === "string" ? user.name.trim() : "";
+  if (name) return name;
+  const eid =
+    typeof user.employeeId === "string" ? user.employeeId.trim() : "";
+  return eid || null;
+}
 
 function parseDocumentExtension(originalName, mimeType) {
   if (typeof originalName === "string" && originalName.includes(".")) {
@@ -129,7 +149,9 @@ function warningToDto(w) {
       : null,
     issuedAt: w.issuedAt ? w.issuedAt.toISOString() : null,
     issuedById: w.issuedById,
+    issuedByName: warningActorDisplayName(w.issuedBy),
     createdById: w.createdById,
+    createdByName: warningActorDisplayName(w.createdBy),
     acknowledgedAt: w.acknowledgedAt
       ? w.acknowledgedAt.toISOString()
       : null,
@@ -1370,6 +1392,8 @@ export const issueEmployeeWarning = async (req, res) => {
       },
       include: {
         attachments: warningWithAttachmentsInclude.attachments,
+        createdBy: warningWithAttachmentsInclude.createdBy,
+        issuedBy: warningWithAttachmentsInclude.issuedBy,
         user: {
           select: {
             id: true,
@@ -3010,6 +3034,15 @@ export const listDisciplineWarningsDashboard = async (req, res) => {
     }
 
     applyWarningSearchAndSeverityFilters(where, req);
+
+    const catParam = req.query.category;
+    if (
+      typeof catParam === "string" &&
+      catParam.trim() &&
+      isValidEnumValue(EmployeeWarningCategory, catParam.trim())
+    ) {
+      where.category = catParam.trim();
+    }
 
     const [total, warnings] = await Promise.all([
       prisma.employeeWarning.count({ where }),
