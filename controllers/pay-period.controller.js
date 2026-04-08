@@ -135,9 +135,23 @@ export const getPayPeriods = async (req, res) => {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { status, fromDate, toDate } = req.query;
 
+        const normalizedStatuses =
+            status != null && String(status).trim() !== ""
+                ? String(status)
+                      .split(",")
+                      .map((s) => s.trim().toUpperCase())
+                      .filter(Boolean)
+                : [];
+        const allowedStatuses = new Set(["DRAFT", "PROCESSING", "COMPLETED", "CLOSED"]);
+        const statusFilter =
+            normalizedStatuses.length > 0
+                ? normalizedStatuses.filter((s) => allowedStatuses.has(s))
+                : [];
+
         const where = {
             tenantId,
-            ...(status && { status }),
+            ...(statusFilter.length === 1 && { status: statusFilter[0] }),
+            ...(statusFilter.length > 1 && { status: { in: statusFilter } }),
             ...(fromDate && { startDate: { gte: new Date(fromDate) } }),
             ...(toDate && { endDate: { lte: new Date(toDate) } }),
         };
