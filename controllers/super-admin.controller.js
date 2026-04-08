@@ -5,6 +5,10 @@ import { ensurePlatformTenant } from "../utils/platformTenant.js";
 import { auth } from "../utils/auth.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { sendPlatformAdminInviteEmail } from "../views/sendPlatformAdminInviteEmail.js";
+import {
+  validateTimeFormat,
+  normalizeTimeFormat,
+} from "../utils/attendance.util.js";
 
 // Companies
 
@@ -151,29 +155,67 @@ export const createCompany = async (req, res) => {
       });
     }
 
-    const tenant = await prisma.tenant.create({
-      data: {
-        name: String(name).trim(),
-        code: trimmedCode,
-        addressLine1: addressLine1 || null,
-        addressLine2: addressLine2 || null,
-        phone: phone || null,
-        email: email || null,
-        website: website || null,
-      },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        addressLine1: true,
-        addressLine2: true,
-        phone: true,
-        email: true,
-        website: true,
-        createdAt: true,
-        status: true,
-      },
+    const startTime = "09:00";
+    const endTime = "17:00";
+    validateTimeFormat(startTime);
+    validateTimeFormat(endTime);
+    const normalizedStartTime = normalizeTimeFormat(startTime);
+    const normalizedEndTime = normalizeTimeFormat(endTime);
+
+    const tenant = await prisma.$transaction(async (tx) => {
+      const createdTenant = await tx.tenant.create({
+        data: {
+          name: String(name).trim(),
+          code: trimmedCode,
+          addressLine1: addressLine1 || null,
+          addressLine2: addressLine2 || null,
+          phone: phone || null,
+          email: email || null,
+          website: website || null,
+        },
+      });
+
+      await tx.shift.create({
+        data: {
+          name: "Morning Shift",
+          startTime: normalizedStartTime,
+          endTime: normalizedEndTime,
+          tenantId: createdTenant.id,
+          isDefault: true,
+          isActive: true,
+        },
+      });
+
+      await tx.annualLeavePolicy.create({
+        data: {
+          tenantId: createdTenant.id,
+          defaultDaysPerYear: 21,
+          accrualMethod: "FRONT_LOADED",
+          carryoverType: "FULL",
+          advanceNoticeDays: 3,
+        },
+      });
+
+      return tx.tenant.findUnique({
+        where: { id: createdTenant.id },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          addressLine1: true,
+          addressLine2: true,
+          phone: true,
+          email: true,
+          website: true,
+          createdAt: true,
+          status: true,
+        },
+      });
     });
+
+    if (!tenant) {
+      throw new Error("Failed to create company");
+    }
 
     logger.info("Company created by super admin", {
       tenantId: tenant.id,
