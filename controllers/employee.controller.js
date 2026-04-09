@@ -2136,7 +2136,7 @@ export const getEmployeeDocuments = async (req, res) => {
         const requesterId = req.user?.id;
         const requesterRole = req.user?.role;
         const tenantId = req.effectiveTenantId ?? req.user?.tenantId;
-        const targetEmployeeId = req.params?.id;
+        const targetEmployeeId = req.params?.id; 
 
         if (!targetEmployeeId) {
             return res.status(400).json({
