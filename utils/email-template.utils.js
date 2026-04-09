@@ -7,6 +7,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const templatesDir = join(__dirname, "../templates");
 
+/** Escape plain text for safe insertion into HTML email bodies (not for raw URL attributes if you already quote safely). */
+export const escapeHtmlForEmail = (value) => {
+    if (value == null) return "";
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+};
+
 /**
  * Load and render an email template with data
  * @param {string} templateName - Name of the template file (without .html extension)
@@ -18,7 +28,6 @@ export const renderEmailTemplate = async (templateName, data = {}) => {
         const templatePath = join(templatesDir, `${templateName}.html`);
         let template = await readFile(templatePath, "utf-8");
 
-        // Replace all placeholders {{key}} with values from data object
         template = template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
             return data[key] !== undefined ? String(data[key]) : match;
         });

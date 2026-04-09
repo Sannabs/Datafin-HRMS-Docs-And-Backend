@@ -1,43 +1,16 @@
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-    <h2 style="color: #2563eb;">Your Payslip is Ready</h2>
+    <h2 style="color: #333;">Your Payslip is Ready</h2>
     <p>Hello {{employeeName}},</p>
     <p>Your payslip for <strong>{{periodName}}</strong> is now available.</p>
-
-    <div
-        style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-        <h3 style="margin-top: 0; color: #1e40af;">Payslip Summary</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-                <td style="padding: 8px 0; color: #64748b;">Period:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{periodName}}</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px 0; color: #64748b;">Pay Date:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{payDate}}</td>
-            </tr>
-            <tr style="border-top: 1px solid #e2e8f0;">
-                <td style="padding: 8px 0; color: #64748b;">Gross Salary:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 500;">{{grossSalary}}</td>
-            </tr>
-            <tr>
-                <td style="padding: 8px 0; color: #64748b;">Total Deductions:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 500; color: #dc2626;">-{{totalDeductions}}
-                </td>
-            </tr>
-            <tr style="border-top: 2px solid #2563eb;">
-                <td style="padding: 12px 0; font-weight: 600; font-size: 16px;">Net Salary:</td>
-                <td style="padding: 12px 0; text-align: right; font-weight: 700; font-size: 18px; color: #16a34a;">
-                    {{netSalary}}</td>
-            </tr>
-        </table>
+    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <p><strong>Period:</strong> {{periodName}}</p>
+        <p><strong>Pay date:</strong> {{payDate}}</p>
+        <p><strong>Gross salary:</strong> {{grossSalary}}</p>
+        <p><strong>Total deductions:</strong> {{totalDeductions}}</p>
+        <p><strong>Net salary:</strong> {{netSalary}}</p>
     </div>
-
     <p>Your payslip PDF is attached to this email. You can download it from the attachment for your records.</p>
-
-    <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #e2e8f0;">
-        <p style="color: #64748b; font-size: 12px; margin: 0;">
-            This is an automated message from {{companyName}}. If you have any questions about your payslip, please contact
-            your HR department.
-        </p>
-    </div>
+    <p style="color: #666; font-size: 12px; margin-top: 30px;">
+        This is an automated message from {{companyName}}. If you have questions about your payslip, please contact your HR department.
+    </p>
 </div>
