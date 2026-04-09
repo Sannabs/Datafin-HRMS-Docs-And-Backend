@@ -1451,9 +1451,29 @@ export const issueEmployeeWarning = async (req, res) => {
       );
 
       if (updated.user?.email) {
+        const tenant = tenantId
+          ? await prisma.tenant.findFirst({
+              where: { id: tenantId },
+              select: { name: true },
+            })
+          : null;
+        const letterPdf = await generateWarningLetterPdfBuffer({
+          tenant,
+          subjectUser: updated.user,
+          warning: updated,
+        });
+        const safeTitle = String(updated.title || "warning")
+          .replace(/[/\\?%*:|"<>]/g, "_")
+          .slice(0, 80);
         await sendWarningIssuedEmail({
           to: updated.user.email,
           employeeName: updated.user.name || updated.user.employeeId,
+          attachments: [
+            {
+              filename: `warning-letter-${safeTitle}.pdf`,
+              content: Buffer.from(letterPdf),
+            },
+          ],
         });
       }
     } catch (notifyErr) {
@@ -2894,9 +2914,29 @@ export const resendWarningIssuedNotification = async (req, res) => {
       );
 
       if (warning.user?.email) {
+        const tenant = tenantId
+          ? await prisma.tenant.findFirst({
+              where: { id: tenantId },
+              select: { name: true },
+            })
+          : null;
+        const letterPdf = await generateWarningLetterPdfBuffer({
+          tenant,
+          subjectUser: warning.user,
+          warning,
+        });
+        const safeTitle = String(warning.title || "warning")
+          .replace(/[/\\?%*:|"<>]/g, "_")
+          .slice(0, 80);
         await sendWarningIssuedEmail({
           to: warning.user.email,
           employeeName: warning.user.name || warning.user.employeeId,
+          attachments: [
+            {
+              filename: `warning-letter-${safeTitle}.pdf`,
+              content: Buffer.from(letterPdf),
+            },
+          ],
         });
       }
     } catch (notifyErr) {
