@@ -184,15 +184,43 @@ export async function assertCanSubmitWarning(req, targetUserId, warning) {
   return { ok: true };
 }
 
+/**
+ * Issue, return-to-draft, resend, appeal review/decision, resolve / void / escalate,
+ * and formal package (letter PDF / ZIP) for others — HR administrators only.
+ */
 export function assertCanIssueWarning(req) {
   const requesterRole = req.user?.role;
-  if (isHRAdminOrStaff(requesterRole) || requesterRole === "SUPER_ADMIN") {
+  if (requesterRole === "HR_ADMIN" || requesterRole === "SUPER_ADMIN") {
     return { ok: true };
   }
   return {
     ok: false,
     status: 403,
-    message: "Only HR can issue warnings",
+    message: "Only HR administrators can perform this action",
+  };
+}
+
+/**
+ * Download generated letter PDF or per-case ZIP export.
+ * HR administrators: any case they can view. Staff: own warnings only.
+ */
+export function assertCanExportWarningFormalPackage(req, targetUserId) {
+  const requesterId = req.user?.id;
+  const requesterRole = req.user?.role;
+  if (!requesterId) {
+    return { ok: false, status: 401, message: "User not authenticated" };
+  }
+  if (requesterRole === "HR_ADMIN" || requesterRole === "SUPER_ADMIN") {
+    return { ok: true };
+  }
+  if (requesterRole === "STAFF" && targetUserId === requesterId) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    status: 403,
+    message:
+      "Only HR administrators can download the formal letter or case export for this employee",
   };
 }
 
@@ -242,16 +270,13 @@ export function assertCanActAsWarningEmployee(req, targetUserId) {
     return { ok: true };
   }
    
-  if (
-    isHRAdminOrStaff(requesterRole) ||
-    requesterRole === "SUPER_ADMIN"
-  ) {
+  if (requesterRole === "HR_ADMIN" || requesterRole === "SUPER_ADMIN") {
     return { ok: true };
   }
   return {
     ok: false,
     status: 403,
-    message: "Only the employee or HR may perform this action",
+    message: "Only the employee or an HR administrator may perform this action",
   };
 }
 
