@@ -32,6 +32,18 @@ const TRANSITION_TAGS = {
   RETURN_TO_DRAFT: "REVIEW",
 };
 
+const FIELD_LABELS = {
+  title: "Title",
+  category: "Category",
+  severity: "Severity",
+  status: "Status",
+  incidentDate: "Incident date",
+  policyReference: "Policy reference",
+  reason: "Reason",
+  issueNote: "Issue note",
+  reviewDueDate: "Review due date",
+};
+
 function stringifyDetail(obj, maxLen = 400) {
   if (obj == null) return null;
   try {
@@ -41,6 +53,58 @@ function stringifyDetail(obj, maxLen = 400) {
   } catch {
     return null;
   }
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatShortValue(value) {
+  if (value == null || value === "") return "—";
+  if (typeof value === "string") {
+    const v = value.trim();
+    return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "[complex]";
+}
+
+function summarizeBeforeAfter(changes) {
+  const before = isPlainObject(changes.before) ? changes.before : null;
+  const after = isPlainObject(changes.after) ? changes.after : null;
+  if (!before && !after) return null;
+
+  const keys = new Set([
+    ...Object.keys(before || {}),
+    ...Object.keys(after || {}),
+  ]);
+  const changed = [...keys].filter((k) => {
+    const b = before ? before[k] : undefined;
+    const a = after ? after[k] : undefined;
+    return JSON.stringify(b) !== JSON.stringify(a);
+  });
+  if (changed.length === 0) return null;
+
+  const preferred = changed.filter((k) => FIELD_LABELS[k]);
+  const focusKeys = (preferred.length ? preferred : changed).slice(0, 4);
+  const chunks = focusKeys.map((k) => {
+    const label = FIELD_LABELS[k] || k;
+    const b = formatShortValue(before ? before[k] : undefined);
+    const a = formatShortValue(after ? after[k] : undefined);
+    return `${label}: ${b} -> ${a}`;
+  });
+  const suffix = changed.length > focusKeys.length ? ` · +${changed.length - focusKeys.length} more` : "";
+  return `Updated fields: ${chunks.join(" · ")}${suffix}`;
+}
+
+function summarizeCreate(changes) {
+  const after = isPlainObject(changes.after) ? changes.after : null;
+  if (!after) return null;
+  const bits = [];
+  if (typeof after.title === "string" && after.title.trim()) bits.push(`Title: ${after.title.trim()}`);
+  if (typeof after.category === "string" && after.category.trim()) bits.push(`Category: ${after.category.trim()}`);
+  if (typeof after.severity === "string" && after.severity.trim()) bits.push(`Severity: ${after.severity.trim()}`);
+  return bits.length > 0 ? bits.join(" · ") : null;
 }
 
 /**
@@ -62,7 +126,7 @@ export function mapAuditLogToTimelineEvent(log) {
     title = TRANSITION_LABELS[transition];
     tag = TRANSITION_TAGS[transition];
   } else if (log.action === "CREATE") {
-    title = "Case created (draft)";
+    title = "Case created";
     tag = "CREATED";
   } else if (log.action === "UPDATE") {
     title = "Draft or case details updated";
@@ -76,6 +140,14 @@ export function mapAuditLogToTimelineEvent(log) {
   }
 
   const detailParts = [];
+  if (log.action === "CREATE") {
+    const createSummary = summarizeCreate(changes);
+    if (createSummary) detailParts.push(createSummary);
+  }
+  if (log.action === "UPDATE") {
+    const updateSummary = summarizeBeforeAfter(changes);
+    if (updateSummary) detailParts.push(updateSummary);
+  }
   if (transition === "APPEAL_DECISION" && changes.decision != null) {
     detailParts.push(`Outcome: ${changes.decision}`);
   }
@@ -89,7 +161,13 @@ export function mapAuditLogToTimelineEvent(log) {
         : stringifyDetail(changes.reviewNote)
     );
   }
-  if (detailParts.length === 0 && Object.keys(changes).length > 0 && !transition) {
+  if (
+    detailParts.length === 0 &&
+    Object.keys(changes).length > 0 &&
+    !transition &&
+    log.action !== "CREATE" &&
+    log.action !== "UPDATE"
+  ) {
     const d = stringifyDetail(changes, 500);
     if (d) detailParts.push(d);
   }
