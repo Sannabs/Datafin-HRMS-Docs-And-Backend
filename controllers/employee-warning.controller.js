@@ -18,6 +18,7 @@ import {
   assertCanActAsWarningEmployee,
   assertCanReviewAppeal,
   assertCanResolveVoidEscalate,
+  assertCanExportWarningFormalPackage,
   getManagedDepartmentIds,
 } from "../utils/employee-warning-access.js";
 import { getWarningEscalationSummaryForEmployee } from "../utils/employee-warning-escalation.js";
@@ -716,6 +717,15 @@ export const exportEmployeeWarningPackage = async (req, res) => {
       });
     }
 
+    const exportGate = assertCanExportWarningFormalPackage(req, targetUserId);
+    if (!exportGate.ok) {
+      return res.status(exportGate.status).json({
+        success: false,
+        error: "Forbidden",
+        message: exportGate.message,
+      });
+    }
+
     const warning = await prisma.employeeWarning.findFirst({
       where: {
         id: warningId,
@@ -828,6 +838,15 @@ export const downloadEmployeeWarningLetterPdf = async (req, res) => {
         success: false,
         error: view.status === 404 ? "Not Found" : "Forbidden",
         message: view.message,
+      });
+    }
+
+    const exportGate = assertCanExportWarningFormalPackage(req, targetUserId);
+    if (!exportGate.ok) {
+      return res.status(exportGate.status).json({
+        success: false,
+        error: "Forbidden",
+        message: exportGate.message,
       });
     }
 
@@ -1450,10 +1469,77 @@ export const issueEmployeeWarning = async (req, res) => {
         actionUrl
       );
 
+      const tenant = tenantId
+        ? await prisma.tenant.findFirst({
+            where: { id: tenantId },
+            select: { name: true },
+          })
+        : null;
+      const letterPdf = await generateWarningLetterPdfBuffer({
+        tenant,
+        subjectUser: updated.user,
+        warning: updated,
+      });
+      const safeTitle = String(updated.title || "warning")
+        .replace(/[/\\?%*:|"<>]/g, "_")
+        .slice(0, 80);
+      const letterOriginalName = `warning-letter-${safeTitle}.pdf`;
+      const letterPdfBuffer = Buffer.from(letterPdf);
+
+      if (tenantId) {
+        const storedName = generateFilename(
+          letterOriginalName,
+          `employee-documents/${tenantId}/${targetUserId}`
+        );
+        const filePath = await uploadFile(
+          letterPdfBuffer,
+          storedName,
+          "application/pdf"
+        );
+        const extension = parseDocumentExtension(
+          letterOriginalName,
+          "application/pdf"
+        );
+        const employeeDoc = await prisma.employeeDocument.create({
+          data: {
+            tenantId,
+            userId: targetUserId,
+            originalName: letterOriginalName,
+            storedName,
+            filePath,
+            mimeType: "application/pdf",
+            extension,
+            sizeBytes: letterPdfBuffer.length,
+            uploadedBy: actorId ?? undefined,
+          },
+        });
+        await addLog(
+          actorId,
+          tenantId,
+          "CREATE",
+          "EmployeeDocument",
+          employeeDoc.id,
+          {
+            employeeId: targetUserId,
+            source: "warning_issued",
+            warningId: updated.id,
+            originalName: employeeDoc.originalName,
+            sizeBytes: employeeDoc.sizeBytes,
+          },
+          req
+        );
+      }
+
       if (updated.user?.email) {
         await sendWarningIssuedEmail({
           to: updated.user.email,
           employeeName: updated.user.name || updated.user.employeeId,
+          attachments: [
+            {
+              filename: letterOriginalName,
+              content: letterPdfBuffer,
+            },
+          ],
         });
       }
     } catch (notifyErr) {
@@ -2894,9 +2980,29 @@ export const resendWarningIssuedNotification = async (req, res) => {
       );
 
       if (warning.user?.email) {
+        const tenant = tenantId
+          ? await prisma.tenant.findFirst({
+              where: { id: tenantId },
+              select: { name: true },
+            })
+          : null;
+        const letterPdf = await generateWarningLetterPdfBuffer({
+          tenant,
+          subjectUser: warning.user,
+          warning,
+        });
+        const safeTitle = String(warning.title || "warning")
+          .replace(/[/\\?%*:|"<>]/g, "_")
+          .slice(0, 80);
         await sendWarningIssuedEmail({
           to: warning.user.email,
           employeeName: warning.user.name || warning.user.employeeId,
+          attachments: [
+            {
+              filename: `warning-letter-${safeTitle}.pdf`,
+              content: Buffer.from(letterPdf),
+            },
+          ],
         });
       }
     } catch (notifyErr) {
@@ -3257,16 +3363,11 @@ export const exportDisciplineWarningsDashboardBulk = async (req, res) => {
       });
     }
 
-    if (
-      requesterRole !== "HR_ADMIN" &&
-      requesterRole !== "HR_STAFF" &&
-      requesterRole !== "DEPARTMENT_ADMIN" &&
-      requesterRole !== "SUPER_ADMIN"
-    ) {
+    if (requesterRole !== "HR_ADMIN" && requesterRole !== "SUPER_ADMIN") {
       return res.status(403).json({
         success: false,
         error: "Forbidden",
-        message: "Insufficient permissions",
+        message: "Only HR administrators can export discipline cases in bulk",
       });
     }
 

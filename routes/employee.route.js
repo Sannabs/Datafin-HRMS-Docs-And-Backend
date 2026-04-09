@@ -81,7 +81,7 @@ router.get(
 );
 router.get(
     "/warnings/dashboard/export",
-    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    requireRole(["HR_ADMIN"]),
     exportDisciplineWarningsDashboardBulk
 );
 router.get(
@@ -96,12 +96,12 @@ router.get(
 );
 router.get(
     "/:id/warnings/:warningId/export",
-    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    requireRole(["HR_ADMIN", "STAFF"]),
     exportEmployeeWarningPackage
 );
 router.get(
     "/:id/warnings/:warningId/letter-pdf",
-    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN", "STAFF"]),
+    requireRole(["HR_ADMIN", "STAFF"]),
     downloadEmployeeWarningLetterPdf
 );
 router.post(
@@ -156,57 +156,57 @@ router.post(
 );
 router.post(
     "/:id/warnings/:warningId/return-to-draft",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     returnEmployeeWarningToDraft
 );
 router.post(
     "/:id/warnings/:warningId/issue",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     issueEmployeeWarning
 );
 router.post(
     "/:id/warnings/:warningId/resend-issued-notification",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     resendWarningIssuedNotification
 );
 router.post(
     "/:id/warnings/:warningId/acknowledge",
-    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    requireRole(["HR_ADMIN", "STAFF"]),
     acknowledgeEmployeeWarning
 );
 router.post(
     "/:id/warnings/:warningId/refuse-acknowledgement",
-    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    requireRole(["HR_ADMIN", "STAFF"]),
     refuseEmployeeWarningAcknowledgement
 );
 router.post(
     "/:id/warnings/:warningId/appeal/review",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     reviewEmployeeWarningAppeal
 );
 router.post(
     "/:id/warnings/:warningId/appeal/decision",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     decideEmployeeWarningAppeal
 );
 router.post(
     "/:id/warnings/:warningId/appeal",
-    requireRole(["HR_ADMIN", "HR_STAFF", "STAFF"]),
+    requireRole(["HR_ADMIN", "STAFF"]),
     submitEmployeeWarningAppeal
 );
 router.post(
     "/:id/warnings/:warningId/resolve",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     resolveEmployeeWarning
 );
 router.post(
     "/:id/warnings/:warningId/void",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     voidEmployeeWarning
 );
 router.post(
     "/:id/warnings/:warningId/escalate",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN"]),
     escalateEmployeeWarning
 );
 router.get("/:id/documents", getEmployeeDocuments);

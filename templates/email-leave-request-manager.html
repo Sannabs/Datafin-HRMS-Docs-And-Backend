@@ -1,0 +1,17 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2 style="color: #333;">New Leave Request</h2>
+    <p>Hello {{managerName}},</p>
+    <p><strong>{{employeeName}}</strong> has submitted a leave request that requires your approval.</p>
+    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <p><strong>Leave type:</strong> {{leaveTypeName}}</p>
+        <p><strong>Duration:</strong> {{totalDays}} day(s)</p>
+        <p><strong>Start date:</strong> {{formattedStartDate}}</p>
+        <p><strong>End date:</strong> {{formattedEndDate}}</p>
+        {{reasonBlock}}
+    </div>
+    <p style="margin: 24px 0;">
+        <a href="{{requestUrl}}" style="display: inline-block; background-color: #333; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Review leave request</a>
+    </p>
+    <p>This is an automated message from StaffLedger.</p>
+    <p style="color: #666; font-size: 12px; margin-top: 30px;">Please do not reply to this email.</p>
+</div>
