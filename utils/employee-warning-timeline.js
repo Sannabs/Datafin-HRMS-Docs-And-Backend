@@ -69,7 +69,68 @@ function formatShortValue(value) {
   return "[complex]";
 }
 
+/** Keys on audit `changes` that are not field-level { before, after } entries from `getChangesDiff`. */
+const AUDIT_CHANGE_META_KEYS = new Set([
+  "transition",
+  "note",
+  "reviewNote",
+  "decision",
+  "before",
+  "after",
+]);
+
+/**
+ * `getChangesDiff` stores: `{ title: { before, after }, severity: { before, after }, ... }`.
+ * Older code paths may store full snapshots as `{ before: {…}, after: {…} }` — handled below.
+ */
+function summarizePerFieldAuditDiff(changes) {
+  const fieldKeys = Object.keys(changes).filter(
+    (k) => !AUDIT_CHANGE_META_KEYS.has(k) && isPlainObject(changes[k])
+  );
+  if (fieldKeys.length === 0) return null;
+
+  const diffKeys = fieldKeys.filter((k) => {
+    const v = changes[k];
+    return (
+      Object.prototype.hasOwnProperty.call(v, "before") ||
+      Object.prototype.hasOwnProperty.call(v, "after")
+    );
+  });
+  if (diffKeys.length === 0) return null;
+
+  const allEntriesAreBeforeAfterPairs = diffKeys.every((k) => {
+    const v = changes[k];
+    return (
+      Object.prototype.hasOwnProperty.call(v, "before") &&
+      Object.prototype.hasOwnProperty.call(v, "after")
+    );
+  });
+  if (!allEntriesAreBeforeAfterPairs || diffKeys.length !== fieldKeys.length) return null;
+
+  const changed = diffKeys.filter((k) => {
+    const v = changes[k];
+    return JSON.stringify(v.before) !== JSON.stringify(v.after);
+  });
+  if (changed.length === 0) return null;
+
+  const preferred = changed.filter((k) => FIELD_LABELS[k]);
+  const focusKeys = (preferred.length ? preferred : changed).slice(0, 4);
+  const chunks = focusKeys.map((k) => {
+    const v = changes[k];
+    const label = FIELD_LABELS[k] || k;
+    const b = formatShortValue(v.before);
+    const a = formatShortValue(v.after);
+    return `${label}: ${b} -> ${a}`;
+  });
+  const suffix =
+    changed.length > focusKeys.length ? ` · +${changed.length - focusKeys.length} more` : "";
+  return `Updated fields: ${chunks.join(" · ")}${suffix}`;
+}
+
 function summarizeBeforeAfter(changes) {
+  const perField = summarizePerFieldAuditDiff(changes);
+  if (perField) return perField;
+
   const before = isPlainObject(changes.before) ? changes.before : null;
   const after = isPlainObject(changes.after) ? changes.after : null;
   if (!before && !after) return null;
