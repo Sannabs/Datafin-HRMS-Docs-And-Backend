@@ -42,6 +42,7 @@ import {
     returnEmployeeWarningToDraft,
     resendWarningIssuedNotification,
     listDisciplineWarningsDashboard,
+    exportDisciplineWarningsDashboardBulk,
     getEmployeeWarningEscalationSummary,
     getEmployeeWarningById,
     getEmployeeWarningTimeline,
@@ -77,6 +78,11 @@ router.get(
     "/warnings/dashboard",
     requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
     listDisciplineWarningsDashboard
+);
+router.get(
+    "/warnings/dashboard/export",
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+    exportDisciplineWarningsDashboardBulk
 );
 router.get(
     "/:id/warnings/escalation-summary",

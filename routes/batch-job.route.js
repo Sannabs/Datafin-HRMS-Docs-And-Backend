@@ -9,6 +9,7 @@ import {
     getBatchJobById,
     getBatchJobRows,
     exportBatchJobRows,
+    exportBatchJobsBulkZip,
     createEmployeeCreationBatch,
     createEmployeeInvitationBatch,
     createSendInvitationsBatch,
@@ -30,6 +31,7 @@ router.use(requireRole([...hrRoles, "SUPER_ADMIN"]));
 router.get("/creators", listBatchJobCreators);
 router.post("/validate-csv", uploadCsvSingle, validateBatchCsv);
 router.get("/", listBatchJobs);
+router.get("/export", exportBatchJobsBulkZip);
 
 router.post("/employee-creation", uploadCsvSingle, createEmployeeCreationBatch);
 router.post("/employee-invitation", uploadCsvSingle, createEmployeeInvitationBatch);

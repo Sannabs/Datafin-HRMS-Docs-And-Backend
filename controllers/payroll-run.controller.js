@@ -769,6 +769,7 @@ export const exportPayrollRuns = async (req, res) => {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const where = buildPayrollRunsWhere(tenantId, req.query);
 
+        const orderBy = buildPayrollRunsOrderBy(req.query);
         const payrollRuns = await prisma.payrollRun.findMany({
             where,
             include: {
@@ -786,9 +787,7 @@ export const exportPayrollRuns = async (req, res) => {
                     },
                 },
             },
-            orderBy: {
-                runDate: "desc",
-            },
+            orderBy,
         });
 
         const headers = [

@@ -634,6 +634,71 @@ export const duplicateEmployeeWarningAsDraft = async (req, res) => {
   }
 };
 
+const MAX_DISCIPLINE_BULK_EXPORT = 500;
+
+/**
+ * Append one case folder to a zip (same contents as single-case export).
+ * @param {import("archiver").Archiver} archive
+ * @param {string} pathPrefix e.g. "" or "case-abc12/"
+ * @param {object} warning loaded with attachments, user, issuedBy
+ * @param {{ name: string | null } | null} tenant
+ */
+async function appendWarningPackageToZipArchive(archive, pathPrefix, warning, tenant) {
+  const base =
+    pathPrefix && pathPrefix.length > 0 && !pathPrefix.endsWith("/")
+      ? `${pathPrefix}/`
+      : pathPrefix;
+
+  const manifest = {
+    exportedAt: new Date().toISOString(),
+    warning: warningToDto(warning),
+    attachmentFiles: [],
+  };
+
+  manifest.letterPdfIncluded = false;
+  try {
+    const letterPdf = await generateWarningLetterPdfBuffer({
+      tenant,
+      subjectUser: warning.user,
+      warning,
+    });
+    archive.append(Buffer.from(letterPdf), { name: `${base}warning-letter.pdf` });
+    manifest.letterPdfIncluded = true;
+  } catch (pdfErr) {
+    logger.warn(
+      `appendWarningPackageToZipArchive letter PDF skipped: ${pdfErr.message}`
+    );
+    manifest.letterPdfError = pdfErr.message;
+  }
+
+  for (const att of warning.attachments ?? []) {
+    try {
+      const buf = await getFile(att.storedName);
+      const safeOriginal = String(att.originalName || "attachment").replace(
+        /[/\\?%*:|"<>]/g,
+        "_"
+      );
+      const pathInZip = `${base}attachments/${safeOriginal}`;
+      archive.append(buf, { name: pathInZip });
+      manifest.attachmentFiles.push({
+        storedName: att.storedName,
+        pathInZip,
+        originalName: att.originalName,
+      });
+    } catch (e) {
+      manifest.attachmentFiles.push({
+        storedName: att.storedName,
+        error: e.message,
+        originalName: att.originalName,
+      });
+    }
+  }
+
+  archive.append(JSON.stringify(manifest, null, 2), {
+    name: `${base}case-manifest.json`,
+  });
+}
+
 /** GET …/warnings/:warningId/export — ZIP: manifest JSON + attachments + generated letter PDF. */
 export const exportEmployeeWarningPackage = async (req, res) => {
   try {
@@ -720,54 +785,7 @@ export const exportEmployeeWarningPackage = async (req, res) => {
     });
     archive.pipe(res);
 
-    const manifest = {
-      exportedAt: new Date().toISOString(),
-      warning: warningToDto(warning),
-      attachmentFiles: [],
-    };
-
-    manifest.letterPdfIncluded = false;
-    try {
-      const letterPdf = await generateWarningLetterPdfBuffer({
-        tenant,
-        subjectUser: warning.user,
-        warning,
-      });
-      archive.append(Buffer.from(letterPdf), { name: "warning-letter.pdf" });
-      manifest.letterPdfIncluded = true;
-    } catch (pdfErr) {
-      logger.warn(
-        `exportEmployeeWarningPackage letter PDF skipped: ${pdfErr.message}`
-      );
-      manifest.letterPdfError = pdfErr.message;
-    }
-
-    for (const att of warning.attachments ?? []) {
-      try {
-        const buf = await getFile(att.storedName);
-        const safeOriginal = String(att.originalName || "attachment").replace(
-          /[/\\?%*:|"<>]/g,
-          "_"
-        );
-        const pathInZip = `attachments/${safeOriginal}`;
-        archive.append(buf, { name: pathInZip });
-        manifest.attachmentFiles.push({
-          storedName: att.storedName,
-          pathInZip,
-          originalName: att.originalName,
-        });
-      } catch (e) {
-        manifest.attachmentFiles.push({
-          storedName: att.storedName,
-          error: e.message,
-          originalName: att.originalName,
-        });
-      }
-    }
-
-    archive.append(JSON.stringify(manifest, null, 2), {
-      name: "case-manifest.json",
-    });
+    await appendWarningPackageToZipArchive(archive, "", warning, tenant);
 
     await archive.finalize();
 
@@ -3044,11 +3062,28 @@ export const listDisciplineWarningsDashboard = async (req, res) => {
       where.category = catParam.trim();
     }
 
+    const sortByRaw =
+      typeof req.query.sortBy === "string" ? req.query.sortBy.trim() : "";
+    const sortOrderRaw =
+      typeof req.query.sortOrder === "string"
+        ? req.query.sortOrder.trim().toLowerCase()
+        : "";
+    const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
+
+    let orderBy;
+    if (sortByRaw === "employee") {
+      orderBy = { user: { name: sortOrder } };
+    } else if (sortByRaw === "severity") {
+      orderBy = { severity: sortOrder };
+    } else {
+      orderBy = { updatedAt: sortOrder };
+    }
+
     const [total, warnings] = await Promise.all([
       prisma.employeeWarning.count({ where }),
       prisma.employeeWarning.findMany({
         where,
-        orderBy: { updatedAt: "desc" },
+        orderBy,
         skip,
         take: limit,
         include: {
@@ -3106,5 +3141,258 @@ export const listDisciplineWarningsDashboard = async (req, res) => {
       error: "Internal Server Error",
       message: "Failed to list warnings",
     });
+  }
+};
+
+/**
+ * Same filters/order as GET /employees/warnings/dashboard (no pagination).
+ * Optional `ids` (comma-separated warning ids) restricts to those rows within scope.
+ * @returns {{ where: object, orderBy: object } | { empty: true }}
+ */
+async function resolveDisciplineDashboardWhereOrder(req) {
+  const tenantId = getTenantId(req);
+  const requesterRole = req.user?.role;
+  const requesterId = req.user?.id;
+
+  const where = { tenantId };
+
+  const statusParam = req.query.status;
+  if (typeof statusParam === "string" && statusParam.trim()) {
+    const parts = statusParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const valid = parts.filter((s) =>
+      isValidEnumValue(EmployeeWarningStatus, s)
+    );
+    if (valid.length === 1) {
+      where.status = valid[0];
+    } else if (valid.length > 1) {
+      where.status = { in: valid };
+    }
+  }
+
+  if (requesterRole === "DEPARTMENT_ADMIN") {
+    const managedDeptIds = await getManagedDepartmentIds(
+      tenantId,
+      requesterId
+    );
+    if (managedDeptIds.length === 0) {
+      return { empty: true };
+    }
+    const scopedUsers = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isDeleted: false,
+        departmentId: { in: managedDeptIds },
+      },
+      select: { id: true },
+    });
+    where.userId = { in: scopedUsers.map((u) => u.id) };
+  }
+
+  applyWarningSearchAndSeverityFilters(where, req);
+
+  const catParam = req.query.category;
+  if (
+    typeof catParam === "string" &&
+    catParam.trim() &&
+    isValidEnumValue(EmployeeWarningCategory, catParam.trim())
+  ) {
+    where.category = catParam.trim();
+  }
+
+  const idsParam = req.query.ids;
+  if (typeof idsParam === "string" && idsParam.trim()) {
+    const parts = idsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length) {
+      where.id = { in: parts };
+    }
+  }
+
+  const sortByRaw =
+    typeof req.query.sortBy === "string" ? req.query.sortBy.trim() : "";
+  const sortOrderRaw =
+    typeof req.query.sortOrder === "string"
+      ? req.query.sortOrder.trim().toLowerCase()
+      : "";
+  const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
+
+  let orderBy;
+  if (sortByRaw === "employee") {
+    orderBy = { user: { name: sortOrder } };
+  } else if (sortByRaw === "severity") {
+    orderBy = { severity: sortOrder };
+  } else {
+    orderBy = { updatedAt: sortOrder };
+  }
+
+  return { where, orderBy };
+}
+
+/**
+ * GET /api/employees/warnings/dashboard/export — one ZIP with a folder per case (same filters as dashboard list).
+ */
+export const exportDisciplineWarningsDashboardBulk = async (req, res) => {
+  try {
+    const tenantId = getTenantId(req);
+    const requesterRole = req.user?.role;
+    const requesterId = req.user?.id;
+
+    if (!requesterId) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+        message: "User not authenticated",
+      });
+    }
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant context required",
+      });
+    }
+
+    if (
+      requesterRole !== "HR_ADMIN" &&
+      requesterRole !== "HR_STAFF" &&
+      requesterRole !== "DEPARTMENT_ADMIN" &&
+      requesterRole !== "SUPER_ADMIN"
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Insufficient permissions",
+      });
+    }
+
+    const ctx = await resolveDisciplineDashboardWhereOrder(req);
+    if (ctx.empty) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No cases match your filters (no departments in scope for department admin).",
+      });
+    }
+
+    const { where, orderBy } = ctx;
+
+    const total = await prisma.employeeWarning.count({ where });
+    if (total === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No cases to export for the current filters.",
+      });
+    }
+
+    if (total > MAX_DISCIPLINE_BULK_EXPORT) {
+      return res.status(400).json({
+        success: false,
+        message: `Too many cases (${total}). Narrow filters or export at most ${MAX_DISCIPLINE_BULK_EXPORT} cases.`,
+      });
+    }
+
+    const warnings = await prisma.employeeWarning.findMany({
+      where,
+      orderBy,
+      take: MAX_DISCIPLINE_BULK_EXPORT,
+      include: {
+        ...warningWithAttachmentsInclude,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            employeeId: true,
+            email: true,
+            position: { select: { title: true } },
+            department: { select: { name: true } },
+          },
+        },
+        issuedBy: {
+          select: {
+            name: true,
+            position: { select: { title: true } },
+          },
+        },
+      },
+    });
+
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+
+    const zipName = `discipline-cases-${new Date().toISOString().slice(0, 10)}.zip`;
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${zipName}"`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      logger.error(`exportDisciplineWarningsDashboardBulk archive: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: "Failed to build export",
+        });
+      }
+    });
+    archive.pipe(res);
+
+    for (const warning of warnings) {
+      const safeSlug = String(warning.id).replace(/[^a-zA-Z0-9-_]/g, "").slice(0, 12);
+      const folder = `case-${safeSlug || "record"}/`;
+      await appendWarningPackageToZipArchive(archive, folder, warning, tenant);
+    }
+
+    archive.append(
+      JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          caseCount: warnings.length,
+          query: {
+            search: req.query.search ?? "",
+            status: req.query.status ?? "",
+            severity: req.query.severity ?? "",
+            category: req.query.category ?? "",
+            sortBy: req.query.sortBy ?? "",
+            sortOrder: req.query.sortOrder ?? "",
+            ids: req.query.ids ?? "",
+          },
+        },
+        null,
+        2
+      ),
+      { name: "export-manifest.json" }
+    );
+
+    await archive.finalize();
+
+    const actorId = req.user?.id;
+    if (actorId && tenantId && warnings.length) {
+      await addLog(
+        actorId,
+        tenantId,
+        ActionEnum.EXPORT,
+        "EmployeeWarning",
+        warnings[0].id,
+        { transition: "BULK_EXPORT_ZIP", caseCount: warnings.length },
+        req
+      );
+    }
+  } catch (error) {
+    logger.error(`exportDisciplineWarningsDashboardBulk: ${error.message}`, {
+      stack: error.stack,
+    });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to export cases",
+      });
+    }
   }
 };

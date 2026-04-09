@@ -248,10 +248,19 @@ export const getAllEmployees = async (req, res) => {
     }
 };
 
+const MAX_EMPLOYEE_EXPORT = 10000;
+
 export const exportEmployees = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
-        const { sortBy = "createdAt", sortOrder = "desc", ids } = req.query;
+        const {
+            sortBy = "createdAt",
+            sortOrder = "desc",
+            ids,
+            departmentId,
+            status,
+            search,
+        } = req.query;
         const normalizedOrder = String(sortOrder).toLowerCase() === "asc" ? "asc" : "desc";
 
         const where = {
@@ -265,6 +274,44 @@ export const exportEmployees = async (req, res) => {
                 .map((id) => id.trim())
                 .filter(Boolean);
             if (idList.length > 0) where.id = { in: idList };
+        } else {
+            if (departmentId) {
+                where.departmentId = String(departmentId);
+            }
+
+            if (status) {
+                const normalizedStatus = String(status).toUpperCase();
+                if (["ACTIVE", "INACTIVE", "ON_LEAVE"].includes(normalizedStatus)) {
+                    where.status = normalizedStatus;
+                }
+            }
+
+            if (search && String(search).trim()) {
+                const searchTerm = String(search).trim();
+                where.AND = [
+                    ...(where.AND || []),
+                    {
+                        OR: [
+                            { name: { contains: searchTerm, mode: "insensitive" } },
+                            { email: { contains: searchTerm, mode: "insensitive" } },
+                        ],
+                    },
+                ];
+            }
+        }
+
+        const total = await prisma.user.count({ where });
+        if (total === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No employees match the current filters.",
+            });
+        }
+        if (total > MAX_EMPLOYEE_EXPORT) {
+            return res.status(400).json({
+                success: false,
+                message: `Too many employees (${total}) to export. Narrow filters or export at most ${MAX_EMPLOYEE_EXPORT}.`,
+            });
         }
 
         let orderBy = [{ createdAt: "desc" }];
@@ -285,6 +332,7 @@ export const exportEmployees = async (req, res) => {
                 position: { select: { title: true } },
             },
             orderBy,
+            take: MAX_EMPLOYEE_EXPORT,
         });
 
         const headers = ["Employee", "Employee ID", "Date Joined", "Department", "Role", "Email", "Status"];

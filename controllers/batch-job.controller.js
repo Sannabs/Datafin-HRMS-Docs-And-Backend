@@ -1,3 +1,4 @@
+import archiver from "archiver";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { parseCsvBuffer } from "../utils/csv-parse-batch.utils.js";
@@ -9,6 +10,24 @@ import { enqueueBatchJob, getBatchQueue } from "../queues/batch.queue.js";
 import { deepValidateCsvRowsForBatch } from "../services/batch-row-validate.service.js";
 
 const ENABLE_BULLMQ = process.env.ENABLE_BULLMQ_QUEUE === "true";
+
+const MAX_BATCH_BULK_EXPORT = 200;
+
+function csvTextForBatchJobRows(_job, rows) {
+    const header = ["row_number", "status", "error_field", "error_message", "result_entity_id"];
+    const lines = [header.join(",")];
+    for (const r of rows) {
+        const cells = [
+            r.rowNumber,
+            r.status,
+            r.errorField || "",
+            (r.errorMessage || "").replace(/"/g, '""'),
+            r.resultEntityId || "",
+        ].map((c) => (typeof c === "string" && c.includes(",") ? `"${c}"` : c));
+        lines.push(cells.join(","));
+    }
+    return lines.join("\n");
+}
 
 function tenantIdFromReq(req) {
     return req.effectiveTenantId ?? req.user?.tenantId;
@@ -152,12 +171,29 @@ export const listBatchJobs = async (req, res) => {
             ...(createdByUserId && { createdByUserId }),
         };
 
+        const sortByRaw =
+            typeof req.query.sortBy === "string" ? req.query.sortBy.trim() : "";
+        const sortOrderRaw =
+            typeof req.query.sortOrder === "string"
+                ? req.query.sortOrder.trim().toLowerCase()
+                : "";
+        const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
+
+        let orderBy;
+        if (sortByRaw === "type") {
+            orderBy = { type: sortOrder };
+        } else if (sortByRaw === "totalRows") {
+            orderBy = { totalRows: sortOrder };
+        } else {
+            orderBy = { createdAt: sortOrder };
+        }
+
         const [jobs, total] = await Promise.all([
             prisma.batchJob.findMany({
                 where,
                 skip,
                 take: limit,
-                orderBy: { createdAt: "desc" },
+                orderBy,
                 include: {
                     createdByUser: {
                         select: { id: true, name: true, email: true, image: true, role: true },
@@ -408,25 +444,141 @@ export const exportBatchJobRows = async (req, res) => {
             orderBy: { rowNumber: "asc" },
         });
 
-        const header = ["row_number", "status", "error_field", "error_message", "result_entity_id"];
-        const lines = [header.join(",")];
-        for (const r of rows) {
-            const cells = [
-                r.rowNumber,
-                r.status,
-                r.errorField || "",
-                (r.errorMessage || "").replace(/"/g, '""'),
-                r.resultEntityId || "",
-            ].map((c) => (typeof c === "string" && c.includes(",") ? `"${c}"` : c));
-            lines.push(cells.join(","));
-        }
+        const text = csvTextForBatchJobRows(job, rows);
 
         res.setHeader("Content-Type", "text/csv");
         res.setHeader("Content-Disposition", `attachment; filename="${job.batchCode}-rows.csv"`);
-        return res.send(lines.join("\n"));
+        return res.send(text);
     } catch (e) {
         logger.error(`exportBatchJobRows: ${e.message}`, { stack: e.stack });
         return res.status(500).json({ success: false, message: "Export failed" });
+    }
+};
+
+/**
+ * GET /api/batch-jobs/export — ZIP of CSVs for all jobs matching list filters (or `ids` only).
+ * Must be registered before router.get("/:id/export", …).
+ */
+export const exportBatchJobsBulkZip = async (req, res) => {
+    try {
+        const tenantId = tenantIdFromReq(req);
+        if (!tenantId) {
+            return res.status(401).json({ success: false, message: "Unauthorized" });
+        }
+
+        const idsParam = typeof req.query.ids === "string" ? req.query.ids.trim() : "";
+
+        let where;
+        let orderBy = { createdAt: "desc" };
+
+        if (idsParam) {
+            const idList = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+            if (idList.length === 0) {
+                return res.status(400).json({ success: false, message: "No batch ids provided" });
+            }
+            where = { tenantId, id: { in: idList } };
+        } else {
+            const statusFilter = req.query.status;
+            const q = req.query.q?.trim();
+            const createdByUserId = (req.query.createdBy ?? req.query.createdByUserId)?.trim();
+
+            where = {
+                tenantId,
+                ...(statusFilter &&
+                    ["pending", "processing", "completed", "failed"].includes(statusFilter) && {
+                        status: statusFilter.toUpperCase(),
+                    }),
+                ...(q && {
+                    OR: [{ batchCode: { contains: q, mode: "insensitive" } }],
+                }),
+                ...(createdByUserId && { createdByUserId }),
+            };
+
+            const sortByRaw =
+                typeof req.query.sortBy === "string" ? req.query.sortBy.trim() : "";
+            const sortOrderRaw =
+                typeof req.query.sortOrder === "string"
+                    ? req.query.sortOrder.trim().toLowerCase()
+                    : "";
+            const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
+
+            if (sortByRaw === "type") {
+                orderBy = { type: sortOrder };
+            } else if (sortByRaw === "totalRows") {
+                orderBy = { totalRows: sortOrder };
+            } else {
+                orderBy = { createdAt: sortOrder };
+            }
+        }
+
+        const total = await prisma.batchJob.count({ where });
+        if (total === 0) {
+            return res.status(404).json({
+                success: false,
+                message: idsParam
+                    ? "No batch jobs to export for the selected ids."
+                    : "No batch jobs to export for the current filters.",
+            });
+        }
+        if (total > MAX_BATCH_BULK_EXPORT) {
+            return res.status(400).json({
+                success: false,
+                message: `Too many batch jobs (${total}). Narrow filters or export at most ${MAX_BATCH_BULK_EXPORT}.`,
+            });
+        }
+
+        const jobs = await prisma.batchJob.findMany({
+            where,
+            orderBy,
+            take: MAX_BATCH_BULK_EXPORT,
+            select: { id: true, batchCode: true },
+        });
+
+        const zipName = `batch-jobs-${new Date().toISOString().slice(0, 10)}.zip`;
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename="${zipName}"`);
+
+        const archive = archiver("zip", { zlib: { level: 9 } });
+        archive.on("error", (err) => {
+            logger.error(`exportBatchJobsBulkZip archive: ${err.message}`);
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, message: "Export failed" });
+            }
+        });
+        archive.pipe(res);
+
+        for (const job of jobs) {
+            const rows = await prisma.batchJobRow.findMany({
+                where: { batchJobId: job.id },
+                orderBy: { rowNumber: "asc" },
+            });
+            const safeCode = String(job.batchCode || job.id).replace(/[/\\?%*:|"<>]/g, "_");
+            archive.append(csvTextForBatchJobRows(job, rows), {
+                name: `${safeCode}-rows.csv`,
+            });
+        }
+
+        const manifest = {
+            exportedAt: new Date().toISOString(),
+            jobCount: jobs.length,
+            query: idsParam
+                ? { ids: idsParam }
+                : {
+                      status: req.query.status ?? "",
+                      q: req.query.q ?? "",
+                      createdBy: req.query.createdBy ?? req.query.createdByUserId ?? "",
+                      sortBy: req.query.sortBy ?? "",
+                      sortOrder: req.query.sortOrder ?? "",
+                  },
+        };
+        archive.append(JSON.stringify(manifest, null, 2), { name: "export-manifest.json" });
+
+        await archive.finalize();
+    } catch (e) {
+        logger.error(`exportBatchJobsBulkZip: ${e.message}`, { stack: e.stack });
+        if (!res.headersSent) {
+            return res.status(500).json({ success: false, message: "Export failed" });
+        }
     }
 };
 
