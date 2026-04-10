@@ -12,6 +12,7 @@ import {
     upsertDeductionLineOnStructure,
 } from "./batch-salary-line.service.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
+import { recalculateSalary } from "../calculations/salary-calculations.js";
 
 function pick(row, ...keys) {
     for (const k of keys) {
@@ -287,6 +288,54 @@ export async function processBatchJobById(batchJobId) {
                         }
                         if (!targetUser) {
                             errMsg = "Employee not found (employee_id or email)";
+                            break;
+                        }
+
+                        if (field === "base_salary" || field === "basesalary") {
+                            const baseSalaryNum = Number(value);
+                            if (Number.isNaN(baseSalaryNum) || baseSalaryNum <= 0) {
+                                errMsg = "Invalid base_salary (must be a positive number)";
+                                break;
+                            }
+                            const structure = await findLatestSalaryStructureForUser(
+                                job.tenantId,
+                                targetUser.id
+                            );
+                            const employeeContext = {
+                                departmentId: targetUser.departmentId,
+                                positionId: targetUser.positionId,
+                                employmentType: targetUser.employmentType,
+                                baseSalary: baseSalaryNum,
+                                status: targetUser.status,
+                                hireDate: targetUser.hireDate,
+                            };
+                            if (!structure) {
+                                await prisma.salaryStructure.create({
+                                    data: {
+                                        tenantId: job.tenantId,
+                                        userId: targetUser.id,
+                                        baseSalary: baseSalaryNum,
+                                        grossSalary: baseSalaryNum,
+                                        salaryPeriodType: "MONTHLY",
+                                        effectiveDate: new Date(),
+                                        currency: "GMD",
+                                    },
+                                });
+                                resultEntityId = targetUser.id;
+                                break;
+                            }
+                            const { grossSalary } = await recalculateSalary(
+                                baseSalaryNum,
+                                structure.allowances,
+                                structure.deductions,
+                                employeeContext,
+                                job.tenantId
+                            );
+                            await prisma.salaryStructure.update({
+                                where: { id: structure.id },
+                                data: { baseSalary: baseSalaryNum, grossSalary },
+                            });
+                            resultEntityId = targetUser.id;
                             break;
                         }
 

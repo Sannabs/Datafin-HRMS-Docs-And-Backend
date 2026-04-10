@@ -604,6 +604,12 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                         const message = "Name is required";
                         pushValidationError(rowErrors, rn, "name", message, value);
                     }
+                } else if (field === "base_salary" || field === "basesalary") {
+                    const salaryNum = Number(value);
+                    if (Number.isNaN(salaryNum) || salaryNum <= 0) {
+                        const message = "Invalid base_salary (must be a positive number)";
+                        pushValidationError(rowErrors, rn, "base_salary", message, value);
+                    }
                 } else if (
                     fieldRaw &&
                     field !== "phone" &&
