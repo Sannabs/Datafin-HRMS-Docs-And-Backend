@@ -12,7 +12,8 @@
     "seed:attendance": "node ./scripts/seed-attendance-and-locations.js",
     "db:clear": "node scripts/clear-data-except-user-tenant.js",
     "db:bootstrap-super-admin": "node ./scripts/bootstrap-super-admin.js",
-    "seed:reviewer": "node ./scripts/seed-reviewer.js"
+    "seed:reviewer": "node ./scripts/seed-reviewer.js",
+    "backfill:paye-gra": "node ./scripts/backfill-paye-gra-all-runs.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1019.0",
