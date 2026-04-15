@@ -1,10 +1,9 @@
 /**
  * TAX (PAYE) – GRA progressive bands (monthly)
- * Income tax follows Gambia Revenue Authority (GRA) PAYE rules:
+ * Income tax follows Gambia Revenue Authority (GRA) PAYE First Schedule (published 2025 table):
  * - Monthly tax-free threshold: GMD 3,000 (annual 36,000).
- * - Above that, income is taxed in bands at marginal rates:
- *   3,001–3,833 @ 10%, 3,834–4,667 @ 15%, 4,668–5,500 @ 20%,
- *   5,501–6,333 @ 25%, above 6,333 @ 30%.
+ * - Above that, marginal bands (monthly GMD): up to 3,833.33 @ 5%, up to 4,666.67 @ 10%,
+ *   up to 5,500 @ 15%, up to 6,333.33 @ 20%, above 6,333.33 @ 25%.
  * - Tax = sum of (amount in each band × band rate). No deductions from gross
  *   before tax; tax is on full gross employment income (salary + bonuses + benefits).
  *
@@ -73,13 +72,14 @@ export function buildGambiaEmployerContributionLines(grossSalary, ssnFundingMode
 /**
  * GRA PAYE bands: { maxMonthly: upper bound of band (GMD), rate: marginal rate (0–1) }
  * Amount in band = min(gross, maxMonthly) - previous band's maxMonthly; tax += amountInBand * rate
+ * Bounds match GRA monthly First Schedule (~833.33 per band above the threshold).
  */
 export const GAMBIA_PAYE_BANDS = [
-    { maxMonthly: 3833, rate: 0.1 },
-    { maxMonthly: 4667, rate: 0.15 },
-    { maxMonthly: 5500, rate: 0.2 },
-    { maxMonthly: 6333, rate: 0.25 },
-    { maxMonthly: Infinity, rate: 0.3 },
+    { maxMonthly: 3833.33, rate: 0.05 },
+    { maxMonthly: 4666.67, rate: 0.1 },
+    { maxMonthly: 5500, rate: 0.15 },
+    { maxMonthly: 6333.33, rate: 0.2 },
+    { maxMonthly: Infinity, rate: 0.25 },
 ];
 
 /**
