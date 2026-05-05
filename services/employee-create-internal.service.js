@@ -2,6 +2,7 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
+import { normalizeAuthEmail } from "../utils/loginCredentials.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
@@ -43,6 +44,12 @@ export async function validateEmployeeCreationPayload({ tenantId, actorRole, bod
     if (!emailRegex.test(email)) {
         return { ok: false, message: "Invalid email format" };
     }
+
+    const normalizedEmail = normalizeAuthEmail(email);
+    if (!normalizedEmail) {
+        return { ok: false, message: "Invalid email format" };
+    }
+
     if (role && !validRoles.includes(role)) {
         return {
             ok: false,
@@ -126,7 +133,11 @@ export async function validateEmployeeCreationPayload({ tenantId, actorRole, bod
     }
 
     const existingUser = await prisma.user.findFirst({
-        where: { email, tenantId, isDeleted: false },
+        where: {
+            tenantId,
+            isDeleted: false,
+            email: { equals: normalizedEmail, mode: "insensitive" },
+        },
     });
     if (existingUser) {
         return { ok: false, message: "User with this email already exists in this tenant" };
@@ -175,6 +186,8 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
         return { ok: false, statusCode: code, message: pre.message };
     }
 
+    const normalizedEmail = normalizeAuthEmail(email);
+
     const validPeriodTypes = ["MONTHLY", "ANNUAL"];
     const salaryPeriodTypeVal =
         salaryPeriodType != null && validPeriodTypes.includes(String(salaryPeriodType).toUpperCase())
@@ -209,7 +222,7 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
     const newUser = await prisma.user.create({
         data: {
             tenantId,
-            email,
+            email: normalizedEmail,
             password: null,
             name: name.trim(),
             emailVerified: false,

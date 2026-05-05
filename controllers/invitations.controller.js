@@ -8,6 +8,8 @@ import { parseFlexibleDate } from "../utils/date-parser.js";
 import {
     hasStoredLoginCredentials,
     credentialAccountsInclude,
+    normalizeAuthEmail,
+    upsertCredentialAccount,
 } from "../utils/loginCredentials.util.js";
 
 /**
@@ -48,6 +50,14 @@ export const sendInvitation = async (req, res, next) => {
     // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format",
+      });
+    }
+
+    const normalizedEmail = normalizeAuthEmail(email);
+    if (!normalizedEmail) {
       return res.status(400).json({
         success: false,
         message: "Invalid email format",
@@ -209,12 +219,12 @@ export const sendInvitation = async (req, res, next) => {
       }
     }
 
-    // Check if user already exists in this tenant
+    // Check if user already exists in this tenant (case-insensitive; Better Auth signs in with lowercased email)
     const existingUser = await prisma.user.findFirst({
       where: {
-        email,
         tenantId,
         isDeleted: false,
+        email: { equals: normalizedEmail, mode: "insensitive" },
       },
     });
 
@@ -232,11 +242,12 @@ export const sendInvitation = async (req, res, next) => {
     // Check for pending invitation (not expired)
     const pendingInvite = await prisma.invitation.findFirst({
       where: {
-        email,
         tenantId,
+        status: "PENDING",
         expiresAt: {
           gte: new Date(), // Not expired
         },
+        email: { equals: normalizedEmail, mode: "insensitive" },
       },
     });
 
@@ -263,7 +274,7 @@ export const sendInvitation = async (req, res, next) => {
       data: {
         senderId,
         tenantId,
-        email,
+        email: normalizedEmail,
         role,
         departmentId: departmentId || null,
         positionId: positionId || null,
@@ -434,14 +445,22 @@ export const sendSetupInvitation = async (req, res, next) => {
       });
     }
 
+    const inviteEmail = normalizeAuthEmail(employee.email);
+    if (!inviteEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee does not have a valid email address",
+      });
+    }
+
     const pendingInvite = await prisma.invitation.findFirst({
       where: {
-        email: employee.email,
         tenantId,
         status: "PENDING",
         expiresAt: {
           gte: new Date(),
         },
+        email: { equals: inviteEmail, mode: "insensitive" },
       },
     });
 
@@ -459,7 +478,7 @@ export const sendSetupInvitation = async (req, res, next) => {
       data: {
         senderId,
         tenantId,
-        email: employee.email,
+        email: inviteEmail,
         role: employee.role ?? "STAFF",
         departmentId: employee.departmentId || null,
         positionId: employee.positionId || null,
@@ -599,12 +618,20 @@ export const acceptInvitation = async (req, res, next) => {
       });
     }
 
-    // Check if user already exists
+    const normalizedEmail = normalizeAuthEmail(invitation.email);
+    if (!normalizedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid invitation email",
+      });
+    }
+
+    // Check if user already exists (case-insensitive; Better Auth resolves sign-in by lowercased email)
     const existingUser = await prisma.user.findFirst({
       where: {
-        email: invitation.email,
         tenantId: invitation.tenantId,
         isDeleted: false,
+        email: { equals: normalizedEmail, mode: "insensitive" },
       },
     });
 
@@ -614,11 +641,14 @@ export const acceptInvitation = async (req, res, next) => {
         await tx.user.update({
           where: { id: existingUser.id },
           data: {
+            email: normalizedEmail,
             password: hashedPassword,
             emailVerified: true,
             name: name?.trim() || existingUser.name,
           },
         });
+
+        await upsertCredentialAccount(tx, existingUser.id, hashedPassword);
 
         await tx.invitation.update({
           where: { id: invitation.id },
@@ -632,7 +662,7 @@ export const acceptInvitation = async (req, res, next) => {
         data: {
           user: {
             id: existingUser.id,
-            email: existingUser.email,
+            email: normalizedEmail,
             role: existingUser.role,
           },
           tenant: {
@@ -689,27 +719,30 @@ export const acceptInvitation = async (req, res, next) => {
       }
     }
 
-    // Create user account with Prisma (no OTP; invited users are pre-verified)
+    // Create user + credential account (Better Auth sign-in reads password from Account, not User alone)
     let newUser;
     try {
       const hashedPassword = await hashPassword(password);
-      newUser = await prisma.user.create({
-        data: {
-          tenantId: invitation.tenantId,
-          email: invitation.email,
-          password: hashedPassword,
-          name: name?.trim() || null,
-          emailVerified: true,
-          role: invitation.role,
-          employeeId,
-          departmentId: invitation.departmentId || null,
-          positionId: invitation.positionId || null,
-          dateOfBirth: invitation.dateOfBirth ?? null,
-          status: invitation.employmentStatus ?? "ACTIVE",
-          employmentType: invitation.employmentType ?? "FULL_TIME",
-          hireDate: invitation.hireDate ?? null,
-          shiftId: assignedShiftId || null,
-        },
+      await prisma.$transaction(async (tx) => {
+        newUser = await tx.user.create({
+          data: {
+            tenantId: invitation.tenantId,
+            email: normalizedEmail,
+            password: hashedPassword,
+            name: name?.trim() || null,
+            emailVerified: true,
+            role: invitation.role,
+            employeeId,
+            departmentId: invitation.departmentId || null,
+            positionId: invitation.positionId || null,
+            dateOfBirth: invitation.dateOfBirth ?? null,
+            status: invitation.employmentStatus ?? "ACTIVE",
+            employmentType: invitation.employmentType ?? "FULL_TIME",
+            hireDate: invitation.hireDate ?? null,
+            shiftId: assignedShiftId || null,
+          },
+        });
+        await upsertCredentialAccount(tx, newUser.id, hashedPassword);
       });
     } catch (createError) {
       if (createError.code === "P2002") {

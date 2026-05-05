@@ -6,6 +6,7 @@ import { parseFlexibleDate } from "../utils/date-parser.js";
 import {
     hasStoredLoginCredentials,
     credentialAccountsInclude,
+    normalizeAuthEmail,
 } from "../utils/loginCredentials.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -38,6 +39,12 @@ export async function validateInvitationPayload({ tenantId, senderRole, body }) 
     if (!emailRegex.test(email)) {
         return { ok: false, message: "Invalid email format" };
     }
+
+    const normalizedEmail = normalizeAuthEmail(email);
+    if (!normalizedEmail) {
+        return { ok: false, message: "Invalid email format" };
+    }
+
     if (!role) {
         return { ok: false, message: "Role is required" };
     }
@@ -134,7 +141,11 @@ export async function validateInvitationPayload({ tenantId, senderRole, body }) 
     }
 
     const existingUser = await prisma.user.findFirst({
-        where: { email, tenantId, isDeleted: false },
+        where: {
+            tenantId,
+            isDeleted: false,
+            email: { equals: normalizedEmail, mode: "insensitive" },
+        },
     });
     if (existingUser) {
         return { ok: false, message: "User with this email already exists in this tenant" };
@@ -142,9 +153,10 @@ export async function validateInvitationPayload({ tenantId, senderRole, body }) 
 
     const pendingInvite = await prisma.invitation.findFirst({
         where: {
-            email,
             tenantId,
+            status: "PENDING",
             expiresAt: { gte: new Date() },
+            email: { equals: normalizedEmail, mode: "insensitive" },
         },
     });
     if (pendingInvite) {
@@ -208,11 +220,16 @@ export async function createInvitationInternal({ tenantId, senderId, senderRole,
             ? String(salaryCurrency).trim()
             : "GMD";
 
+    const normalizedEmail = normalizeAuthEmail(email);
+    if (!normalizedEmail) {
+        return { ok: false, statusCode: 400, message: "Invalid email format" };
+    }
+
     const newInvitation = await prisma.invitation.create({
         data: {
             senderId,
             tenantId,
-            email,
+            email: normalizedEmail,
             role,
             departmentId: departmentId || null,
             positionId: positionId || null,
@@ -316,14 +333,19 @@ export async function createSetupInvitationInternal({ tenantId, senderId, sender
         return { ok: false, statusCode: 409, message: "Employee already has login credentials" };
     }
 
+    const inviteEmail = normalizeAuthEmail(employee.email);
+    if (!inviteEmail) {
+        return { ok: false, statusCode: 400, message: "Employee does not have a valid email address" };
+    }
+
     const pendingInvite = await prisma.invitation.findFirst({
         where: {
-            email: employee.email,
             tenantId,
             status: "PENDING",
             expiresAt: {
                 gte: new Date(),
             },
+            email: { equals: inviteEmail, mode: "insensitive" },
         },
     });
     if (pendingInvite) {
@@ -337,7 +359,7 @@ export async function createSetupInvitationInternal({ tenantId, senderId, sender
         data: {
             senderId,
             tenantId,
-            email: employee.email,
+            email: inviteEmail,
             role: employee.role ?? "STAFF",
             departmentId: employee.departmentId || null,
             positionId: employee.positionId || null,
