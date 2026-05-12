@@ -740,9 +740,9 @@ export const getPayslipById = async (req, res) => {
                 const ssnFundingMode =
                     breakdown?.gambiaSsnFundingMode ?? tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
                 const rate = resolveEmployerSocialSecurityRatePercent(tenant?.employerSocialSecurityRate ?? null, gambiaEnabled);
-                const gross = Number(payslip.grossSalary) || 0;
+                const baseForSsn = Number(breakdown?.baseSalary) || 0;
                 const employerContributions = gambiaEnabled
-                    ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
+                    ? buildGambiaEmployerContributionLines(baseForSsn, ssnFundingMode, rate ?? 0)
                     : [];
                 const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
                 const enriched = {

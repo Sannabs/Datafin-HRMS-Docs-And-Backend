@@ -8,15 +8,15 @@
  *   before tax; tax is on full gross employment income (salary + bonuses + benefits).
  *
  * SSN (SOCIAL SECURITY)
- * - Employee share: 5% of gross pay (may be deducted from pay OR paid by employer on behalf, per tenant setting).
- * - Employer share: typically 10% of gross pay (company cost, not deducted from pay).
+ * - Employee share: 5% of base salary (may be deducted from pay OR paid by employer on behalf, per tenant setting).
+ * - Employer share: typically 10% of base salary (company cost, not deducted from pay).
  * - Employee deductions affect net pay; employer contributions are shown separately for transparency/reporting.
  */
 
 /** Monthly tax-free threshold (GMD). */
 export const GAMBIA_PAYE_THRESHOLD = 3000;
 
-/** SSN employee rate (5% of gross). */
+/** SSN employee rate (5% of base salary). */
 export const GAMBIA_SSN_EMPLOYEE_RATE = 0.05;
 
 /** Default employer social security rate (%) for Gambia when not configured on tenant. */
@@ -42,28 +42,28 @@ export function resolveEmployerSocialSecurityRatePercent(tenantRatePercent, gamb
  * Build employer-side social security contribution lines for display/reporting.
  * These do not affect net pay.
  *
- * @param {number} grossSalary
+ * @param {number} baseSalary - Monthly base salary (GMD); employer and employee SSN-on-behalf amounts use this base
  * @param {"DEDUCT_FROM_EMPLOYEE"|"EMPLOYER_PAYS_ON_BEHALF"|null|undefined} ssnFundingMode
- * @param {number|null|undefined} employerRatePercent - Employer share rate (% of gross)
+ * @param {number|null|undefined} employerRatePercent - Employer share rate (% of base salary)
  * @returns {Array<{ name: string, amount: number, calculationMethod: "PERCENTAGE", description: string }>}
  */
-export function buildGambiaEmployerContributionLines(grossSalary, ssnFundingMode, employerRatePercent) {
+export function buildGambiaEmployerContributionLines(baseSalary, ssnFundingMode, employerRatePercent) {
     const lines = [];
     const employerRate = employerRatePercent != null && !Number.isNaN(Number(employerRatePercent)) ? Number(employerRatePercent) : 0;
     if (employerRate > 0) {
         lines.push({
             name: "Employer SSHFC",
-            amount: round2(Number(grossSalary) * (employerRate / 100)),
+            amount: round2(Number(baseSalary) * (employerRate / 100)),
             calculationMethod: "PERCENTAGE",
-            description: `${employerRate}% of gross`,
+            description: `${employerRate}% of base`,
         });
     }
     if (ssnFundingMode === "EMPLOYER_PAYS_ON_BEHALF") {
         lines.push({
             name: "SSN - Employee share (paid by employer)",
-            amount: round2(Number(grossSalary) * GAMBIA_SSN_EMPLOYEE_RATE),
+            amount: round2(Number(baseSalary) * GAMBIA_SSN_EMPLOYEE_RATE),
             calculationMethod: "PERCENTAGE",
-            description: "5% of gross",
+            description: "5% of base",
         });
     }
     return lines;

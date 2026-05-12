@@ -516,7 +516,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
             tenant?.gambiaStatutoryEnabled ?? false
         );
         const employerContributions = tenant?.gambiaStatutoryEnabled
-            ? buildGambiaEmployerContributionLines(grossSalary, ssnFundingMode, employerRatePercent ?? 0)
+            ? buildGambiaEmployerContributionLines(baseSalaryMonthly, ssnFundingMode, employerRatePercent ?? 0)
             : [];
         const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
         const breakdownSnapshot = {

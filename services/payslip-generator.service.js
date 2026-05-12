@@ -350,11 +350,12 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
                 : tenant?.employerSocialSecurityRate != null
                   ? Number(tenant.employerSocialSecurityRate)
                   : null;
+        const baseForEmployerSsn = Number(breakdown?.baseSalary) || 0;
         const employerSSHFCAmount =
             breakdown?.employerSSHFCAmount != null
                 ? Number(breakdown.employerSSHFCAmount)
                 : employerRate != null && !Number.isNaN(employerRate)
-                  ? Math.round(payslip.grossSalary * (employerRate / 100) * 100) / 100
+                  ? Math.round(baseForEmployerSsn * (employerRate / 100) * 100) / 100
                   : null;
         const ytd = await getPayslipYTD(
             payslip.userId,

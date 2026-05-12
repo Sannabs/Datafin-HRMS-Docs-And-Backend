@@ -203,7 +203,6 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
         supplementalAllowanceLines
     );
 
-    const grossSalaryForEmployer = itemized.grossSalary;
     const ssnFundingMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
     const employerRate = resolveEmployerSocialSecurityRatePercent(
         tenant?.employerSocialSecurityRate ?? null,
@@ -211,7 +210,7 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
     );
     const employerContributions =
         tenant?.gambiaStatutoryEnabled
-            ? buildGambiaEmployerContributionLines(grossSalaryForEmployer, ssnFundingMode, employerRate ?? 0)
+            ? buildGambiaEmployerContributionLines(baseSalaryMonthly, ssnFundingMode, employerRate ?? 0)
             : [];
     const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
 
@@ -426,9 +425,9 @@ export const getLatestPayslipBundleForUser = async (userId, tenantId) => {
             tenant?.employerSocialSecurityRate ?? null,
             gambiaEnabled
         );
-        const gross = Number(payslip.grossSalary) || 0;
+        const baseForSsn = Number(breakdown?.baseSalary) || 0;
         const employerContributions = gambiaEnabled
-            ? buildGambiaEmployerContributionLines(gross, ssnFundingMode, rate ?? 0)
+            ? buildGambiaEmployerContributionLines(baseForSsn, ssnFundingMode, rate ?? 0)
             : [];
         const employerSSHFCLine = employerContributions.find((l) => l.name === "Employer SSHFC") ?? null;
         const enriched = {

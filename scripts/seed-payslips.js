@@ -22,7 +22,7 @@ const ALLOWANCES    = [
     { name: "Housing Allowance",    amount: 500,   calculationMethod: "FIXED",      description: "Rent subsidy" },
 ];
 const DEDUCTIONS    = [
-    { name: "SSHFC (Employee 5%)",  amount: 0,     calculationMethod: "PERCENTAGE", description: "5% of gross salary" },
+    { name: "SSHFC (Employee 5%)",  amount: 0,     calculationMethod: "PERCENTAGE", description: "5% of base salary" },
     { name: "Income Tax",           amount: 1200,  calculationMethod: "FIXED",      description: "Monthly PAYE" },
 ];
 
@@ -116,7 +116,7 @@ async function seed() {
 
         const totalAllowances = ALLOWANCES.reduce((s, a) => s + a.amount, 0);
         const grossSalary     = BASE_SALARY + totalAllowances;
-        const sshfcEmployee   = Math.round(grossSalary * 0.05 * 100) / 100;
+        const sshfcEmployee   = Math.round(BASE_SALARY * 0.05 * 100) / 100;
         const fixedDeductions = DEDUCTIONS.filter(d => d.calculationMethod === "FIXED")
                                           .reduce((s, d) => s + d.amount, 0);
         const totalDeductions = sshfcEmployee + fixedDeductions;

@@ -25,7 +25,7 @@ async function enrichWithNetAndTotalDeductions(structure, tenantId) {
 }
 
 /**
- * Build virtual deduction lines for Gambia PAYE and SSN with computed amounts from gross (for structure display).
+ * Build virtual deduction lines for Gambia PAYE (from gross) and SSN (from base) for structure display.
  */
 function buildGambiaStatutoryDeductionLines(grossSalary, gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE") {
     const payeAmount = calculateGambiaPAYE(grossSalary);
@@ -63,10 +63,11 @@ function buildGambiaStatutoryDeductionLines(grossSalary, gambiaSsnFundingMode = 
 function appendGambiaStatutoryDeductionsIfEnabled(structure, gambiaStatutoryEnabled, gambiaSsnFundingMode = "DEDUCT_FROM_EMPLOYEE") {
     if (!gambiaStatutoryEnabled || structure.grossSalary == null) return structure;
     const grossSalary = Number(structure.grossSalary) || 0;
+    const baseSalary = Number(structure.baseSalary) || 0;
     const payeAmount = calculateGambiaPAYE(grossSalary);
     const ssnAmount =
         gambiaSsnFundingMode === "DEDUCT_FROM_EMPLOYEE"
-            ? Math.round(grossSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100
+            ? Math.round(baseSalary * GAMBIA_SSN_EMPLOYEE_RATE * 100) / 100
             : 0;
     const statutoryTotal = payeAmount + ssnAmount;
     const lines = buildGambiaStatutoryDeductionLines(grossSalary, gambiaSsnFundingMode);
@@ -246,9 +247,16 @@ export const getMySalaryStructures = async (req, res) => {
 
         logger.info(`Employee ${userId} retrieved ${salaryStructures.length} salary structures`);
 
-        const data = await Promise.all(
+        const enriched = await Promise.all(
             salaryStructures.map((s) => enrichWithNetAndTotalDeductions(s, tenantId))
         );
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { gambiaStatutoryEnabled: true, gambiaSsnFundingMode: true },
+        });
+        const gambiaEnabled = tenant?.gambiaStatutoryEnabled ?? false;
+        const gambiaMode = tenant?.gambiaSsnFundingMode ?? "DEDUCT_FROM_EMPLOYEE";
+        const data = enriched.map((s) => appendGambiaStatutoryDeductionsIfEnabled(s, gambiaEnabled, gambiaMode));
         return res.status(200).json({
             success: true,
             data,
