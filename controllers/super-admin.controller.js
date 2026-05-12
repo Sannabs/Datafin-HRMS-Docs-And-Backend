@@ -1,8 +1,8 @@
 import crypto from "crypto";
+import { hashPassword } from "better-auth/crypto";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { ensurePlatformTenant } from "../utils/platformTenant.js";
-import { auth } from "../utils/auth.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { sendPlatformAdminInviteEmail } from "../views/sendPlatformAdminInviteEmail.js";
 import {
@@ -786,25 +786,37 @@ export const invitePlatformAdmin = async (req, res) => {
       null
     );
 
-    const result = await auth.api.signUpEmail({
-      body: {
-        email,
-        password: crypto.randomUUID(),
-        name: name?.trim() || email,
-        tenantId: platformTenant.id,
-        role: "SUPER_ADMIN",
-        employeeId,
-        status: "ACTIVE",
-        employmentType: "FULL_TIME",
-      },
-      headers: {},
+    // Create user + credential account directly so Better Auth does not send
+    // signup email verification (OTP); invite email carries the set-password link.
+    const placeholderHash = await hashPassword(crypto.randomUUID());
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          tenantId: platformTenant.id,
+          email,
+          password: placeholderHash,
+          name: name?.trim() || email,
+          emailVerified: true,
+          role: "SUPER_ADMIN",
+          employeeId,
+          status: "ACTIVE",
+          employmentType: "FULL_TIME",
+        },
+        select: { id: true, email: true },
+      });
+      await tx.account.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId: created.id,
+          accountId: created.id,
+          providerId: "credential",
+          password: placeholderHash,
+        },
+      });
+      return created;
     });
 
-    if (!result?.user) {
-      throw new Error("Failed to create platform admin user");
-    }
-
-    const userId = result.user.id;
+    const userId = user.id;
     const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
     const resetToken = crypto.randomBytes(12).toString("hex");
     const expiresAt = new Date(Date.now() + 3600 * 1000);
@@ -820,14 +832,9 @@ export const invitePlatformAdmin = async (req, res) => {
 
     const resetUrl = `${clientUrl}/reset-password/${resetToken}`;
     await sendPlatformAdminInviteEmail({
-      to: result.user.email,
+      to: user.email,
       resetUrl,
-      userName: name?.trim() || result.user.email,
-    });
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: { emailVerified: true },
+      userName: name?.trim() || user.email,
     });
 
     logger.info("Platform admin invited by super admin", {
@@ -840,8 +847,8 @@ export const invitePlatformAdmin = async (req, res) => {
       message:
         "Platform admin invited. They will receive an email to set their password and sign in.",
       data: {
-        id: result.user.id,
-        email: result.user.email,
+        id: user.id,
+        email: user.email,
       },
     });
   } catch (error) {
