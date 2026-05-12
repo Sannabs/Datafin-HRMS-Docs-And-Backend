@@ -862,6 +862,7 @@ export const getPayrollRunById = async (req, res) => {
                         image: true,
                     },
                 },
+                progress: true,
                 _count: {
                     select: { payslips: true },
                 },
