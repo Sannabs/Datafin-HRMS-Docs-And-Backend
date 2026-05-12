@@ -974,6 +974,37 @@ export const retryBatchJob = async (req, res) => {
     }
 };
 
+/** GET /api/batch-jobs/:id/status — lightweight JSON for polling (same shape as SSE snapshots). */
+export const getBatchJobStatus = async (req, res) => {
+    try {
+        const tenantId = tenantIdFromReq(req);
+        const { id } = req.params;
+        const job = await prisma.batchJob.findFirst({ where: { id, tenantId } });
+        if (!job) {
+            return res.status(404).json({ success: false, message: "Batch job not found" });
+        }
+        const total = job.totalRows || 0;
+        const completed = job.processedCount || 0;
+        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return res.json({
+            success: true,
+            data: {
+                status: batchStatusToApi(job.status),
+                progress: {
+                    completed,
+                    total,
+                    failed: job.failedCount ?? 0,
+                    success: job.successCount ?? 0,
+                    percentage,
+                },
+            },
+        });
+    } catch (e) {
+        logger.error(`getBatchJobStatus: ${e.message}`, { stack: e.stack });
+        return res.status(500).json({ success: false, message: "Failed to fetch batch job status" });
+    }
+};
+
 export const getBatchJobStatusStream = async (req, res) => {
     try {
         const tenantId = tenantIdFromReq(req);

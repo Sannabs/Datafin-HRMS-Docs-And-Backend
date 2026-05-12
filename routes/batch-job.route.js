@@ -18,6 +18,7 @@ import {
     createDeductionAllocationBatch,
     startBatchJob,
     retryBatchJob,
+    getBatchJobStatus,
     getBatchJobStatusStream,
 } from "../controllers/batch-job.controller.js";
 
@@ -41,6 +42,7 @@ router.post("/allowance-allocation", createAllowanceAllocationBatch);
 router.post("/deduction-allocation", createDeductionAllocationBatch);
 
 router.get("/:id/status/stream", getBatchJobStatusStream);
+router.get("/:id/status", getBatchJobStatus);
 router.get("/:id/rows", getBatchJobRows);
 router.get("/:id/export", exportBatchJobRows);
 router.post("/:id/start", startBatchJob);
