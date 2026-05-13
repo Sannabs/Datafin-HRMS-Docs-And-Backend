@@ -11,6 +11,9 @@
  * - Employee share: 5% of base salary (may be deducted from pay OR paid by employer on behalf, per tenant setting).
  * - Employer share: typically 10% of base salary (company cost, not deducted from pay).
  * - Employee deductions affect net pay; employer contributions are shown separately for transparency/reporting.
+ *
+ * IICF (INDUSTRIAL INJURIES COMPENSATION FUND)
+ * - Employer pays the lower of GMD 15 and 1% of monthly base salary; not deducted from the employee.
  */
 
 /** Monthly tax-free threshold (GMD). */
@@ -21,6 +24,12 @@ export const GAMBIA_SSN_EMPLOYEE_RATE = 0.05;
 
 /** Default employer social security rate (%) for Gambia when not configured on tenant. */
 export const GAMBIA_SSN_EMPLOYER_DEFAULT_RATE_PERCENT = 10;
+
+/** IICF monthly cap (GMD). */
+export const GAMBIA_IICF_CAP_GMD = 15;
+
+/** IICF rate applied to monthly base before comparing to cap (1%). */
+export const GAMBIA_IICF_RATE = 0.01;
 
 function round2(amount) {
     return Math.round((Number(amount) || 0) * 100) / 100;
@@ -45,7 +54,7 @@ export function resolveEmployerSocialSecurityRatePercent(tenantRatePercent, gamb
  * @param {number} baseSalary - Monthly base salary (GMD); employer and employee SSN-on-behalf amounts use this base
  * @param {"DEDUCT_FROM_EMPLOYEE"|"EMPLOYER_PAYS_ON_BEHALF"|null|undefined} ssnFundingMode
  * @param {number|null|undefined} employerRatePercent - Employer share rate (% of base salary)
- * @returns {Array<{ name: string, amount: number, calculationMethod: "PERCENTAGE", description: string }>}
+ * @returns {Array<{ name: string, amount: number, calculationMethod: "PERCENTAGE"|"FORMULA", description?: string }>}
  */
 export function buildGambiaEmployerContributionLines(baseSalary, ssnFundingMode, employerRatePercent) {
     const lines = [];
@@ -66,6 +75,17 @@ export function buildGambiaEmployerContributionLines(baseSalary, ssnFundingMode,
             description: "5% of base",
         });
     }
+
+    const base = Math.max(0, Number(baseSalary) || 0);
+    const iicfAmount = round2(Math.min(GAMBIA_IICF_CAP_GMD, base * GAMBIA_IICF_RATE));
+    if (iicfAmount > 0) {
+        lines.push({
+            name: "IICF",
+            amount: iicfAmount,
+            calculationMethod: "FORMULA",
+        });
+    }
+
     return lines;
 }
 

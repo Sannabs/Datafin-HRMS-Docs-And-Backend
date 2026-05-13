@@ -30,24 +30,51 @@ const launchBrowser = () => {
     });
 };
 
+/** PDF margins (mm); tighter than before to maximize one-page fits. */
+const PAYSLIP_PDF_MARGIN_MM = 12;
+
 /**
  * Render HTML template to PDF buffer using an existing browser (caller manages browser lifecycle).
+ * Uses a compact layout plus dynamic scale so tall payslips (many allowances/deductions) stay on one A4 page when possible.
  * @param {import("puppeteer").Browser} browser
  * @param {string} template
  */
 const renderPayslipPdfBuffer = async (browser, template) => {
     const page = await browser.newPage();
     try {
+        await page.setViewport({ width: 720, height: 2400, deviceScaleFactor: 1 });
         await page.setContent(template, { waitUntil: "domcontentloaded" });
+        await page.emulateMediaType("print");
+
+        const usableHeightMm = 297 - PAYSLIP_PDF_MARGIN_MM * 2;
+        const usableHeightPx = (usableHeightMm / 25.4) * 96;
+
+        const contentHeight = await page.evaluate(() =>
+            Math.ceil(
+                Math.max(
+                    document.body?.scrollHeight ?? 0,
+                    document.documentElement?.scrollHeight ?? 0
+                )
+            )
+        );
+
+        let scale = 1;
+        if (contentHeight > usableHeightPx + 1) {
+            scale = usableHeightPx / contentHeight;
+            scale = Math.min(1, Math.max(scale, 0.72));
+        }
+
         return await page.pdf({
             format: "A4",
             printBackground: true,
             margin: {
-                top: "20mm",
-                right: "15mm",
-                bottom: "20mm",
-                left: "15mm",
+                top: `${PAYSLIP_PDF_MARGIN_MM}mm`,
+                right: `${PAYSLIP_PDF_MARGIN_MM}mm`,
+                bottom: `${PAYSLIP_PDF_MARGIN_MM}mm`,
+                left: `${PAYSLIP_PDF_MARGIN_MM}mm`,
             },
+            scale,
+            preferCSSPageSize: false,
         });
     } finally {
         await page.close();
@@ -98,26 +125,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
         const grossYTD = formatCurrency(payslipData.grossSalaryYTD ?? 0, currency);
         const deductionsYTD = formatCurrency(payslipData.totalDeductionsYTD ?? 0, currency);
         const netYTD = formatCurrency(payslipData.netSalaryYTD ?? 0, currency);
-        const ytdSectionHTML = `
-            <div class="breakdown-section ytd-section">
-                <div class="section-title">Year to date</div>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td>Gross salary YTD</td>
-                            <td class="amount">${grossYTD}</td>
-                        </tr>
-                        <tr>
-                            <td>Total deductions YTD</td>
-                            <td class="amount">${deductionsYTD}</td>
-                        </tr>
-                        <tr class="total-row">
-                            <td><strong>Net salary YTD</strong></td>
-                            <td class="amount"><strong>${netYTD}</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>`;
+        const ytdSectionHTML = `<div class="breakdown-section ytd-section"><div class="section-title">Year to date</div><table><tbody><tr><td>Gross salary YTD</td><td class="amount">${grossYTD}</td></tr><tr><td>Total deductions YTD</td><td class="amount">${deductionsYTD}</td></tr><tr class="total-row"><td><strong>Net salary YTD</strong></td><td class="amount"><strong>${netYTD}</strong></td></tr></tbody></table></div>`;
 
         // Employer contributions section (for transparency; does not affect net pay)
         let employerSSHFCSectionHTML = "";
@@ -146,15 +154,7 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
                     return `<tr><td>${name}</td><td class="amount">${amount}</td></tr>`;
                 })
                 .join("");
-            employerSSHFCSectionHTML = `
-            <div class="breakdown-section employer-section">
-                <div class="section-title">Employer contribution</div>
-                <table>
-                    <tbody>
-                        ${rows}
-                    </tbody>
-                </table>
-            </div>`;
+            employerSSHFCSectionHTML = `<div class="breakdown-section employer-section"><div class="section-title">Employer contribution</div><table><tbody>${rows}</tbody></table></div>`;
         }
 
         // Generate allowances HTML (name and amount only)
