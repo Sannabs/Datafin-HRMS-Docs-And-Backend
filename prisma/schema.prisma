@@ -432,6 +432,8 @@ model User {
   dateOfBirth     DateTime?
   SSN             String?
   tinNumber       String?
+  bankName        String?
+  accountNumber   String?
   role            UserRole  @default(STAFF)
   isPlatformOwner Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
   isDeleted       Boolean   @default(false)

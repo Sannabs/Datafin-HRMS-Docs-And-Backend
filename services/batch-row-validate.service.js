@@ -349,6 +349,27 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                     }
                 }
 
+                const bankNameRaw = pick(payload, "bank_name", "bankName");
+                const accountNumberRaw = pick(payload, "account_number", "accountNumber");
+                if (bankNameRaw && String(bankNameRaw).trim().length > 120) {
+                    pushValidationError(
+                        rowErrors,
+                        rn,
+                        "bank_name",
+                        "bank_name must be at most 120 characters",
+                        bankNameRaw
+                    );
+                }
+                if (accountNumberRaw && String(accountNumberRaw).trim().length > 64) {
+                    pushValidationError(
+                        rowErrors,
+                        rn,
+                        "account_number",
+                        "account_number must be at most 64 characters",
+                        accountNumberRaw
+                    );
+                }
+
                 await resolveDeptPosIds(
                     tenantId,
                     departmentName,
@@ -609,6 +630,26 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                     if (Number.isNaN(salaryNum) || salaryNum <= 0) {
                         const message = "Invalid base_salary (must be a positive number)";
                         pushValidationError(rowErrors, rn, "base_salary", message, value);
+                    }
+                } else if (field === "bank_name" || field === "bankname") {
+                    if (value && String(value).trim().length > 120) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "field",
+                            "bank_name must be at most 120 characters",
+                            value
+                        );
+                    }
+                } else if (field === "account_number" || field === "accountnumber") {
+                    if (value && String(value).trim().length > 64) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "field",
+                            "account_number must be at most 64 characters",
+                            value
+                        );
                     }
                 } else if (
                     fieldRaw &&

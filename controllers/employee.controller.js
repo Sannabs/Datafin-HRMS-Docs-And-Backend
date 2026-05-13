@@ -38,6 +38,27 @@ function sumLineAmounts(lines) {
     return Math.round(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) * 100) / 100;
 }
 
+const BANK_NAME_MAX_LEN = 120;
+const ACCOUNT_NUMBER_MAX_LEN = 64;
+
+/** Trim and cap length; empty string becomes null for optional bank fields. */
+function normalizeOptionalBankField(val, maxLen) {
+    if (val == null) return null;
+    const s = String(val).trim();
+    if (!s) return null;
+    return s.slice(0, maxLen);
+}
+
+function normalizeBankFieldsOnUpdateObject(obj) {
+    if (!obj) return;
+    if (Object.prototype.hasOwnProperty.call(obj, "bankName")) {
+        obj.bankName = normalizeOptionalBankField(obj.bankName, BANK_NAME_MAX_LEN);
+    }
+    if (Object.prototype.hasOwnProperty.call(obj, "accountNumber")) {
+        obj.accountNumber = normalizeOptionalBankField(obj.accountNumber, ACCOUNT_NUMBER_MAX_LEN);
+    }
+}
+
 function canAccessEmployeeDocument(requesterRole, requesterId, targetEmployeeId, hasEffectiveTenant) {
     const canViewOtherEmployees =
         ["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"].includes(requesterRole) ||
@@ -335,7 +356,17 @@ export const exportEmployees = async (req, res) => {
             take: MAX_EMPLOYEE_EXPORT,
         });
 
-        const headers = ["Employee", "Employee ID", "Date Joined", "Department", "Role", "Email", "Status"];
+        const headers = [
+            "Employee",
+            "Employee ID",
+            "Date Joined",
+            "Department",
+            "Role",
+            "Email",
+            "Status",
+            "Bank name",
+            "Account number",
+        ];
         const rows = employees.map((employee) => [
             escapeCsv(employee.name),
             escapeCsv(employee.employeeId),
@@ -344,6 +375,8 @@ export const exportEmployees = async (req, res) => {
             escapeCsv(employee.position?.title ?? ""),
             escapeCsv(employee.email ?? ""),
             escapeCsv(employee.status ?? ""),
+            escapeCsv(employee.bankName ?? ""),
+            escapeCsv(employee.accountNumber ?? ""),
         ]);
         const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
@@ -611,6 +644,8 @@ export const updateMyProfle = async (req, res) => {
             "dateOfBirth",
             "SSN",
             "tinNumber",
+            "bankName",
+            "accountNumber",
             "image",
             "emergencyContactName",
             "emergencyContactRelationship",
@@ -624,6 +659,8 @@ export const updateMyProfle = async (req, res) => {
                 filteredData[field] = updateData[field];
             }
         }
+
+        normalizeBankFieldsOnUpdateObject(filteredData);
 
         // If no valid fields to update
         if (Object.keys(filteredData).length === 0) {
@@ -791,6 +828,8 @@ export const updateEmployee = async (req, res) => {
             "dateOfBirth",
             "SSN",
             "tinNumber",
+            "bankName",
+            "accountNumber",
             "image",
             "departmentId",
             "positionId",
@@ -809,6 +848,8 @@ export const updateEmployee = async (req, res) => {
                 filteredData[field] = updateData[field];
             }
         }
+
+        normalizeBankFieldsOnUpdateObject(filteredData);
 
         // If no valid fields to update
         if (Object.keys(filteredData).length === 0) {
