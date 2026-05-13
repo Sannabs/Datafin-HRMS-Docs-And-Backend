@@ -2,6 +2,7 @@ import sendEmail from "./resend.service.js";
 import logger from "../utils/logger.js";
 import prisma from "../config/prisma.config.js";
 import { renderEmailTemplate, htmlToText } from "../utils/email-template.utils.js";
+import { formatCurrency } from "../utils/payslip.utils.js";
 
 /**
  * Send email notification when pay period status changes automatically
@@ -118,8 +119,8 @@ export const sendPayrollCompletionEmail = async (payPeriod, tenantId) => {
         const html = await renderEmailTemplate("payroll-completion", {
             periodName: payPeriod.periodName,
             totalEmployees: totalEmployees,
-            totalGrossPay: totalGrossPay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            totalNetPay: totalNetPay.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            totalGrossPayFormatted: formatCurrency(totalGrossPay, "GMD"),
+            totalNetPayFormatted: formatCurrency(totalNetPay, "GMD"),
         });
 
         const text = htmlToText(html);

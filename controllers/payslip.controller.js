@@ -1272,6 +1272,23 @@ export const distributePayslips = async (req, res) => {
             });
         }
 
+        // Payroll worker generates PDFs in the background (non-blocking), so filePath may be
+        // missing when a run is already COMPLETED. Match bulk ZIP: generate any missing PDFs
+        // before attempting email attachments.
+        const needsGeneration = payslips.filter((p) => !p.filePath);
+        if (needsGeneration.length > 0) {
+            logger.info(`Generating ${needsGeneration.length} missing payslip PDF(s) before distribute for run ${runId}`);
+            const generated = await generatePayslipsBatch(
+                needsGeneration.map((p) => p.id),
+                tenantId
+            );
+            for (const payslip of payslips) {
+                if (!payslip.filePath && generated.has(payslip.id)) {
+                    payslip.filePath = generated.get(payslip.id);
+                }
+            }
+        }
+
         // Track distribution results
         const results = {
             total: payslips.length,

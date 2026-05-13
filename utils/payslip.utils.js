@@ -242,6 +242,15 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
     };
 };
 
+/** Display symbols aligned with frontend (GMD → D, not ISO "GMD" from Intl). */
+const CURRENCY_SYMBOLS = {
+    USD: "$",
+    GMD: "D",
+    XOF: "CFA",
+    EUR: "€",
+    GBP: "£",
+};
+
 /**
  * Format currency value
  * @param {number} amount - Amount to format
@@ -249,10 +258,12 @@ export const getPayslipBreakdown = async (userId, tenantId, payPeriodStartDate, 
  * @returns {string} Formatted currency string
  */
 export const formatCurrency = (amount, currency = "GMD") => {
-    return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
+    const symbol = CURRENCY_SYMBOLS[currency] ?? currency;
+    const formatted = new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     }).format(amount || 0);
+    return `${symbol}${formatted}`;
 };
 
 /**
