@@ -10,6 +10,7 @@ const COMPANY_INFO_SELECT = {
     phone: true,
     email: true,
     website: true,
+    employerTin: true,
 };
 
 /**
@@ -46,6 +47,7 @@ export const getTenantProfile = async (req, res) => {
                 phone: tenant.phone ?? null,
                 email: tenant.email ?? null,
                 website: tenant.website ?? null,
+                employerTin: tenant.employerTin ?? null,
             },
         });
     } catch (error) {
@@ -64,13 +66,13 @@ export const getTenantProfile = async (req, res) => {
 /**
  * PATCH /api/tenant
  * Updates company info (including code).
- * Body: { name?: string, code?: string, addressLine1?: string | null, addressLine2?: string | null, phone?: string | null, email?: string | null, website?: string | null }
+ * Body: { name?, code?, addressLine1?, addressLine2?, phone?, email?, website?, employerTin? }
  */
 export const updateTenantProfile = async (req, res) => {
     try {
         const tenantId = req.effectiveTenantId ?? req.user.tenantId;
         const { id: userId } = req.user;
-        const { name, code, addressLine1, addressLine2, phone, email, website } = req.body;
+        const { name, code, addressLine1, addressLine2, phone, email, website, employerTin } = req.body;
 
         const updateData = {};
         if (name !== undefined) {
@@ -124,12 +126,17 @@ export const updateTenantProfile = async (req, res) => {
         if (website !== undefined) {
             updateData.website = website == null || website === "" ? null : String(website).trim();
         }
+        if (employerTin !== undefined) {
+            updateData.employerTin =
+                employerTin == null || employerTin === "" ? null : String(employerTin).trim();
+        }
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
-                message: "No valid fields to update (name, code, addressLine1, addressLine2, phone, email, website)",
+                message:
+                    "No valid fields to update (name, code, addressLine1, addressLine2, phone, email, website, employerTin)",
             });
         }
 
@@ -166,6 +173,7 @@ export const updateTenantProfile = async (req, res) => {
                 phone: tenant.phone ?? null,
                 email: tenant.email ?? null,
                 website: tenant.website ?? null,
+                employerTin: tenant.employerTin ?? null,
             },
             message: "Company info updated",
         });

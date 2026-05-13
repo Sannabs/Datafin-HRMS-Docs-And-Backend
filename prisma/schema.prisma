@@ -275,6 +275,8 @@ model Tenant {
   phone        String?
   email        String?
   website      String?
+  /// Employer TIN for GRA statutory filings (e.g. PAYE schedule PDF). Optional; env fallback used when empty.
+  employerTin  String?
 
   // Weekend configuration: array of day numbers (0=Sunday, 6=Saturday)
   // Default: [0, 6] for Saturday/Sunday weekends

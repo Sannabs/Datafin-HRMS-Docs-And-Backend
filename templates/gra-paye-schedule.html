@@ -16,12 +16,25 @@
     .wrap {
       max-width: 100%;
     }
+    .header-band {
+      position: relative;
+      margin-bottom: 4px;
+    }
+    .form-code {
+      position: absolute;
+      top: 0;
+      right: 0;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
     .republic {
       text-align: center;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.06em;
-      margin-bottom: 4px;
+      padding-right: 64px;
+      padding-left: 64px;
     }
     .gra-line {
       text-align: center;
@@ -85,42 +98,75 @@
       font-weight: 700;
       background: #fafafa;
     }
-    .cert {
-      font-size: 7.5px;
-      margin: 8px 0 10px;
-    }
-    .office {
+    .cert-office-box {
       border: 1px solid #222;
-      padding: 8px;
-      margin-top: 4px;
+      padding: 8px 10px 10px;
+      margin-top: 6px;
+      font-size: 7.5px;
     }
-    .office h3 {
-      margin: 0 0 6px;
+    .cert-statement {
+      margin: 0 0 10px;
+      font-size: 7.5px;
+      line-height: 1.35;
+    }
+    .sign-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 8px;
+    }
+    .sign-row .sign-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .sign-row .sign-line {
+      flex: 1 1 auto;
+      min-height: 14px;
+      border-bottom: 1px dotted #333;
+    }
+    .office-use-heading {
+      margin: 10px 0 8px;
       font-size: 8.5px;
+      font-weight: 700;
       text-align: center;
       text-transform: uppercase;
     }
-    .office-row {
+    .office-three-cols {
       display: grid;
-      grid-template-columns: 140px 1fr;
-      gap: 4px 8px;
-      font-size: 8px;
-      margin-bottom: 6px;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px 10px;
+      font-size: 7.5px;
       align-items: end;
     }
-    .office-row .line {
-      border-bottom: 1px solid #333;
-      min-height: 16px;
+    .office-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .office-field span.label {
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .office-field .dotted-line {
+      min-height: 12px;
+      border-bottom: 1px dotted #333;
+      width: 100%;
     }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="republic">REPUBLIC OF THE GAMBIA</div>
-    <div class="gra-line">GAMBIA REVENUE AUTHORITY</div>
+    <div class="header-band">
+      <span class="form-code">GRA RET 5</span>
+      <div class="republic">REPUBLIC OF THE GAMBIA</div>
+    </div>
     <div class="logo-wrap">
       <img src="{{LOGO_DATA_URI}}" alt="" />
     </div>
+    <div class="gra-line">GAMBIA REVENUE AUTHORITY</div>
     <h1 class="title">Employers schedule of monthly P.A.Y.E deductions from employees remuneration for the month of {{MONTH_TITLE}}</h1>
 
     <div class="employer-grid">
@@ -149,21 +195,30 @@
       </tbody>
     </table>
 
-    <div class="cert">I certify that the entries made above are true and complete.</div>
-
-    <div class="office">
-      <h3>For office use</h3>
-      <div class="office-row">
-        <span>Name of receiving office</span>
-        <div class="line"></div>
+    <div class="cert-office-box">
+      <p class="cert-statement">I certify that the entries made above are true and complete</p>
+      <div class="sign-row">
+        <span class="sign-label">Name of Officer</span>
+        <span class="sign-line" aria-hidden="true"></span>
       </div>
-      <div class="office-row">
-        <span>Signature of receiving officer</span>
-        <div class="line"></div>
+      <div class="sign-row">
+        <span class="sign-label">Designation</span>
+        <span class="sign-line" aria-hidden="true"></span>
       </div>
-      <div class="office-row">
-        <span>Date</span>
-        <div class="line"></div>
+      <h3 class="office-use-heading">For office use</h3>
+      <div class="office-three-cols">
+        <div class="office-field">
+          <span class="label">Name of receiving Office</span>
+          <div class="dotted-line" aria-hidden="true"></div>
+        </div>
+        <div class="office-field">
+          <span class="label">Signature of Receiving Officer</span>
+          <div class="dotted-line" aria-hidden="true"></div>
+        </div>
+        <div class="office-field">
+          <span class="label">Date</span>
+          <div class="dotted-line" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
   </div>

@@ -15,8 +15,9 @@ const templatePath =
     process.env.GRA_PAYE_SCHEDULE_TEMPLATE_PATH || join(__dirname, "../templates/gra-paye-schedule.html");
 const logoPath = process.env.GRA_LOGO_PATH || join(__dirname, "../images/gra-logo.png");
 
-const EMPLOYER_TIN_PLACEHOLDER =
-    process.env.GRA_EMPLOYER_TIN_PLACEHOLDER?.trim() || "[EMPLOYER TIN — configure GRA_EMPLOYER_TIN_PLACEHOLDER]";
+/** Used on the PDF only when the tenant has no `employerTin` (and optional env override). */
+const EMPLOYER_TIN_FALLBACK =
+    process.env.GRA_EMPLOYER_TIN_PLACEHOLDER?.trim() || "[EMPLOYER TIN — set in company settings or GRA_EMPLOYER_TIN_PLACEHOLDER]";
 
 /** Tight margins so one A4 page fits for typical headcounts before scaling. */
 const GRA_PDF_MARGIN_MM = 8;
@@ -236,10 +237,13 @@ export async function buildGraPayeSchedulePdfBuffer(run) {
     const employerName =
         run.tenant?.name && String(run.tenant.name).trim() !== "" ? String(run.tenant.name).trim() : "—";
 
+    const tinFromTenant = run.tenant?.employerTin != null ? String(run.tenant.employerTin).trim() : "";
+    const employerTinDisplay = tinFromTenant.length > 0 ? tinFromTenant : EMPLOYER_TIN_FALLBACK;
+
     const replacements = {
         LOGO_DATA_URI: logoDataUri,
         MONTH_TITLE: escapeHtml(monthTitleFromPayPeriod(run.payPeriod)),
-        EMPLOYER_TIN: escapeHtml(EMPLOYER_TIN_PLACEHOLDER),
+        EMPLOYER_TIN: escapeHtml(employerTinDisplay),
         EMPLOYER_NAME: escapeHtml(employerName),
         EMPLOYER_ADDRESS: escapeHtml(buildEmployerAddress(run.tenant)),
         TABLE_BODY: rows.join("\n") + totalsRow,
