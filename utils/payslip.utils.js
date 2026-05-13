@@ -315,6 +315,29 @@ export const getPayslipYTD = async (userId, tenantId, periodEndDate) => {
     };
 };
 
+/** Deduction line label used when Gambia statutory PAYE is applied (see payroll-run.service breakdown). */
+export const PAYE_GRA_DEDUCTION_NAME = "PAYE (GRA)";
+
+/**
+ * Extract GRA PAYE amount from a payslip breakdown snapshot (0 if missing).
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getPayeFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    const deds = breakdownSnapshot.deductions;
+    if (!Array.isArray(deds)) return 0;
+    const match =
+        deds.find((d) => String(d?.name ?? "").trim() === PAYE_GRA_DEDUCTION_NAME) ||
+        deds.find(
+            (d) =>
+                /paye/i.test(String(d?.name ?? "")) &&
+                /gra/i.test(String(d?.name ?? ""))
+        );
+    const n = Number(match?.amount);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
 /**
  * Sum overtime pay amounts from payslip breakdown snapshots (YTD).
  * @param {string} userId

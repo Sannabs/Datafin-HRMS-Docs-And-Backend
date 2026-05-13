@@ -342,6 +342,7 @@ model Tenant {
   employeeDocuments            EmployeeDocument[]
   employeeWarnings             EmployeeWarning[]
   employeeWarningAttachments   EmployeeWarningAttachment[]
+  graPayeScheduleDocuments     GraPayeScheduleDocument[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -1044,12 +1045,31 @@ model PayrollRun {
   payslips  Payslip[]
   progress  PayrollProgress?
 
+  /// GRA-style monthly PAYE schedule PDF for this run (when generated)
+  graPayeScheduleDocument GraPayeScheduleDocument?
+
   @@unique([tenantId, runCode])
   @@index([tenantId])
   @@index([tenantId, payPeriodId])
   @@index([status, runDate])
   @@index([queueJobId])
   @@index([runCode])
+}
+
+/// Stored GRA RET-5 style employer PAYE schedule PDF for a completed payroll run
+model GraPayeScheduleDocument {
+  id           String     @id @default(uuid())
+  payrollRunId String     @unique
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  size         Int
+  created      DateTime   @default(now())
+  /// R2 object key (same pattern as payslip `filePath`)
+  filePath     String
+
+  @@index([tenantId])
 }
 
 model Payslip {
