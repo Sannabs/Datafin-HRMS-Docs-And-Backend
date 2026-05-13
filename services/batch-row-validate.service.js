@@ -631,6 +631,16 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                         const message = "Invalid base_salary (must be a positive number)";
                         pushValidationError(rowErrors, rn, "base_salary", message, value);
                     }
+                } else if (field === "ssn") {
+                    if (value && String(value).trim().length > 64) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "field",
+                            "ssn must be at most 64 characters",
+                            value
+                        );
+                    }
                 } else if (field === "bank_name" || field === "bankname") {
                     if (value && String(value).trim().length > 120) {
                         pushValidationError(

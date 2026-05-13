@@ -345,7 +345,10 @@ export async function processBatchJobById(batchJobId) {
                         if (field === "phone") data.phone = value || null;
                         else if (field === "address") data.address = value || null;
                         else if (field === "name") data.name = value || null;
-                        else if (field === "bank_name" || field === "bankname") {
+                        else if (field === "ssn") {
+                            const s = String(value).trim();
+                            data.SSN = s ? s.slice(0, 64) : null;
+                        } else if (field === "bank_name" || field === "bankname") {
                             const s = String(value).trim();
                             data.bankName = s ? s.slice(0, 120) : null;
                         } else if (field === "account_number" || field === "accountnumber") {
