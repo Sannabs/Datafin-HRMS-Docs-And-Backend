@@ -6,11 +6,11 @@ import logger from "./logger.js";
  * else first active shift by createdAt, else null.
  *
  * @param {string} tenantId
- * @param {{ logContext?: string }} [options] - optional label for logs (e.g. email)
+ * @param {{ logContext?: string; silent?: boolean }} [options] - optional label for logs (e.g. email); silent skips logger output (e.g. batch backfills)
  * @returns {Promise<string|null>}
  */
 export async function resolveTenantEmployeeShiftId(tenantId, options = {}) {
-    const { logContext } = options;
+    const { logContext, silent } = options;
 
     const defaultShift = await prisma.shift.findFirst({
         where: {
@@ -21,10 +21,12 @@ export async function resolveTenantEmployeeShiftId(tenantId, options = {}) {
     });
 
     if (defaultShift) {
-        if (logContext) {
-            logger.info(`Assigning default shift to ${logContext}`);
-        } else {
-            logger.info(`Assigning default shift for tenant ${tenantId}`);
+        if (!silent) {
+            if (logContext) {
+                logger.info(`Assigning default shift to ${logContext}`);
+            } else {
+                logger.info(`Assigning default shift for tenant ${tenantId}`);
+            }
         }
         return defaultShift.id;
     }
@@ -38,16 +40,20 @@ export async function resolveTenantEmployeeShiftId(tenantId, options = {}) {
     });
 
     if (firstShift) {
-        if (logContext) {
-            logger.warn(`No default shift found, using first active shift for ${logContext}`);
-        } else {
-            logger.warn(`No default shift found, using first active shift for tenant ${tenantId}`);
+        if (!silent) {
+            if (logContext) {
+                logger.warn(`No default shift found, using first active shift for ${logContext}`);
+            } else {
+                logger.warn(`No default shift found, using first active shift for tenant ${tenantId}`);
+            }
         }
         return firstShift.id;
     }
 
-    logger.warn(
-        `No active shifts found for tenant ${tenantId}, employee will be created without shift`
-    );
+    if (!silent) {
+        logger.warn(
+            `No active shifts found for tenant ${tenantId}, employee will be created without shift`
+        );
+    }
     return null;
 }

@@ -57,17 +57,34 @@
       margin: 0 0 10px;
       text-transform: uppercase;
     }
-    .employer-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4px 12px;
+    .employer-block {
+      margin: 0 auto 10px;
+      width: 100%;
+      max-width: 520px;
       font-size: 8px;
-      margin-bottom: 8px;
     }
-    .employer-grid .label { font-weight: 600; }
-    .employer-grid .val { border-bottom: 1px solid #333; min-height: 14px; padding: 1px 0; word-break: break-word; }
-    .employer-full {
-      grid-column: 1 / -1;
+    .employer-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 7px;
+    }
+    .employer-row:last-child {
+      margin-bottom: 0;
+    }
+    .employer-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .employer-line {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 14px;
+      padding: 0 2px 2px;
+      border-bottom: 1px dotted #333;
+      word-break: break-word;
+      line-height: 1.25;
     }
     table.schedule {
       width: 100%;
@@ -122,15 +139,22 @@
       white-space: nowrap;
     }
     .sign-row .sign-line {
-      flex: 1 1 auto;
+      flex: 0 0 auto;
+      width: 11rem;
+      max-width: 42%;
       min-height: 14px;
       border-bottom: 1px dotted #333;
     }
+    .office-use-section {
+      border-top: 1px solid #222;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
     .office-use-heading {
-      margin: 10px 0 8px;
+      margin: 0 0 8px;
       font-size: 8.5px;
       font-weight: 700;
-      text-align: center;
+      text-align: left;
       text-transform: uppercase;
     }
     .office-three-cols {
@@ -169,13 +193,19 @@
     <div class="gra-line">GAMBIA REVENUE AUTHORITY</div>
     <h1 class="title">Employers schedule of monthly P.A.Y.E deductions from employees remuneration for the month of {{MONTH_TITLE}}</h1>
 
-    <div class="employer-grid">
-      <div class="label">Employer&rsquo;s TIN</div>
-      <div class="val">{{EMPLOYER_TIN}}</div>
-      <div class="label">Name of employer</div>
-      <div class="val">{{EMPLOYER_NAME}}</div>
-      <div class="label employer-full">Address of employer</div>
-      <div class="val employer-full">{{EMPLOYER_ADDRESS}}</div>
+    <div class="employer-block">
+      <div class="employer-row">
+        <span class="employer-label">Employer&rsquo;s TIN</span>
+        <span class="employer-line">{{EMPLOYER_TIN}}</span>
+      </div>
+      <div class="employer-row">
+        <span class="employer-label">Name of employer</span>
+        <span class="employer-line">{{EMPLOYER_NAME}}</span>
+      </div>
+      <div class="employer-row">
+        <span class="employer-label">Address of employer</span>
+        <span class="employer-line">{{EMPLOYER_ADDRESS}}</span>
+      </div>
     </div>
 
     <table class="schedule">
@@ -205,19 +235,21 @@
         <span class="sign-label">Designation</span>
         <span class="sign-line" aria-hidden="true"></span>
       </div>
-      <h3 class="office-use-heading">For office use</h3>
-      <div class="office-three-cols">
-        <div class="office-field">
-          <span class="label">Name of receiving Office</span>
-          <div class="dotted-line" aria-hidden="true"></div>
-        </div>
-        <div class="office-field">
-          <span class="label">Signature of Receiving Officer</span>
-          <div class="dotted-line" aria-hidden="true"></div>
-        </div>
-        <div class="office-field">
-          <span class="label">Date</span>
-          <div class="dotted-line" aria-hidden="true"></div>
+      <div class="office-use-section">
+        <h3 class="office-use-heading">For office use only</h3>
+        <div class="office-three-cols">
+          <div class="office-field">
+            <span class="label">Name of receiving Office</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
+          <div class="office-field">
+            <span class="label">Signature of Receiving Officer</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
+          <div class="office-field">
+            <span class="label">Date</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
         </div>
       </div>
     </div>
