@@ -39,10 +39,23 @@
       padding: 0 8px;
     }
     .employer-block {
-      margin: 0 auto 10px;
+      margin: 0 0 10px 0;
       width: 100%;
-      max-width: 520px;
+      max-width: 100%;
       font-size: 8px;
+    }
+    .employer-row-split {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 7px;
+      align-items: baseline;
+    }
+    .employer-field-pair {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
     }
     .employer-row {
       display: flex;
@@ -66,6 +79,10 @@
       border-bottom: 1px dotted #333;
       word-break: break-word;
       line-height: 1.25;
+    }
+    .employer-line-half {
+      flex: 0 0 48%;
+      max-width: 48%;
     }
     table.remit {
       width: 100%;
@@ -112,21 +129,23 @@
   <h1 class="title">SOCIAL SECURITY AND HOUSING FINANCE CORPORATION REMITTANCE ADVICE FORM FOR THE MONTH OF {{MONTH_TITLE}}</h1>
 
   <div class="employer-block">
-    <div class="employer-row">
-      <span class="employer-label">Employer no.</span>
-      <span class="employer-line">—</span>
-    </div>
-    <div class="employer-row">
-      <span class="employer-label">Serial number</span>
-      <span class="employer-line">—</span>
+    <div class="employer-row-split">
+      <div class="employer-field-pair">
+        <span class="employer-label">Employer no.</span>
+        <span class="employer-line">—</span>
+      </div>
+      <div class="employer-field-pair">
+        <span class="employer-label">Serial number</span>
+        <span class="employer-line">—</span>
+      </div>
     </div>
     <div class="employer-row">
       <span class="employer-label">Employer name</span>
-      <span class="employer-line">{{EMPLOYER_NAME}}</span>
+      <span class="employer-line employer-line-half">{{EMPLOYER_NAME}}</span>
     </div>
     <div class="employer-row">
       <span class="employer-label">Telephone number</span>
-      <span class="employer-line">{{TELEPHONE}}</span>
+      <span class="employer-line employer-line-half">{{TELEPHONE}}</span>
     </div>
   </div>
 
@@ -135,9 +154,9 @@
       <tr>
         <th>EMPLOYEE SSN</th>
         <th>EMPLOYEE NAME</th>
-        <th>BASIC PAY</th>
-        <th>15% CONTRIBUTION</th>
-        <th>IICF</th>
+        <th>BASIC PAY (D)</th>
+        <th>15% CONTRIBUTION (D)</th>
+        <th>IICF (D)</th>
       </tr>
     </thead>
     <tbody>
