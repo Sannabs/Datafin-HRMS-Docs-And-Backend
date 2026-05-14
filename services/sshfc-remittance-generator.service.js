@@ -8,6 +8,7 @@ import logger from "../utils/logger.js";
 import { uploadSshfcRemittance, deletePayslip, getPayslipBuffer } from "./file-storage.service.js";
 import {
     getBaseSalaryFromBreakdownSnapshot,
+    getIicfFromBreakdownSnapshot,
     getSshfcTotalRemittanceFromBreakdownSnapshot,
 } from "../utils/payslip.utils.js";
 
@@ -128,12 +129,15 @@ export async function buildSshfcRemittancePdfBuffer(run) {
 
     let totalBasic = 0;
     let totalContr = 0;
+    let totalIicf = 0;
 
     const rows = sorted.map((slip) => {
         const basic = getBaseSalaryFromBreakdownSnapshot(slip.breakdownSnapshot);
         const contr = getSshfcTotalRemittanceFromBreakdownSnapshot(slip.breakdownSnapshot);
+        const iicf = getIicfFromBreakdownSnapshot(slip.breakdownSnapshot);
         totalBasic += basic;
         totalContr += contr;
+        totalIicf += iicf;
         const ssnRaw = slip.user?.SSN != null ? String(slip.user.SSN).trim() : "";
         const ssnDisplay = ssnRaw.length > 0 ? ssnRaw : "—";
         const name = slip.user?.name?.trim() || "—";
@@ -142,15 +146,19 @@ export async function buildSshfcRemittancePdfBuffer(run) {
           <td>${escapeHtml(name)}</td>
           <td class="num">${formatDalasi(basic)}</td>
           <td class="num">${formatDalasi(contr)}</td>
+          <td class="num">${formatDalasi(iicf)}</td>
         </tr>`;
     });
 
     totalBasic = Math.round(totalBasic * 100) / 100;
     totalContr = Math.round(totalContr * 100) / 100;
+    totalIicf = Math.round(totalIicf * 100) / 100;
 
     const totalsRow = `<tr class="totals">
-      <td colspan="3" class="total-label"><strong>TOTAL NPF</strong></td>
+      <td colspan="2" class="total-label"><strong>TOTALS</strong></td>
+      <td class="num"><strong>${formatDalasi(totalBasic)}</strong></td>
       <td class="num"><strong>${formatDalasi(totalContr)}</strong></td>
+      <td class="num"><strong>${formatDalasi(totalIicf)}</strong></td>
     </tr>`;
 
     const employerName =

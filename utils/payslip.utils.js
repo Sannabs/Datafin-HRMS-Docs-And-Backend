@@ -380,6 +380,23 @@ export const getSshfcTotalRemittanceFromBreakdownSnapshot = (breakdownSnapshot) 
     return Math.round((employeeShare + employerAmt) * 100) / 100;
 };
 
+/** Employer IICF line (see gambia-payroll.defaults.js `buildGambiaEmployerContributionLines`). */
+export const GAMBIA_IICF_LINE_NAME = "IICF";
+
+/**
+ * IICF amount from payslip breakdown snapshot employer contributions (0 if missing).
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getIicfFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    const em = breakdownSnapshot.employerContributions;
+    if (!Array.isArray(em)) return 0;
+    const line = em.find((d) => String(d?.name ?? "").trim() === GAMBIA_IICF_LINE_NAME);
+    const n = Number(line?.amount);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
 /**
  * Sum overtime pay amounts from payslip breakdown snapshots (YTD).
  * @param {string} userId
