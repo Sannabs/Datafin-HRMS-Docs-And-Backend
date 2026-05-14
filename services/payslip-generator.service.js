@@ -33,6 +33,42 @@ const launchBrowser = () => {
 /** PDF margins (mm); tighter than before to maximize one-page fits. */
 const PAYSLIP_PDF_MARGIN_MM = 12;
 
+const payslipDateFormatter = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+});
+
+const payslipGeneratedFormatter = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+});
+
+/**
+ * @param {Date|string|number|undefined|null} value
+ * @returns {string}
+ */
+const formatPayslipDate = (value) => {
+    if (value == null || value === "") return "";
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return payslipDateFormatter.format(d);
+};
+
+/**
+ * @param {Date|string|number|undefined|null} [value]
+ * @returns {string}
+ */
+const formatPayslipGeneratedAt = (value = new Date()) => {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return payslipGeneratedFormatter.format(d);
+};
+
 /**
  * Render HTML template to PDF buffer using an existing browser (caller manages browser lifecycle).
  * Uses a compact layout plus dynamic scale so tall payslips (many allowances/deductions) stay on one A4 page when possible.
@@ -113,12 +149,12 @@ export const generatePayslipPDF = async (payslipId, tenantId, payslipData, optio
             periodName: payslipData.periodName || "",
             startDate: payslipData.startDate || "",
             endDate: payslipData.endDate || "",
-            paymentDate: payslipData.paymentDate || new Date().toLocaleDateString(),
+            paymentDate: payslipData.paymentDate || formatPayslipDate(new Date()),
             baseSalary: formatCurrency(payslipData.baseSalary || 0, currency),
             grossSalary: formatCurrency(payslipData.grossSalary || 0, currency),
             totalDeductions: formatCurrency(payslipData.totalDeductions || 0, currency),
             netSalary: formatCurrency(payslipData.netSalary || 0, currency),
-            generatedAt: new Date().toLocaleString(),
+            generatedAt: formatPayslipGeneratedAt(new Date()),
         };
 
         // YTD section (year-to-date totals for current calendar year)
@@ -370,9 +406,9 @@ export const generatePayslipFromRecord = async (payslipId, tenantId, options = {
             department,
             position,
             periodName: payslip.payrollRun.payPeriod.periodName || "",
-            startDate: payslip.payrollRun.payPeriod.startDate.toLocaleDateString(),
-            endDate: payslip.payrollRun.payPeriod.endDate.toLocaleDateString(),
-            paymentDate: new Date().toLocaleDateString(),
+            startDate: formatPayslipDate(payslip.payrollRun.payPeriod.startDate),
+            endDate: formatPayslipDate(payslip.payrollRun.payPeriod.endDate),
+            paymentDate: formatPayslipDate(new Date()),
             baseSalary: breakdown.baseSalary,
             grossSalary: payslip.grossSalary,
             totalDeductions: payslip.totalDeductions,
