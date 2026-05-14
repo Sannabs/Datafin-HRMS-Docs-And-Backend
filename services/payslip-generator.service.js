@@ -71,18 +71,19 @@ const formatPayslipGeneratedAt = (value = new Date()) => {
 
 /**
  * Render HTML template to PDF buffer using an existing browser (caller manages browser lifecycle).
- * Uses a compact layout plus dynamic scale so tall payslips (many allowances/deductions) stay on one A4 page when possible.
+ * Uses a compact layout plus dynamic scale so tall payslips (many allowances/deductions) stay on one A4 landscape page when possible.
  * @param {import("puppeteer").Browser} browser
  * @param {string} template
  */
 const renderPayslipPdfBuffer = async (browser, template) => {
     const page = await browser.newPage();
     try {
-        await page.setViewport({ width: 720, height: 2400, deviceScaleFactor: 1 });
+        await page.setViewport({ width: 1100, height: 2000, deviceScaleFactor: 1 });
         await page.setContent(template, { waitUntil: "domcontentloaded" });
         await page.emulateMediaType("print");
 
-        const usableHeightMm = 297 - PAYSLIP_PDF_MARGIN_MM * 2;
+        /** A4 landscape: printable height is the short edge (210mm) minus margins. */
+        const usableHeightMm = 210 - PAYSLIP_PDF_MARGIN_MM * 2;
         const usableHeightPx = (usableHeightMm / 25.4) * 96;
 
         const contentHeight = await page.evaluate(() =>
@@ -102,6 +103,7 @@ const renderPayslipPdfBuffer = async (browser, template) => {
 
         return await page.pdf({
             format: "A4",
+            landscape: true,
             printBackground: true,
             margin: {
                 top: `${PAYSLIP_PDF_MARGIN_MM}mm`,
