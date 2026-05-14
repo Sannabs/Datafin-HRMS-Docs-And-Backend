@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
 import { normalizeAuthEmail } from "../utils/loginCredentials.util.js";
+import { resolveTenantEmployeeShiftId } from "../utils/resolveTenantEmployeeShift.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
@@ -240,6 +241,10 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
     const bankNameVal = trimBank(bankName, 120);
     const accountNumberVal = trimBank(accountNumber, 64);
 
+    const assignedShiftId = await resolveTenantEmployeeShiftId(tenantId, {
+        logContext: normalizedEmail,
+    });
+
     const newUser = await prisma.user.create({
         data: {
             tenantId,
@@ -257,6 +262,7 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
             hireDate: hireDateParsed,
             bankName: bankNameVal,
             accountNumber: accountNumberVal,
+            shiftId: assignedShiftId,
         },
         include: {
             department: { select: { id: true, name: true } },
