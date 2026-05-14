@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SSHFC Remittance Advice</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #111;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .republic {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .logo-wrap {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .logo-wrap img {
+      max-height: 88px;
+      width: auto;
+    }
+    .title {
+      text-align: center;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin: 0 0 14px;
+      text-transform: uppercase;
+      padding: 0 8px;
+    }
+    .employer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      font-size: 8.5px;
+      margin-bottom: 14px;
+      max-width: 100%;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .field .label {
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .field .value {
+      min-height: 16px;
+      border-bottom: 1px solid #222;
+      padding: 1px 2px 3px;
+      word-break: break-word;
+      line-height: 1.25;
+    }
+    table.remit {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8px;
+      margin-top: 4px;
+    }
+    table.remit th,
+    table.remit td {
+      border: 1px solid #111;
+      padding: 4px 5px;
+      vertical-align: middle;
+    }
+    table.remit thead th {
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+      background: #f4f4f4;
+    }
+    table.remit thead th.sub {
+      font-weight: 600;
+      font-size: 7.5px;
+      text-transform: none;
+      background: #fafafa;
+    }
+    table.remit td.num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.remit tbody td:first-child,
+    table.remit tbody td:nth-child(2) {
+      text-align: left;
+    }
+    table.remit tr.totals td {
+      font-weight: 700;
+      background: #f0f0f0;
+    }
+    table.remit tr.totals .total-label {
+      text-align: right;
+      padding-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="republic">THE REPUBLIC OF THE GAMBIA</div>
+  <div class="logo-wrap">
+    <img src="{{LOGO_DATA_URI}}" alt="" />
+  </div>
+  <h1 class="title">SOCIAL SECURITY AND HOUSING FINANCE CORPORATION REMITTANCE ADVICE FORM FOR THE MONTH OF {{MONTH_TITLE}}</h1>
+
+  <div class="employer-grid">
+    <div class="field">
+      <span class="label">Employer no.</span>
+      <span class="value">—</span>
+    </div>
+    <div class="field">
+      <span class="label">Serial number</span>
+      <span class="value">—</span>
+    </div>
+    <div class="field">
+      <span class="label">Employer name</span>
+      <span class="value">{{EMPLOYER_NAME}}</span>
+    </div>
+    <div class="field">
+      <span class="label">Telephone number</span>
+      <span class="value">{{TELEPHONE}}</span>
+    </div>
+  </div>
+
+  <table class="remit">
+    <thead>
+      <tr>
+        <th colspan="2">EMPLOYEE</th>
+        <th>BASIC</th>
+        <th>15%</th>
+      </tr>
+      <tr>
+        <th>SOC.SEC.#.</th>
+        <th>FULL NAME</th>
+        <th>PAY</th>
+        <th>CONTR.</th>
+      </tr>
+      <tr>
+        <th class="sub">#</th>
+        <th class="sub">Staff Names</th>
+        <th class="sub">Basic Salary</th>
+        <th class="sub"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{TABLE_BODY}}
+    </tbody>
+  </table>
+</body>
+</html>

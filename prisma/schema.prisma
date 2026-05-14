@@ -345,6 +345,7 @@ model Tenant {
   employeeWarnings             EmployeeWarning[]
   employeeWarningAttachments   EmployeeWarningAttachment[]
   graPayeScheduleDocuments     GraPayeScheduleDocument[]
+  sshfcRemittanceDocuments     SshfcRemittanceDocument[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -1050,6 +1051,9 @@ model PayrollRun {
   /// GRA-style monthly PAYE schedule PDF for this run (when generated)
   graPayeScheduleDocument GraPayeScheduleDocument?
 
+  /// SSHFC monthly remittance advice PDF for this run (when generated)
+  sshfcRemittanceDocument SshfcRemittanceDocument?
+
   @@unique([tenantId, runCode])
   @@index([tenantId])
   @@index([tenantId, payPeriodId])
@@ -1060,6 +1064,22 @@ model PayrollRun {
 
 /// Stored GRA RET-5 style employer PAYE schedule PDF for a completed payroll run
 model GraPayeScheduleDocument {
+  id           String     @id @default(uuid())
+  payrollRunId String     @unique
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  size         Int
+  created      DateTime   @default(now())
+  /// R2 object key (same pattern as payslip `filePath`)
+  filePath     String
+
+  @@index([tenantId])
+}
+
+/// Stored SSHFC remittance advice PDF for a completed payroll run (Gambia statutory)
+model SshfcRemittanceDocument {
   id           String     @id @default(uuid())
   payrollRunId String     @unique
   payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)

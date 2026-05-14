@@ -9,6 +9,7 @@ import {
 import { createProgress, updateProgress } from "./payroll-progress.service.js";
 import { generatePayslipFromRecord } from "./payslip-generator.service.js";
 import { generateAndPersistGraPayeScheduleForPayrollRun } from "./gra-paye-schedule-generator.service.js";
+import { generateAndPersistSshfcRemittanceForPayrollRun } from "./sshfc-remittance-generator.service.js";
 import { addPayrollRunJob } from "../queues/payroll.queue.js";
 import { updatePayPeriodStatusAutomatically } from "./pay-period-automation.service.js";
 import { validateStatusTransition } from "../utils/payroll-run.utils.js";
@@ -209,6 +210,12 @@ export const finalizePayrollRun = async (payrollRunId, options = {}) => {
         if (isCompleted && totals.totalEmployees > 0) {
             generateAndPersistGraPayeScheduleForPayrollRun(payrollRunId).catch((e) => {
                 logger.error(`GRA PAYE schedule generation failed: ${e.message}`, {
+                    payrollRunId,
+                    error: e.stack,
+                });
+            });
+            generateAndPersistSshfcRemittanceForPayrollRun(payrollRunId).catch((e) => {
+                logger.error(`SSHFC remittance generation failed: ${e.message}`, {
                     payrollRunId,
                     error: e.stack,
                 });
