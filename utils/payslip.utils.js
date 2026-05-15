@@ -315,6 +315,88 @@ export const getPayslipYTD = async (userId, tenantId, periodEndDate) => {
     };
 };
 
+/** Deduction line label used when Gambia statutory PAYE is applied (see payroll-run.service breakdown). */
+export const PAYE_GRA_DEDUCTION_NAME = "PAYE (GRA)";
+
+/**
+ * Extract GRA PAYE amount from a payslip breakdown snapshot (0 if missing).
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getPayeFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    const deds = breakdownSnapshot.deductions;
+    if (!Array.isArray(deds)) return 0;
+    const match =
+        deds.find((d) => String(d?.name ?? "").trim() === PAYE_GRA_DEDUCTION_NAME) ||
+        deds.find(
+            (d) =>
+                /paye/i.test(String(d?.name ?? "")) &&
+                /gra/i.test(String(d?.name ?? ""))
+        );
+    const n = Number(match?.amount);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
+/** Employee SSN deduction line when deducted from pay (see salary-calculations.js). */
+export const GAMBIA_SSN_EMPLOYEE_DEDUCTION_NAME = "SSN - Employee";
+
+/** Employer-paid employee share line (see gambia-payroll.defaults.js). */
+export const GAMBIA_SSN_ON_BEHALF_LINE_NAME = "SSN - Employee share (paid by employer)";
+
+/**
+ * Monthly basic salary from payslip breakdown snapshot.
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getBaseSalaryFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    const n = Number(breakdownSnapshot.baseSalary);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
+/**
+ * Total SSHFC/NPF remittance for the period (employee SSN share + employer SSHFC) from snapshot.
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getSshfcTotalRemittanceFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    let employeeShare = 0;
+    const deds = breakdownSnapshot.deductions;
+    if (Array.isArray(deds)) {
+        const line = deds.find((d) => String(d?.name ?? "").trim() === GAMBIA_SSN_EMPLOYEE_DEDUCTION_NAME);
+        if (line) employeeShare = Number(line.amount) || 0;
+    }
+    if (employeeShare === 0) {
+        const em = breakdownSnapshot.employerContributions;
+        if (Array.isArray(em)) {
+            const line = em.find((d) => String(d?.name ?? "").trim() === GAMBIA_SSN_ON_BEHALF_LINE_NAME);
+            if (line) employeeShare = Number(line.amount) || 0;
+        }
+    }
+    const employer = Number(breakdownSnapshot.employerSSHFCAmount);
+    const employerAmt = Number.isFinite(employer) ? employer : 0;
+    return Math.round((employeeShare + employerAmt) * 100) / 100;
+};
+
+/** Employer IICF line (see gambia-payroll.defaults.js `buildGambiaEmployerContributionLines`). */
+export const GAMBIA_IICF_LINE_NAME = "IICF";
+
+/**
+ * IICF amount from payslip breakdown snapshot employer contributions (0 if missing).
+ * @param {unknown} breakdownSnapshot
+ * @returns {number}
+ */
+export const getIicfFromBreakdownSnapshot = (breakdownSnapshot) => {
+    if (!breakdownSnapshot || typeof breakdownSnapshot !== "object") return 0;
+    const em = breakdownSnapshot.employerContributions;
+    if (!Array.isArray(em)) return 0;
+    const line = em.find((d) => String(d?.name ?? "").trim() === GAMBIA_IICF_LINE_NAME);
+    const n = Number(line?.amount);
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+};
+
 /**
  * Sum overtime pay amounts from payslip breakdown snapshots (YTD).
  * @param {string} userId

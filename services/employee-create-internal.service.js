@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { generateEmployeeId } from "../utils/generateEmployeeId.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
 import { normalizeAuthEmail } from "../utils/loginCredentials.util.js";
+import { resolveTenantEmployeeShiftId } from "../utils/resolveTenantEmployeeShift.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
@@ -132,6 +133,15 @@ export async function validateEmployeeCreationPayload({ tenantId, actorRole, bod
         }
     }
 
+    const bankNameRaw = body?.bankName ?? body?.bank_name;
+    const accountNumberRaw = body?.accountNumber ?? body?.account_number;
+    if (bankNameRaw != null && String(bankNameRaw).trim().length > 120) {
+        return { ok: false, message: "bank_name must be at most 120 characters" };
+    }
+    if (accountNumberRaw != null && String(accountNumberRaw).trim().length > 64) {
+        return { ok: false, message: "account_number must be at most 64 characters" };
+    }
+
     const existingUser = await prisma.user.findFirst({
         where: {
             tenantId,
@@ -179,6 +189,9 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
         salaryCurrency,
     } = body || {};
 
+    const bankName = body?.bankName ?? body?.bank_name;
+    const accountNumber = body?.accountNumber ?? body?.account_number;
+
     const pre = await validateEmployeeCreationPayload({ tenantId, actorRole, body });
     if (!pre.ok) {
         const code =
@@ -219,6 +232,19 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
 
     const employeeIdStr = await generateEmployeeId(tenantId, tenant, department);
 
+    const trimBank = (val, maxLen) => {
+        if (val == null) return null;
+        const s = String(val).trim();
+        if (!s) return null;
+        return s.slice(0, maxLen);
+    };
+    const bankNameVal = trimBank(bankName, 120);
+    const accountNumberVal = trimBank(accountNumber, 64);
+
+    const assignedShiftId = await resolveTenantEmployeeShiftId(tenantId, {
+        logContext: normalizedEmail,
+    });
+
     const newUser = await prisma.user.create({
         data: {
             tenantId,
@@ -234,6 +260,9 @@ export async function createEmployeeInternal({ tenantId, actorRole, body }) {
             status: employmentStatus || "ACTIVE",
             employmentType: employmentType || "FULL_TIME",
             hireDate: hireDateParsed,
+            bankName: bankNameVal,
+            accountNumber: accountNumberVal,
+            shiftId: assignedShiftId,
         },
         include: {
             department: { select: { id: true, name: true } },

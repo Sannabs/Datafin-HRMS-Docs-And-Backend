@@ -2,6 +2,7 @@ import { uploadFile, deleteFile, getFile } from "../config/storage.config.js";
 import logger from "../utils/logger.js";
 
 const STORAGE_FOLDER = process.env.PAYSLIP_STORAGE_FOLDER || "payslips";
+const GRA_PAYE_SCHEDULE_FOLDER = process.env.GRA_PAYE_SCHEDULE_STORAGE_FOLDER || "gra-paye-schedules";
 
 /**
  * Upload payslip PDF to Cloudflare R2
@@ -42,6 +43,42 @@ export const uploadPayslip = async (pdfBuffer, payslipId, tenantId, year, month)
 };
 
 /**
+ * Upload GRA PAYE schedule PDF to R2
+ * @param {Buffer} pdfBuffer
+ * @param {string} payrollRunId
+ * @param {string} tenantId
+ * @param {number} year
+ * @param {number} month
+ * @returns {Promise<{ public_id: string, secure_url: string, url: string }>}
+ */
+export const uploadGraPayeSchedule = async (pdfBuffer, payrollRunId, tenantId, year, month) => {
+    try {
+        const folderPath = `${GRA_PAYE_SCHEDULE_FOLDER}/${tenantId}/${year}/${month}`;
+        const filename = `${folderPath}/${payrollRunId}.pdf`;
+
+        const publicUrl = await uploadFile(pdfBuffer, filename, "application/pdf");
+
+        logger.info(`Uploaded GRA PAYE schedule to R2: ${filename}`, {
+            payrollRunId,
+            tenantId,
+        });
+
+        return {
+            public_id: filename,
+            secure_url: publicUrl,
+            url: publicUrl,
+        };
+    } catch (error) {
+        logger.error(`Error uploading GRA PAYE schedule to R2: ${error.message}`, {
+            error: error.stack,
+            payrollRunId,
+            tenantId,
+        });
+        throw error;
+    }
+};
+
+/**
  * Get secure URL for payslip download
  * @param {string} filename - File path/filename stored in filePath field
  * @param {number} expiresIn - URL expiration in seconds (default: 1 hour)
@@ -70,6 +107,43 @@ export const getPayslipUrl = (filename, expiresIn = 3600) => {
         logger.error(`Error generating payslip URL: ${error.message}`, {
             error: error.stack,
             filename,
+        });
+        throw error;
+    }
+};
+
+/**
+ * Upload SSHFC remittance advice PDF to R2
+ * @param {Buffer} pdfBuffer
+ * @param {string} payrollRunId
+ * @param {string} tenantId
+ * @param {number} year
+ * @param {number} month
+ * @returns {Promise<{ public_id: string, secure_url: string, url: string }>}
+ */
+export const uploadSshfcRemittance = async (pdfBuffer, payrollRunId, tenantId, year, month) => {
+    const SSHFC_REMITTANCE_FOLDER = process.env.SSHFC_REMITTANCE_STORAGE_FOLDER || "sshfc-remittances";
+    try {
+        const folderPath = `${SSHFC_REMITTANCE_FOLDER}/${tenantId}/${year}/${month}`;
+        const filename = `${folderPath}/${payrollRunId}.pdf`;
+
+        const publicUrl = await uploadFile(pdfBuffer, filename, "application/pdf");
+
+        logger.info(`Uploaded SSHFC remittance to R2: ${filename}`, {
+            payrollRunId,
+            tenantId,
+        });
+
+        return {
+            public_id: filename,
+            secure_url: publicUrl,
+            url: publicUrl,
+        };
+    } catch (error) {
+        logger.error(`Error uploading SSHFC remittance to R2: ${error.message}`, {
+            error: error.stack,
+            payrollRunId,
+            tenantId,
         });
         throw error;
     }

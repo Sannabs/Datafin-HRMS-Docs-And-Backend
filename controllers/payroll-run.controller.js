@@ -22,6 +22,8 @@ import {
 } from "../utils/payroll-run.utils.js";
 import { generatePayrollRunCode } from "../utils/generatePayrollRunCode.js";
 import { escapeCsv, formatDateForCsv } from "../utils/csv.utils.js";
+import { getGraPayeSchedulePdfForDownload } from "../services/gra-paye-schedule-generator.service.js";
+import { getSshfcRemittancePdfForDownload } from "../services/sshfc-remittance-generator.service.js";
 
 export const createPayrollRun = async (req, res) => {
     try {
@@ -863,6 +865,22 @@ export const getPayrollRunById = async (req, res) => {
                     },
                 },
                 progress: true,
+                graPayeScheduleDocument: {
+                    select: {
+                        id: true,
+                        name: true,
+                        size: true,
+                        created: true,
+                    },
+                },
+                sshfcRemittanceDocument: {
+                    select: {
+                        id: true,
+                        name: true,
+                        size: true,
+                        created: true,
+                    },
+                },
                 _count: {
                     select: { payslips: true },
                 },
@@ -899,6 +917,100 @@ export const getPayrollRunById = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to fetch payroll run",
+        });
+    }
+};
+
+/**
+ * Download stored GRA monthly PAYE schedule PDF for a completed payroll run (HR).
+ */
+export const downloadGraPayeSchedulePdf = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+
+        const run = await prisma.payrollRun.findFirst({
+            where: { id, tenantId },
+            select: { id: true, status: true },
+        });
+        if (!run) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        const payload = await getGraPayeSchedulePdfForDownload(id, tenantId);
+        if (!payload) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message:
+                    "GRA PAYE schedule PDF is not available for this run. It is generated when a run completes successfully and Gambia statutory payroll is enabled.",
+            });
+        }
+
+        const safeName = String(payload.filename || "gra-paye-schedule.pdf").replace(/[^\w.\-]+/g, "_");
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+        return res.status(200).send(payload.buffer);
+    } catch (error) {
+        logger.error(`Error downloading GRA PAYE schedule: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to download GRA PAYE schedule",
+        });
+    }
+};
+
+/**
+ * Download stored SSHFC remittance advice PDF for a completed payroll run (HR).
+ */
+export const downloadSshfcRemittancePdf = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+
+        const run = await prisma.payrollRun.findFirst({
+            where: { id, tenantId },
+            select: { id: true, status: true },
+        });
+        if (!run) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: "Payroll run not found",
+            });
+        }
+
+        const payload = await getSshfcRemittancePdfForDownload(id, tenantId);
+        if (!payload) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message:
+                    "SSHFC remittance PDF is not available for this run. It is generated when a run completes successfully and Gambia statutory payroll is enabled.",
+            });
+        }
+
+        const safeName = String(payload.filename || "sshfc-remittance.pdf").replace(/[^\w.\-]+/g, "_");
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
+        return res.status(200).send(payload.buffer);
+    } catch (error) {
+        logger.error(`Error downloading SSHFC remittance: ${error.message}`, {
+            error: error.stack,
+            payrollRunId: req.params.id,
+        });
+        return res.status(500).json({
+            success: false,
+            error: "Internal Server Error",
+            message: "Failed to download SSHFC remittance",
         });
     }
 };

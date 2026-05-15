@@ -275,6 +275,8 @@ model Tenant {
   phone        String?
   email        String?
   website      String?
+  /// Employer TIN for GRA statutory filings (e.g. PAYE schedule PDF). Optional; env fallback used when empty.
+  employerTin  String?
 
   // Weekend configuration: array of day numbers (0=Sunday, 6=Saturday)
   // Default: [0, 6] for Saturday/Sunday weekends
@@ -342,6 +344,8 @@ model Tenant {
   employeeDocuments            EmployeeDocument[]
   employeeWarnings             EmployeeWarning[]
   employeeWarningAttachments   EmployeeWarningAttachment[]
+  graPayeScheduleDocuments     GraPayeScheduleDocument[]
+  sshfcRemittanceDocuments     SshfcRemittanceDocument[]
 
   /// IANA timezone for calendar month boundaries (e.g. "Africa/Banjul"); null = UTC
   timezone String?
@@ -432,6 +436,8 @@ model User {
   dateOfBirth     DateTime?
   SSN             String?
   tinNumber       String?
+  bankName        String?
+  accountNumber   String?
   role            UserRole  @default(STAFF)
   isPlatformOwner Boolean   @default(false) // Only one SUPER_ADMIN should have this true (bootstrap owner)
   isDeleted       Boolean   @default(false)
@@ -1042,12 +1048,50 @@ model PayrollRun {
   payslips  Payslip[]
   progress  PayrollProgress?
 
+  /// GRA-style monthly PAYE schedule PDF for this run (when generated)
+  graPayeScheduleDocument GraPayeScheduleDocument?
+
+  /// SSHFC monthly remittance advice PDF for this run (when generated)
+  sshfcRemittanceDocument SshfcRemittanceDocument?
+
   @@unique([tenantId, runCode])
   @@index([tenantId])
   @@index([tenantId, payPeriodId])
   @@index([status, runDate])
   @@index([queueJobId])
   @@index([runCode])
+}
+
+/// Stored GRA RET-5 style employer PAYE schedule PDF for a completed payroll run
+model GraPayeScheduleDocument {
+  id           String     @id @default(uuid())
+  payrollRunId String     @unique
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  size         Int
+  created      DateTime   @default(now())
+  /// R2 object key (same pattern as payslip `filePath`)
+  filePath     String
+
+  @@index([tenantId])
+}
+
+/// Stored SSHFC remittance advice PDF for a completed payroll run (Gambia statutory)
+model SshfcRemittanceDocument {
+  id           String     @id @default(uuid())
+  payrollRunId String     @unique
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  size         Int
+  created      DateTime   @default(now())
+  /// R2 object key (same pattern as payslip `filePath`)
+  filePath     String
+
+  @@index([tenantId])
 }
 
 model Payslip {

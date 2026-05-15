@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GRA PAYE Schedule</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #111;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .wrap {
+      max-width: 100%;
+    }
+    .header-band {
+      position: relative;
+      margin-bottom: 4px;
+    }
+    .form-code {
+      position: absolute;
+      top: 0;
+      right: 0;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .republic {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      padding-right: 64px;
+      padding-left: 64px;
+    }
+    .gra-line {
+      text-align: center;
+      font-size: 9px;
+      margin-bottom: 6px;
+    }
+    .logo-wrap {
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .logo-wrap img {
+      max-height: 52px;
+      width: auto;
+    }
+    .title {
+      text-align: center;
+      font-size: 9.5px;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 0 0 10px;
+      text-transform: uppercase;
+    }
+    .employer-block {
+      margin: 0 auto 10px;
+      width: 100%;
+      max-width: 520px;
+      font-size: 8px;
+    }
+    .employer-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 7px;
+    }
+    .employer-row:last-child {
+      margin-bottom: 0;
+    }
+    .employer-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .employer-line {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 14px;
+      padding: 0 2px 2px;
+      border-bottom: 1px dotted #333;
+      word-break: break-word;
+      line-height: 1.25;
+    }
+    table.schedule {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7.5px;
+      margin-bottom: 10px;
+    }
+    table.schedule th,
+    table.schedule td {
+      border: 1px solid #222;
+      padding: 3px 4px;
+      text-align: left;
+      vertical-align: top;
+    }
+    table.schedule th {
+      background: #f0f0f0;
+      font-weight: 700;
+      text-align: center;
+    }
+    table.schedule td.num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    table.schedule td.c {
+      text-align: center;
+    }
+    table.schedule tr.totals td {
+      font-weight: 700;
+      background: #fafafa;
+    }
+    .cert-office-box {
+      border: 1px solid #222;
+      padding: 8px 10px 10px;
+      margin-top: 6px;
+      font-size: 7.5px;
+    }
+    .cert-statement {
+      margin: 0 0 10px;
+      font-size: 7.5px;
+      line-height: 1.35;
+    }
+    .sign-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 8px;
+    }
+    .sign-row .sign-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .sign-row .sign-line {
+      flex: 0 0 auto;
+      width: 11rem;
+      max-width: 42%;
+      min-height: 14px;
+      border-bottom: 1px dotted #333;
+    }
+    .office-use-section {
+      border-top: 1px solid #222;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+    .office-use-heading {
+      margin: 0 0 8px;
+      font-size: 8.5px;
+      font-weight: 700;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    .office-three-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px 10px;
+      font-size: 7.5px;
+      align-items: end;
+    }
+    .office-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .office-field span.label {
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .office-field .dotted-line {
+      min-height: 12px;
+      border-bottom: 1px dotted #333;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header-band">
+      <span class="form-code">GRA RET 5</span>
+      <div class="republic">REPUBLIC OF THE GAMBIA</div>
+    </div>
+    <div class="logo-wrap">
+      <img src="{{LOGO_DATA_URI}}" alt="" />
+    </div>
+    <div class="gra-line">GAMBIA REVENUE AUTHORITY</div>
+    <h1 class="title">Employers schedule of monthly P.A.Y.E deductions from employees remuneration for the month of {{MONTH_TITLE}}</h1>
+
+    <div class="employer-block">
+      <div class="employer-row">
+        <span class="employer-label">Employer&rsquo;s TIN</span>
+        <span class="employer-line">{{EMPLOYER_TIN}}</span>
+      </div>
+      <div class="employer-row">
+        <span class="employer-label">Name of employer</span>
+        <span class="employer-line">{{EMPLOYER_NAME}}</span>
+      </div>
+      <div class="employer-row">
+        <span class="employer-label">Address of employer</span>
+        <span class="employer-line">{{EMPLOYER_ADDRESS}}</span>
+      </div>
+    </div>
+
+    <table class="schedule">
+      <thead>
+        <tr>
+          <th style="width:3%">#</th>
+          <th style="width:14%">Employee TIN</th>
+          <th style="width:20%">Name of employee</th>
+          <th style="width:14%">Gross salary / wage (D)</th>
+          <th style="width:14%">Cumulative salary to date (D)</th>
+          <th style="width:14%">Monthly tax deduction (D)</th>
+          <th style="width:14%">Cumulative tax deducted to date (D)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{TABLE_BODY}}
+      </tbody>
+    </table>
+
+    <div class="cert-office-box">
+      <p class="cert-statement">I certify that the entries made above are true and complete</p>
+      <div class="sign-row">
+        <span class="sign-label">Name of Officer</span>
+        <span class="sign-line" aria-hidden="true"></span>
+      </div>
+      <div class="sign-row">
+        <span class="sign-label">Designation</span>
+        <span class="sign-line" aria-hidden="true"></span>
+      </div>
+      <div class="office-use-section">
+        <h3 class="office-use-heading">For office use only</h3>
+        <div class="office-three-cols">
+          <div class="office-field">
+            <span class="label">Name of receiving Office</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
+          <div class="office-field">
+            <span class="label">Signature of Receiving Officer</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
+          <div class="office-field">
+            <span class="label">Date</span>
+            <div class="dotted-line" aria-hidden="true"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -7,6 +7,8 @@ import {
     getPayrollRuns,
     getPayrollFilterOptions,
     getPayrollRunById,
+    downloadGraPayeSchedulePdf,
+    downloadSshfcRemittancePdf,
     getPayrollRunRecords,
     exportPayrollRuns,
     processSingleEmployee,
@@ -37,6 +39,8 @@ router.get("/", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRuns);
 router.get("/filter-options", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollFilterOptions);
 router.get("/export", requireRole(["HR_ADMIN", "HR_STAFF"]), exportPayrollRuns);
 router.get("/:id/records", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunRecords);
+router.get("/:id/gra-paye-schedule/pdf", requireRole(["HR_ADMIN", "HR_STAFF"]), downloadGraPayeSchedulePdf);
+router.get("/:id/sshfc-remittance/pdf", requireRole(["HR_ADMIN", "HR_STAFF"]), downloadSshfcRemittancePdf);
 router.get("/:id", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunById);
 router.get("/:id/status", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatus);
 router.get("/:id/status/stream", requireRole(["HR_ADMIN", "HR_STAFF"]), getPayrollRunStatusStream);

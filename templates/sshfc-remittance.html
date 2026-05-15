@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SSHFC Remittance Advice</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: #111;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .republic {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .logo-wrap {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .logo-wrap img {
+      max-height: 88px;
+      width: auto;
+    }
+    .title {
+      text-align: center;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin: 0 0 14px;
+      text-transform: uppercase;
+      padding: 0 8px;
+    }
+    .employer-block {
+      margin: 0 0 10px 0;
+      width: 100%;
+      max-width: 100%;
+      font-size: 8px;
+    }
+    .employer-row-split {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 7px;
+      align-items: baseline;
+    }
+    .employer-field-pair {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .employer-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 7px;
+    }
+    .employer-row:last-child {
+      margin-bottom: 0;
+    }
+    .employer-label {
+      flex: 0 0 auto;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .employer-line {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 14px;
+      padding: 0 2px 2px;
+      border-bottom: 1px dotted #333;
+      word-break: break-word;
+      line-height: 1.25;
+    }
+    .employer-line-half {
+      flex: 0 0 48%;
+      max-width: 48%;
+    }
+    table.remit {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7.5px;
+      margin-top: 4px;
+    }
+    table.remit th,
+    table.remit td {
+      border: 1px solid #111;
+      padding: 4px 5px;
+      vertical-align: middle;
+    }
+    table.remit thead th {
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+      background: #f4f4f4;
+    }
+    table.remit td.num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.remit tbody td:first-child,
+    table.remit tbody td:nth-child(2) {
+      text-align: left;
+    }
+    table.remit tr.totals td {
+      font-weight: 700;
+      background: #f0f0f0;
+    }
+    table.remit tr.totals .total-label {
+      text-align: right;
+      padding-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="republic">THE REPUBLIC OF THE GAMBIA</div>
+  <div class="logo-wrap">
+    <img src="{{LOGO_DATA_URI}}" alt="" />
+  </div>
+  <h1 class="title">SOCIAL SECURITY AND HOUSING FINANCE CORPORATION REMITTANCE ADVICE FORM FOR THE MONTH OF {{MONTH_TITLE}}</h1>
+
+  <div class="employer-block">
+    <div class="employer-row-split">
+      <div class="employer-field-pair">
+        <span class="employer-label">Employer no.</span>
+        <span class="employer-line">—</span>
+      </div>
+      <div class="employer-field-pair">
+        <span class="employer-label">Serial number</span>
+        <span class="employer-line">—</span>
+      </div>
+    </div>
+    <div class="employer-row">
+      <span class="employer-label">Employer name</span>
+      <span class="employer-line employer-line-half">{{EMPLOYER_NAME}}</span>
+    </div>
+    <div class="employer-row">
+      <span class="employer-label">Telephone number</span>
+      <span class="employer-line employer-line-half">{{TELEPHONE}}</span>
+    </div>
+  </div>
+
+  <table class="remit">
+    <thead>
+      <tr>
+        <th>EMPLOYEE SSN</th>
+        <th>EMPLOYEE NAME</th>
+        <th>BASIC PAY (D)</th>
+        <th>15% CONTRIBUTION (D)</th>
+        <th>IICF (D)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{TABLE_BODY}}
+    </tbody>
+  </table>
+</body>
+</html>

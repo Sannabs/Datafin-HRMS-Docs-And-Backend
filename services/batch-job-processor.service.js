@@ -120,6 +120,8 @@ export async function processBatchJobById(batchJobId) {
                             salaryEffectiveDate:
                                 pick(payload, "salary_effective_date", "salaryEffectiveDate") || undefined,
                             salaryCurrency: pick(payload, "salary_currency", "salaryCurrency") || undefined,
+                            bankName: pick(payload, "bank_name", "bankName") || undefined,
+                            accountNumber: pick(payload, "account_number", "accountNumber") || undefined,
                         };
                         const r = await createEmployeeInternal({
                             tenantId: job.tenantId,
@@ -343,6 +345,16 @@ export async function processBatchJobById(batchJobId) {
                         if (field === "phone") data.phone = value || null;
                         else if (field === "address") data.address = value || null;
                         else if (field === "name") data.name = value || null;
+                        else if (field === "ssn") {
+                            const s = String(value).trim();
+                            data.SSN = s ? s.slice(0, 64) : null;
+                        } else if (field === "bank_name" || field === "bankname") {
+                            const s = String(value).trim();
+                            data.bankName = s ? s.slice(0, 120) : null;
+                        } else if (field === "account_number" || field === "accountnumber") {
+                            const s = String(value).trim();
+                            data.accountNumber = s ? s.slice(0, 64) : null;
+                        }
                         else if (field === "hire_date" || field === "hiredate") {
                             const hd = parseFlexibleDate(value);
                             if (!hd) {

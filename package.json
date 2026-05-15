@@ -13,6 +13,7 @@
     "db:clear": "node scripts/clear-data-except-user-tenant.js",
     "db:bootstrap-super-admin": "node ./scripts/bootstrap-super-admin.js",
     "seed:reviewer": "node ./scripts/seed-reviewer.js",
+    "backfill:user-shift": "node ./scripts/backfill-user-shift-from-tenant-default.js",
     "backfill:paye-gra": "node ./scripts/backfill-paye-gra-all-runs.js",
     "repair:credential-accounts": "node ./scripts/repair-credential-accounts-from-user-password.js",
     "repair:credential-accounts:apply": "node ./scripts/repair-credential-accounts-from-user-password.js --apply"
