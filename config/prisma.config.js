@@ -14,6 +14,8 @@ connectionString = connectionString.split('?')[0];
 
 const pool = new pg.Pool({
   connectionString,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
   ssl: {
     rejectUnauthorized: false,
   },
