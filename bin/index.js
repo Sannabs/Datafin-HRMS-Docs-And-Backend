@@ -58,7 +58,7 @@ server.listen(process.env.PORT || 5001, HOST, async () => {
     await startAllAutomationJobs();
     await startAllLeaveAutomationJobs();
 
-    registerPatrolCrons();
+    // registerPatrolCrons();
     startMonthlyAttendanceSnapshotJob();
     await Promise.all([
       generateUpcomingSessions(),
