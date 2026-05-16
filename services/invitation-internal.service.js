@@ -8,9 +8,9 @@ import {
     credentialAccountsInclude,
     normalizeAuthEmail,
 } from "../utils/loginCredentials.util.js";
+import { VALID_EMPLOYMENT_STATUSES } from "../utils/employee-status.util.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
 const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
 const validRoles = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
 

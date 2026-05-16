@@ -12,12 +12,12 @@ import {
     upsertCredentialAccount,
 } from "../utils/loginCredentials.util.js";
 import { resolveTenantEmployeeShiftId } from "../utils/resolveTenantEmployeeShift.util.js";
+import { VALID_EMPLOYMENT_STATUSES, isEmployeeActiveForWork } from "../utils/employee-status.util.js";
 
 /**
  * Send an invitation to a user
  * Only HR_ADMIN can send invitations
  */
-const VALID_EMPLOYMENT_STATUSES = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
 const VALID_EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "CONTRACT", "INTERN"];
 
 export const sendInvitation = async (req, res, next) => {
@@ -764,7 +764,7 @@ export const acceptInvitation = async (req, res, next) => {
             if (
               !department.managerId ||
               department.manager?.isDeleted ||
-              department.manager?.status !== "ACTIVE"
+              !isEmployeeActiveForWork(department.manager?.status)
             ) {
               await tx.department.update({
                 where: { id: invitation.departmentId },

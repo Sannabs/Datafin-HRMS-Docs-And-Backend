@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 
 const VALID_NOTIFICATION_TYPES = [
   "PAYROLL",
@@ -101,7 +102,7 @@ export const notifyAllAdmins = async (
       where: {
         tenantId,
         isDeleted: false,
-        status: "ACTIVE",
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
         role: { in: ["HR_ADMIN", "SUPER_ADMIN"] },
       },
     });
@@ -161,7 +162,7 @@ export const notifyHRForWarningEvent = async (
       where: {
         tenantId,
         isDeleted: false,
-        status: "ACTIVE",
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
         role: { in: ["HR_ADMIN", "HR_STAFF"] },
       },
     });
@@ -213,7 +214,7 @@ export const notifyAllHRstaff = async (
         role: "HR_STAFF",
         tenantId,
         isDeleted: false,
-        status: "ACTIVE",
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
       },
     });
 

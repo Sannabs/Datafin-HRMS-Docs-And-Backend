@@ -6,6 +6,7 @@ import {
 } from "./payroll-run.service.js";
 import { getOvertimePayrollState } from "../utils/overtime-payroll.util.js";
 import { resolvePayrollPeriodEligibility } from "../utils/payroll-eligibility.util.js";
+import { isEmployeeActiveForWork } from "../utils/employee-status.util.js";
 
 /**
  * Validate employee eligibility for payroll processing
@@ -69,7 +70,7 @@ export const validateEmployees = async (employeeIds, tenantId, payPeriodId) => {
             if (!employee) {
                 continue;
             }
-            if (employee.isDeleted || employee.status !== "ACTIVE") {
+            if (employee.isDeleted || !isEmployeeActiveForWork(employee.status)) {
                 ineligible.push({
                     employeeId: employee.id,
                     name: employee.name,

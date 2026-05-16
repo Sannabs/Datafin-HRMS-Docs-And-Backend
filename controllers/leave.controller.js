@@ -9,6 +9,7 @@ import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConf
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
 import { requestOverlapsBlackout, getBlackoutSegmentsForYear, getBlackoutWindowLabel } from "../utils/leave.util.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -2963,7 +2964,7 @@ export const getAllLeaveBalances = async (req, res) => {
       where: {
         tenantId,
         isDeleted: false,
-        status: "ACTIVE",
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
       },
       select: {
         id: true,

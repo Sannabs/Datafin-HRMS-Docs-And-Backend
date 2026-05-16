@@ -23,6 +23,7 @@ import {
     REASON_HIRED_AFTER_PERIOD,
     REASON_NO_SALARY_IN_PERIOD,
 } from "../utils/payroll-eligibility.util.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 
 /**
  * Get active employees for payroll processing
@@ -35,7 +36,7 @@ export const getActiveEmployeesForPayroll = async (tenantId, employeeIds = null)
         const where = {
             tenantId,
             isDeleted: false,
-            status: "ACTIVE",
+            status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
             ...(employeeIds && Array.isArray(employeeIds) && employeeIds.length > 0
                 ? { id: { in: employeeIds } }
                 : {}),
@@ -337,7 +338,7 @@ export const processEmployeePayroll = async (employeeId, payPeriodId, tenantId) 
                 id: employeeId,
                 tenantId,
                 isDeleted: false,
-                status: "ACTIVE",
+                status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
             },
             select: {
                 id: true,

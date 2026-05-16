@@ -6,6 +6,7 @@ import {
   ActionEnum,
 } from "@prisma/client";
 import prisma from "../config/prisma.config.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import logger from "../utils/logger.js";
 import {
@@ -1304,7 +1305,7 @@ export const submitEmployeeWarningForReview = async (req, res) => {
         where: {
           tenantId,
           isDeleted: false,
-          status: "ACTIVE",
+          status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
           role: { in: ["HR_ADMIN", "HR_STAFF"] },
         },
         select: { email: true, name: true },

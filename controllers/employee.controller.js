@@ -24,6 +24,11 @@ import {
     hasStoredLoginCredentials,
     credentialAccountsInclude,
 } from "../utils/loginCredentials.util.js";
+import {
+    VALID_EMPLOYMENT_STATUSES,
+    EMPLOYEE_STATUSES_ACTIVE_FOR_WORK,
+    isEmployeeActiveForWork,
+} from "../utils/employee-status.util.js";
 
 /** Map breakdown rows to a safe JSON shape for payroll overview. */
 function toPayrollOverviewLines(rows) {
@@ -126,7 +131,9 @@ export const getAllEmployees = async (req, res) => {
 
         if (status) {
             const normalizedStatus = String(status).toUpperCase();
-            if (["ACTIVE", "INACTIVE", "ON_LEAVE"].includes(normalizedStatus)) {
+            if (normalizedStatus === "ACTIVE") {
+                where.status = { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK };
+            } else if (VALID_EMPLOYMENT_STATUSES.includes(normalizedStatus)) {
                 where.status = normalizedStatus;
             }
         }
@@ -302,7 +309,9 @@ export const exportEmployees = async (req, res) => {
 
             if (status) {
                 const normalizedStatus = String(status).toUpperCase();
-                if (["ACTIVE", "INACTIVE", "ON_LEAVE"].includes(normalizedStatus)) {
+                if (normalizedStatus === "ACTIVE") {
+                    where.status = { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK };
+                } else if (VALID_EMPLOYMENT_STATUSES.includes(normalizedStatus)) {
                     where.status = normalizedStatus;
                 }
             }
@@ -1371,8 +1380,8 @@ export const reactivateEmployee = async (req, res) => {
             });
         }
 
-        // Check if employee is already active
-        if (employee.status === "ACTIVE") {
+        // Check if employee is already active (includes probation — treated as active for work)
+        if (isEmployeeActiveForWork(employee.status)) {
             return res.status(400).json({
                 success: false,
                 error: "Bad Request",
