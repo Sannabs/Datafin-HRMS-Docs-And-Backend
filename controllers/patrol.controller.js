@@ -3,6 +3,7 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { addLog } from "../utils/audit.utils.js";
 import { getCurrentSlotBoundaries } from "../utils/patrol.util.js";
+import { getManagedDepartmentIds } from "../utils/employee-warning-access.js";
 
 
 // ---------------------------------------------------------
@@ -1071,6 +1072,18 @@ export const getSessions = async (req, res) => {
                 ],
             }),
         };
+
+        if (req.user?.role === "DEPARTMENT_ADMIN") {
+            const managedDeptIds = await getManagedDepartmentIds(tenantId, req.user.id);
+            if (managedDeptIds.length === 0) {
+                return res.status(200).json({
+                    success: true,
+                    data: [],
+                    pagination: { total: 0, page, limit, hasNextPage: false, hasPreviousPage: false, totalPages: 1 },
+                });
+            }
+            where.assignedUser = { departmentId: { in: managedDeptIds } };
+        }
 
         const [sessions, total] = await Promise.all([
             prisma.patrolSession.findMany({
