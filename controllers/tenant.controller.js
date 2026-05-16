@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { uploadFile, deleteFile, extractFilenameFromUrl, generateFilename } from "../config/storage.config.js";
 
 const COMPANY_INFO_SELECT = {
     name: true,
@@ -11,6 +12,7 @@ const COMPANY_INFO_SELECT = {
     email: true,
     website: true,
     employerTin: true,
+    logo: true,
 };
 
 /**
@@ -48,6 +50,7 @@ export const getTenantProfile = async (req, res) => {
                 email: tenant.email ?? null,
                 website: tenant.website ?? null,
                 employerTin: tenant.employerTin ?? null,
+                logo: tenant.logo ?? null,
             },
         });
     } catch (error) {
@@ -174,6 +177,7 @@ export const updateTenantProfile = async (req, res) => {
                 email: tenant.email ?? null,
                 website: tenant.website ?? null,
                 employerTin: tenant.employerTin ?? null,
+                logo: tenant.logo ?? null,
             },
             message: "Company info updated",
         });
@@ -397,6 +401,109 @@ export const updatePayrollSettings = async (req, res) => {
             success: false,
             error: "Internal Server Error",
             message: "Failed to update payroll settings",
+        });
+    }
+};
+
+/**
+ * PATCH /api/tenant/logo
+ * Updates company logo.
+ */
+export const updateCompanyLogo = async (req, res) => {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    try {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+        });
+        if (!tenant) {
+            return res.status(404).json({
+                success: false,
+                message: "Tenant not found",
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "No file uploaded",
+            });
+        }
+
+        const filename = generateFilename(req.file.originalname, "company-logos");
+        const logoUrl = await uploadFile(req.file.buffer, filename, req.file.mimetype);
+
+        const updatedTenant = await prisma.tenant.update({
+            where: { id: tenantId },
+            data: { logo: logoUrl },
+            select: COMPANY_INFO_SELECT,
+        });
+
+        // Delete old logo if exists
+        if (tenant.logo) {
+            try {
+                const oldKey = extractFilenameFromUrl(tenant.logo);
+                if (oldKey) await deleteFile(oldKey);
+            } catch (deleteErr) {
+                logger.warn(`Could not delete old company logo: ${deleteErr.message}`);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Company logo updated",
+            data: updatedTenant,
+        });
+    } catch (error) {
+        logger.error(`Error updating company logo: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update company logo",
+        });
+    }
+};
+
+/**
+ * DELETE /api/tenant/logo
+ * Removes company logo.
+ */
+export const removeCompanyLogo = async (req, res) => {
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    try {
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+        });
+        if (!tenant) {
+            return res.status(404).json({
+                success: false,
+                message: "Tenant not found",
+            });
+        }
+
+        if (tenant.logo) {
+            try {
+                const oldKey = extractFilenameFromUrl(tenant.logo);
+                if (oldKey) await deleteFile(oldKey);
+            } catch (deleteErr) {
+                logger.warn(`Could not delete company logo file: ${deleteErr.message}`);
+            }
+        }
+
+        const updatedTenant = await prisma.tenant.update({
+            where: { id: tenantId },
+            data: { logo: null },
+            select: COMPANY_INFO_SELECT,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Company logo removed",
+            data: updatedTenant,
+        });
+    } catch (error) {
+        logger.error(`Error removing company logo: ${error.message}`, { error: error.stack });
+        return res.status(500).json({
+            success: false,
+            message: "Failed to remove company logo",
         });
     }
 };
