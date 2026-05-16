@@ -6,6 +6,10 @@ import { calculateWorkingDays } from "../utils/working-days.utils.js";
 import { createNotification } from "../services/notification.service.js";
 import { sendLeaveRequestToManagerEmail } from "../views/sendLeaveRequestToManagerEmail.js";
 import { sendLeaveRequestConfirmationEmail } from "../views/sendLeaveRequestConfirmationEmail.js";
+import { sendLeaveManagerApprovedEmail } from "../views/sendLeaveManagerApprovedEmail.js";
+import { sendLeaveApprovedEmail } from "../views/sendLeaveApprovedEmail.js";
+import { sendLeaveRejectedEmail } from "../views/sendLeaveRejectedEmail.js";
+import { sendLeavePendingHrReviewEmail } from "../views/sendLeavePendingHrReviewEmail.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
 import { requestOverlapsBlackout, getBlackoutSegmentsForYear, getBlackoutWindowLabel } from "../utils/leave.util.js";
@@ -1479,6 +1483,15 @@ export const createLeaveRequest = async (req, res) => {
       })
     }
 
+    const hasFiles = (req.files?.length ?? 0) > 0 || !!req.file;
+    if (leaveType.requiresDocument && !hasFiles) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "This leave type requires a supporting document to be uploaded",
+      })
+    }
+
     // Get policy for advance notice check
     const policy = await prisma.annualLeavePolicy.findFirst({
       where: { tenantId },
@@ -1732,45 +1745,79 @@ export const createLeaveRequest = async (req, res) => {
         day: "numeric"
       })
 
-      // Notify Manager (if exists)
-      if (managerId && user?.department?.manager) {
-        const manager = user.department.manager
+      const isTwoTier = !policy || policy.requireManagerApproval;
+      const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`
 
-        // In-app notification for manager
-        await createNotification(
-          tenantId,
-          managerId,
-          "New Leave Request Pending Approval",
-          `${employeeName} has submitted a ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate}. Please review and approve.`,
-          "LEAVE",
-          `/leave`
-        )
+      if (isTwoTier) {
+        // Two-tier: notify the assigned manager
+        if (managerId && user?.department?.manager) {
+          const manager = user.department.manager
 
-        // Email notification for manager
-        if (manager.email) {
-          const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`
+          await createNotification(
+            tenantId,
+            managerId,
+            "New Leave Request Pending Approval",
+            `${employeeName} has submitted a ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate}. Please review and approve.`,
+            "LEAVE",
+            `/leave`
+          )
 
-          await sendLeaveRequestToManagerEmail({
-            to: manager.email,
-            managerName: manager.name,
-            employeeName,
-            leaveTypeName,
-            totalDays,
-            formattedStartDate,
-            formattedEndDate,
-            reason,
-            requestUrl,
-          })
+          if (manager.email) {
+            await sendLeaveRequestToManagerEmail({
+              to: manager.email,
+              managerName: manager.name,
+              employeeName,
+              leaveTypeName,
+              totalDays,
+              formattedStartDate,
+              formattedEndDate,
+              reason,
+              requestUrl,
+            })
 
-          logger.info(`Email notification sent to manager ${managerId}`)
+            logger.info(`Email notification sent to manager ${managerId}`)
+          }
         }
+      } else {
+        // Single-tier: skip manager, notify HR directly
+        const hrUsers = await prisma.user.findMany({
+          where: { tenantId, role: { in: ["HR_ADMIN", "HR_STAFF"] }, deletedAt: null },
+          select: { id: true, name: true, email: true },
+        })
+
+        for (const hrUser of hrUsers) {
+          await createNotification(
+            tenantId,
+            hrUser.id,
+            "New Leave Request Pending Approval",
+            `${employeeName} has submitted a ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate}. Please review and approve.`,
+            "LEAVE",
+            "/leave"
+          )
+
+          if (hrUser.email) {
+            await sendLeaveRequestToManagerEmail({
+              to: hrUser.email,
+              managerName: hrUser.name,
+              employeeName,
+              leaveTypeName,
+              totalDays,
+              formattedStartDate,
+              formattedEndDate,
+              reason,
+              requestUrl,
+            })
+          }
+        }
+
+        logger.info(`Single-tier: notified ${hrUsers.length} HR user(s) of new leave request`)
       }
 
       await createNotification(
         tenantId,
         id,
         "Leave Request Submitted",
-        `Your ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been submitted and is pending manager approval.`,
+        `Your ${leaveTypeName} request for ${totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been submitted and is pending ${isTwoTier ? "manager" : "HR"} approval.`,
         "LEAVE",
         null
       )
@@ -1883,6 +1930,16 @@ export const managerApproveLeaveRequest = async (req, res, next) => {
       });
     }
 
+    // Enforce policy — block manager approval when single-tier is configured
+    const policy = await prisma.annualLeavePolicy.findFirst({ where: { tenantId } });
+    if (policy && !policy.requireManagerApproval) {
+      return res.status(403).json({
+        success: false,
+        error: "Forbidden",
+        message: "Manager approval is not required under the current leave policy",
+      });
+    }
+
     // Update leave request status
     const updatedRequest = await prisma.leaveRequest.update({
       where: { id },
@@ -1917,6 +1974,68 @@ export const managerApproveLeaveRequest = async (req, res, next) => {
     logger.info(
       `Manager ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
     );
+
+    try {
+      const employeeName = updatedRequest.user.name || updatedRequest.user.employeeId || "Employee";
+      const leaveTypeName = updatedRequest.leaveType.name;
+      const formattedStartDate = updatedRequest.startDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const formattedEndDate = updatedRequest.endDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+      await createNotification(
+        tenantId,
+        leaveRequest.userId,
+        "Leave Request Manager Approved",
+        `Your ${leaveTypeName} request for ${leaveRequest.totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been approved by your manager and is now pending HR review.`,
+        "LEAVE",
+        null
+      );
+
+      if (updatedRequest.user.email) {
+        await sendLeaveManagerApprovedEmail({
+          to: updatedRequest.user.email,
+          employeeName,
+          leaveTypeName,
+          totalDays: leaveRequest.totalDays,
+          formattedStartDate,
+          formattedEndDate,
+        });
+      }
+
+      const hrUsers = await prisma.user.findMany({
+        where: { tenantId, role: { in: ["HR_ADMIN", "HR_STAFF"] }, deletedAt: null },
+        select: { id: true, name: true, email: true },
+      });
+
+      const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`;
+
+      for (const hrUser of hrUsers) {
+        await createNotification(
+          tenantId,
+          hrUser.id,
+          "Leave Request Pending HR Review",
+          `${employeeName}'s ${leaveTypeName} request for ${leaveRequest.totalDays.toFixed(1)} day(s) has been manager-approved and requires your review.`,
+          "LEAVE",
+          "/leave"
+        );
+        if (hrUser.email) {
+          await sendLeavePendingHrReviewEmail({
+            to: hrUser.email,
+            hrName: hrUser.name,
+            employeeName,
+            leaveTypeName,
+            totalDays: leaveRequest.totalDays,
+            formattedStartDate,
+            formattedEndDate,
+            requestUrl,
+          });
+        }
+      }
+    } catch (notificationError) {
+      logger.error(`Error sending notifications after manager approval: ${notificationError.message}`, {
+        stack: notificationError.stack,
+        leaveRequestId: id,
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -2061,6 +2180,38 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
         ? `HR ${userId} approved leave request ${id} (override/single-tier) for employee ${leaveRequest.user.employeeId}`
         : `HR ${userId} approved leave request ${id} for employee ${leaveRequest.user.employeeId}`
     );
+
+    try {
+      const employeeName = updatedRequest.user.name || updatedRequest.user.employeeId || "Employee";
+      const leaveTypeName = updatedRequest.leaveType.name;
+      const formattedStartDate = leaveRequest.startDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const formattedEndDate = leaveRequest.endDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+      await createNotification(
+        tenantId,
+        leaveRequest.userId,
+        "Leave Request Approved",
+        `Your ${leaveTypeName} request for ${leaveRequest.totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been approved.`,
+        "LEAVE",
+        null
+      );
+
+      if (updatedRequest.user.email) {
+        await sendLeaveApprovedEmail({
+          to: updatedRequest.user.email,
+          employeeName,
+          leaveTypeName,
+          totalDays: leaveRequest.totalDays,
+          formattedStartDate,
+          formattedEndDate,
+        });
+      }
+    } catch (notificationError) {
+      logger.error(`Error sending notifications after HR approval: ${notificationError.message}`, {
+        stack: notificationError.stack,
+        leaveRequestId: id,
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -2226,6 +2377,39 @@ export const rejectLeaveRequest = async (req, res, next) => {
     logger.info(
       `User ${userId} (${role}) rejected leave request ${id} for employee ${leaveRequest.user.employeeId}`
     );
+
+    try {
+      const employeeName = result.user.name || result.user.employeeId || "Employee";
+      const leaveTypeName = result.leaveType.name;
+      const formattedStartDate = leaveRequest.startDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      const formattedEndDate = leaveRequest.endDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+      await createNotification(
+        tenantId,
+        leaveRequest.userId,
+        "Leave Request Rejected",
+        `Your ${leaveTypeName} request for ${leaveRequest.totalDays.toFixed(1)} day(s) from ${formattedStartDate} to ${formattedEndDate} has been rejected.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
+        "LEAVE",
+        null
+      );
+
+      if (result.user.email) {
+        await sendLeaveRejectedEmail({
+          to: result.user.email,
+          employeeName,
+          leaveTypeName,
+          totalDays: leaveRequest.totalDays,
+          formattedStartDate,
+          formattedEndDate,
+          rejectionReason: rejectionReason || null,
+        });
+      }
+    } catch (notificationError) {
+      logger.error(`Error sending notifications after rejection: ${notificationError.message}`, {
+        stack: notificationError.stack,
+        leaveRequestId: id,
+      });
+    }
 
     res.status(200).json({
       success: true,

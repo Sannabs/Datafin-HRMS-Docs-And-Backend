@@ -638,6 +638,7 @@ export const updateMyProfle = async (req, res) => {
         const allowedFields = [
             "name",
             "phone",
+            "address",
             "addressLine1",
             "addressLine2",
             "gender",
