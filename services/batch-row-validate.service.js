@@ -161,6 +161,12 @@ function buildValidationMeta(field, message) {
             hint: "Use only supported field names from the bulk update template.",
         };
     }
+    if (m.includes("tin")) {
+        return {
+            code: "INVALID_TIN",
+            hint: "TIN must be at most 64 characters.",
+        };
+    }
     if (m.includes("employment type")) {
         return {
             code: "INVALID_EMPLOYMENT_TYPE",
@@ -657,6 +663,16 @@ export async function deepValidateCsvRowsForBatch({ tenantId, actorRole, batchTy
                             rn,
                             "field",
                             "account_number must be at most 64 characters",
+                            value
+                        );
+                    }
+                } else if (field === "tin" || field === "tin_number" || field === "tinnumber") {
+                    if (value && String(value).trim().length > 64) {
+                        pushValidationError(
+                            rowErrors,
+                            rn,
+                            "field",
+                            "tin must be at most 64 characters",
                             value
                         );
                     }

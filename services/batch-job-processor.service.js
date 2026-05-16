@@ -355,6 +355,9 @@ export async function processBatchJobById(batchJobId) {
                         } else if (field === "account_number" || field === "accountnumber") {
                             const s = String(value).trim();
                             data.accountNumber = s ? s.slice(0, 64) : null;
+                        } else if (field === "tin" || field === "tin_number" || field === "tinnumber") {
+                            const s = String(value).trim();
+                            data.tinNumber = s ? s.slice(0, 64) : null;
                         }
                         else if (field === "hire_date" || field === "hiredate") {
                             const hd = parseFlexibleDate(value);
