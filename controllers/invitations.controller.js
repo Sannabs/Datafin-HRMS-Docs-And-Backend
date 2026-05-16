@@ -655,6 +655,45 @@ export const acceptInvitation = async (req, res, next) => {
           where: { id: invitation.id },
           data: { status: "ACCEPTED" },
         });
+
+        if (invitation.role === "DEPARTMENT_ADMIN" && invitation.departmentId) {
+          const department = await tx.department.findFirst({
+            where: {
+              id: invitation.departmentId,
+              tenantId: invitation.tenantId,
+              deletedAt: null,
+            },
+            include: {
+              manager: {
+                select: { id: true, status: true, isDeleted: true },
+              },
+            },
+          });
+
+          if (department) {
+            if (
+              !department.managerId ||
+              department.manager?.isDeleted ||
+              !isEmployeeActiveForWork(department.manager?.status)
+            ) {
+              await tx.department.update({
+                where: { id: invitation.departmentId },
+                data: { managerId: existingUser.id },
+              });
+              logger.info(
+                `Assigned existing user ${existingUser.id} as manager to department ${invitation.departmentId}`
+              );
+            } else {
+              logger.warn(
+                `Department ${invitation.departmentId} already has an active manager, skipping manager assignment for existing user`
+              );
+            }
+          } else {
+            logger.warn(
+              `Department ${invitation.departmentId} not found during existing user invitation acceptance`
+            );
+          }
+        }
       });
 
       return res.status(200).json({
