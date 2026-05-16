@@ -230,6 +230,213 @@ async function getAggregatedAllocationBatchRows({
 }
 
 /**
+ * For bulk update jobs, return one logical row per employee with
+ * comma-separated updated field names (for UI). Search `q` is applied after aggregation.
+ */
+async function getAggregatedBulkUpdateBatchRows({
+    tenantId,
+    jobId,
+    status,
+    q,
+    page,
+    limit,
+}) {
+    const where = {
+        batchJobId: jobId,
+        ...(status && ["PENDING", "SUCCESS", "FAILED", "SKIPPED"].includes(status) && { status }),
+    };
+
+    const allRows = await prisma.batchJobRow.findMany({
+        where,
+        orderBy: { rowNumber: "asc" },
+        take: MAX_ALLOCATION_ROWS_FOR_AGGREGATE,
+        select: {
+            id: true,
+            rowNumber: true,
+            status: true,
+            rawPayload: true,
+            errorMessage: true,
+            resultEntityId: true,
+        },
+    });
+
+    const userIdCandidates = new Set();
+
+    for (const r of allRows) {
+        const payload = r.rawPayload && typeof r.rawPayload === "object" ? r.rawPayload : {};
+        const uid = r.resultEntityId ?? payload.userId ?? payload.userid ?? payload.user_id;
+        if (uid) userIdCandidates.add(String(uid));
+    }
+
+    const users = userIdCandidates.size > 0
+        ? await prisma.user.findMany({
+            where: {
+                id: { in: Array.from(userIdCandidates) },
+                tenantId,
+                isDeleted: false,
+            },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+                department: { select: { name: true } },
+            },
+        })
+        : [];
+
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    const enrichedRows = allRows.map((r) => {
+        const payload = r.rawPayload && typeof r.rawPayload === "object" ? { ...r.rawPayload } : {};
+        const uid = r.resultEntityId ?? payload.userId ?? payload.userid ?? payload.user_id;
+        const lookupId = uid ? String(uid) : null;
+        const u = lookupId ? userById.get(lookupId) : undefined;
+
+        const fieldName = payload.field || payload.field_name || payload.fieldName || "Unknown field";
+
+        const merged = {
+            ...payload,
+            bulk_update_field_display_name: fieldName,
+        };
+        if (u) {
+            merged.name = payload.name ?? u.name ?? u.email;
+            merged.email = payload.email ?? u.email;
+            merged.department_name = payload.department_name ?? u.department?.name ?? "";
+            merged.image = payload.image ?? u.image ?? null;
+        }
+
+        return { ...r, rawPayload: merged };
+    });
+
+    /** @type {Map<string, { minRow: number, rows: typeof enrichedRows, seenFieldKeys: Set<string>, orderedFieldNames: string[], failures: { fieldName: string, message: string }[] }>} */
+    const byUser = new Map();
+
+    for (const r of enrichedRows) {
+        const p = r.rawPayload || {};
+        const uidRaw = r.resultEntityId ?? p.userId ?? p.userid ?? p.user_id;
+        const uid = uidRaw ? String(uidRaw) : "__unknown__";
+
+        if (!byUser.has(uid)) {
+            byUser.set(uid, {
+                minRow: r.rowNumber,
+                rows: [],
+                seenFieldKeys: new Set(),
+                orderedFieldNames: [],
+                failures: [],
+            });
+        }
+        const g = byUser.get(uid);
+        g.minRow = Math.min(g.minRow, r.rowNumber);
+        g.rows.push(r);
+
+        const fieldKey = `f:${String(p.field || p.field_name || p.fieldName || "unknown")}`;
+
+        if (!g.seenFieldKeys.has(fieldKey)) {
+            g.seenFieldKeys.add(fieldKey);
+            g.orderedFieldNames.push(p.bulk_update_field_display_name || "Unknown field");
+        }
+
+        if (r.status === "FAILED" && r.errorMessage) {
+            g.failures.push({
+                fieldName: p.bulk_update_field_display_name || "Unknown field",
+                message: r.errorMessage,
+            });
+        }
+    }
+
+    let groups = Array.from(byUser.entries()).map(([uid, g]) => {
+        const representative = g.rows.reduce((best, cur) =>
+            cur.rowNumber < best.rowNumber ? cur : best
+        );
+        const p = representative.rawPayload || {};
+        const fieldNamesCsv = g.orderedFieldNames.join(", ");
+        const failureSummary =
+            g.failures.length > 0 ? g.failures.map((f) => `${f.fieldName}: ${f.message}`).join("\n") : "";
+
+        // Determine overall status: if any row failed, the group is FAILED
+        const hasFailure = g.rows.some((r) => r.status === "FAILED");
+        const allPending = g.rows.every((r) => r.status === "PENDING");
+        const overallStatus = hasFailure ? "FAILED" : (allPending ? "PENDING" : "SUCCESS");
+
+        return {
+            id: `agg:${jobId}:${uid}`,
+            rowNumber: g.minRow,
+            status: overallStatus,
+            rawPayload: {
+                ...p,
+                userId: uid === "__unknown__" ? undefined : uid,
+                bulk_update_field_names_csv: fieldNamesCsv,
+                bulk_update_failure_details: failureSummary || undefined,
+            },
+            errorMessage: g.failures.length === 1 ? g.failures[0].message : g.failures.length > 1 ? failureSummary : null,
+            resultEntityId: uid === "__unknown__" ? null : uid,
+        };
+    });
+
+    groups.sort((a, b) => a.rowNumber - b.rowNumber);
+
+    const qNorm = q?.trim();
+    if (qNorm) {
+        const ql = qNorm.toLowerCase();
+        groups = groups.filter((row) => {
+            const p = row.rawPayload || {};
+            const hay = [
+                p.name,
+                p.email,
+                p.department_name,
+                p.bulk_update_field_names_csv,
+                row.errorMessage,
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+            return hay.includes(ql);
+        });
+    }
+
+    const total = groups.length;
+    const skip = (page - 1) * limit;
+    const data = groups.slice(skip, skip + limit);
+
+    return {
+        data,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+    };
+}
+
+/**
+ * Distinct employees with at least one SUCCESS / FAILED bulk update row (for tab badges).
+ */
+async function computeBulkUpdateEmployeeSummary(batchJobId) {
+    const rows = await prisma.batchJobRow.findMany({
+        where: {
+            batchJobId,
+            status: { in: ["SUCCESS", "FAILED"] },
+        },
+        select: { status: true, resultEntityId: true, rawPayload: true },
+        take: MAX_ALLOCATION_ROWS_FOR_AGGREGATE,
+    });
+    const successUsers = new Set();
+    const failedUsers = new Set();
+    for (const r of rows) {
+        const uid = r.resultEntityId ?? (r.rawPayload && typeof r.rawPayload === "object" ? (r.rawPayload.userId ?? r.rawPayload.userid ?? r.rawPayload.user_id) : null);
+        if (!uid) continue;
+        if (r.status === "SUCCESS") successUsers.add(String(uid));
+        if (r.status === "FAILED") failedUsers.add(String(uid));
+    }
+    return {
+        successEmployeeCount: successUsers.size,
+        failedEmployeeCount: failedUsers.size,
+    };
+}
+
+/**
  * Distinct employees with at least one SUCCESS / FAILED allocation row (for tab badges).
  */
 async function computeAllocationEmployeeSummary(batchJobId) {
@@ -554,6 +761,10 @@ export const getBatchJobById = async (req, res) => {
             const allocationSummary = await computeAllocationEmployeeSummary(job.id);
             data = { ...base, allocationSummary };
         }
+        if (job.type === "BULK_UPDATE") {
+            const allocationSummary = await computeBulkUpdateEmployeeSummary(job.id);
+            data = { ...base, allocationSummary };
+        }
         return res.json({ success: true, data });
     } catch (e) {
         logger.error(`getBatchJobById: ${e.message}`, { stack: e.stack });
@@ -584,6 +795,23 @@ export const getBatchJobRows = async (req, res) => {
                 tenantId,
                 jobId: id,
                 jobType: job.type,
+                status,
+                q,
+                page,
+                limit,
+            });
+            return res.json({
+                success: true,
+                data,
+                pagination,
+                meta: { aggregatedByUser: true, rowCap: MAX_ALLOCATION_ROWS_FOR_AGGREGATE },
+            });
+        }
+
+        if (job.type === "BULK_UPDATE") {
+            const { data, pagination } = await getAggregatedBulkUpdateBatchRows({
+                tenantId,
+                jobId: id,
                 status,
                 q,
                 page,
