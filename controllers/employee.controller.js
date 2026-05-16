@@ -304,6 +304,10 @@ export const exportEmployees = async (req, res) => {
             ...(tenantId && { tenantId }),
         };
 
+        const deptFilter = await getDepartmentFilter(req.user);
+        const isDeptScoped = Object.keys(deptFilter).length > 0;
+        Object.assign(where, deptFilter);
+
         if (ids && String(ids).trim()) {
             const idList = String(ids)
                 .split(",")
@@ -311,7 +315,7 @@ export const exportEmployees = async (req, res) => {
                 .filter(Boolean);
             if (idList.length > 0) where.id = { in: idList };
         } else {
-            if (departmentId) {
+            if (!isDeptScoped && departmentId) {
                 where.departmentId = String(departmentId);
             }
 

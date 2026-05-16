@@ -88,7 +88,7 @@ router.delete(
 // Sessions (reporting)
 router.get(
     "/sessions",
-    requireRole(["HR_ADMIN", "HR_STAFF"]),
+    requireRole(["HR_ADMIN", "HR_STAFF", "DEPT_ADMIN"]),
     getSessions
 );
 

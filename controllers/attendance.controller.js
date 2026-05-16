@@ -18,6 +18,7 @@ import {
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
 import { isEmployeeActiveForWork } from "../utils/employee-status.util.js";
+import { isEmployeeInDeptAdminScope } from "../utils/employee-warning-access.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
@@ -1373,6 +1374,17 @@ export const getEmployeeAttendanceStats = async (req, res) => {
       });
     }
 
+    if (req.user?.role === "DEPARTMENT_ADMIN") {
+      const inScope = await isEmployeeInDeptAdminScope(tenantId, req.user.id, userId);
+      if (!inScope) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only view attendance stats for employees in departments you manage",
+        });
+      }
+    }
+
     // If pay period is CLOSED, serve snapshot (or compute and persist one time).
     if (resolvedPayPeriod?.status === "CLOSED") {
       const existingSnapshot = await prisma.attendanceStatSnapshot.findFirst({
@@ -1463,6 +1475,17 @@ export const getEmployeeWorkSummary = async (req, res) => {
         error: "Tenant ID or User ID is required",
         message: "Tenant ID or User ID is required",
       });
+    }
+
+    if (req.user?.role === "DEPARTMENT_ADMIN") {
+      const inScope = await isEmployeeInDeptAdminScope(tenantId, req.user.id, userId);
+      if (!inScope) {
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "You can only view work summaries for employees in departments you manage",
+        });
+      }
     }
 
     const result = await buildEmployeeWorkSummary(prisma, {
