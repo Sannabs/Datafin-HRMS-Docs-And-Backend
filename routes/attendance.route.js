@@ -87,7 +87,7 @@ router.get("/config/settings", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenantA
 router.patch("/config/settings", requireRole(["HR_ADMIN"]), updateTenantAttendanceSettings);
 
 // Tenant Locations (Attendance)
-router.get("/config/locations", requireRole(["HR_ADMIN", "HR_STAFF"]), getTenantLocations);
+router.get("/config/locations", requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]), getTenantLocations);
 router.post("/config/locations", requireRole(["HR_ADMIN"]), createTenantLocation);
 router.patch("/config/locations/:id", requireRole(["HR_ADMIN"]), updateTenantLocation);
 router.delete("/config/locations/:id", requireRole(["HR_ADMIN"]), deleteTenantLocation);
