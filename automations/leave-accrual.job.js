@@ -2,6 +2,8 @@ import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
 import { createNotification } from "../services/notification.service.js";
 import { sendLeaveEndingReminderEmail } from "../views/sendLeaveEndingReminderEmail.js";
+import { sendCarryoverExpiryReminderEmail } from "../views/sendCarryoverExpiryReminderEmail.js";
+import { sendLeaveEncashmentProcessedEmail } from "../views/sendLeaveEncashmentProcessedEmail.js";
 
 /**
  * Automation job to process leave accruals
@@ -289,12 +291,17 @@ export const startYearEndJob = async () => {
                             id: true,
                             name: true,
                             employeeId: true,
+                            email: true,
                         },
                     });
 
                     logger.info(
                         `[Year-End Job] Processing ${activeEmployees.length} employees for tenant ${policy.tenant.name} (${policy.tenantId})`
                     );
+
+                    let tenantTotalEncashedDays = 0;
+                    let tenantTotalEncashmentAmount = 0;
+                    let tenantEncashedCount = 0;
 
                     for (const employee of activeEmployees) {
                         try {
@@ -383,6 +390,43 @@ export const startYearEndJob = async () => {
                                 `encashed=${carryoverResult.encashedDays.toFixed(2)}, ` +
                                 `encashmentAmount=${carryoverResult.encashmentAmount.toFixed(2)}`
                             );
+
+                            // Notify employee when their days are encashed at year-end
+                            if (carryoverResult.encashedDays > 0) {
+                                tenantTotalEncashedDays += carryoverResult.encashedDays;
+                                tenantTotalEncashmentAmount += carryoverResult.encashmentAmount;
+                                tenantEncashedCount++;
+                                const processedDate = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+                                const employeeName = employee.name || employee.employeeId || "Employee";
+
+                                try {
+                                    await createNotification(
+                                        policy.tenantId,
+                                        employee.id,
+                                        "Leave Days Encashed",
+                                        `Your ${carryoverResult.encashedDays.toFixed(1)} unused day(s) from ${previousYear} have been encashed` +
+                                        (carryoverResult.encashmentAmount > 0 ? ` for ${carryoverResult.encashmentAmount.toFixed(2)}` : "") +
+                                        `. This will be reflected in your next payroll.`,
+                                        "LEAVE",
+                                        null
+                                    );
+
+                                    if (employee.email) {
+                                        await sendLeaveEncashmentProcessedEmail({
+                                            to: employee.email,
+                                            employeeName,
+                                            previousYear,
+                                            encashedDays: carryoverResult.encashedDays,
+                                            encashmentAmount: carryoverResult.encashmentAmount,
+                                            processedDate,
+                                        });
+                                    }
+                                } catch (notifError) {
+                                    logger.warn(
+                                        `[Year-End Job] Failed to send encashment notification to ${employee.employeeId}: ${notifError.message}`
+                                    );
+                                }
+                            }
                         } catch (error) {
                             totalErrors++;
                             logger.error(
@@ -393,6 +437,39 @@ export const startYearEndJob = async () => {
                                     tenantId: policy.tenantId,
                                 }
                             );
+                        }
+                    }
+
+                    // Notify HR users with a per-tenant encashment summary
+                    if (tenantEncashedCount > 0) {
+                        try {
+                            const hrUsers = await prisma.user.findMany({
+                                where: { tenantId: policy.tenantId, role: { in: ["HR_ADMIN", "HR_STAFF"] }, deletedAt: null },
+                                select: { id: true },
+                            });
+
+                            const amountNote = tenantTotalEncashmentAmount > 0
+                                ? ` totalling ${tenantTotalEncashmentAmount.toFixed(2)}`
+                                : "";
+
+                            for (const hrUser of hrUsers) {
+                                await createNotification(
+                                    policy.tenantId,
+                                    hrUser.id,
+                                    "Year-End Leave Encashment Summary",
+                                    `${tenantEncashedCount} employee(s) had unused leave encashed for ${previousYear}: ` +
+                                    `${tenantTotalEncashedDays.toFixed(1)} total day(s)${amountNote}. Please process payroll accordingly.`,
+                                    "LEAVE",
+                                    null
+                                );
+                            }
+
+                            logger.info(
+                                `[Year-End Job] Sent encashment summary to ${hrUsers.length} HR user(s) for tenant ${policy.tenantId}: ` +
+                                `${tenantEncashedCount} employee(s), ${tenantTotalEncashedDays.toFixed(1)} days`
+                            );
+                        } catch (notifError) {
+                            logger.warn(`[Year-End Job] Failed to send HR encashment summary for tenant ${policy.tenantId}: ${notifError.message}`);
                         }
                     }
                 } catch (error) {
@@ -439,6 +516,7 @@ function calculateCarryover(previousYearEntitlement, policy) {
         previousYearEntitlement.carriedOverDays +
         previousYearEntitlement.adjustmentDays -
         previousYearEntitlement.usedDays -
+        previousYearEntitlement.pendingDays -
         previousYearEntitlement.encashedDays;
 
     if (unusedDays <= 0) {
@@ -541,7 +619,8 @@ export const startCarryoverExpiryJob = async () => {
                         select: {
                             id: true,
                             tenantId: true,
-                            carryoverExpiryMonths: true,
+                            carryoverType: true,
+                            encashmentRate: true,
                         },
                     },
                 },
@@ -556,29 +635,48 @@ export const startCarryoverExpiryJob = async () => {
             for (const entitlement of entitlements) {
                 try {
                     const expiredCarryover = entitlement.carriedOverDays;
+                    const tenantId = entitlement.policy.tenantId;
+                    const isEncashment = entitlement.policy.carryoverType === "ENCASHMENT";
+                    const encashmentRate = entitlement.policy.encashmentRate || 0;
+                    const encashmentAmount = isEncashment ? expiredCarryover * encashmentRate : 0;
 
                     await prisma.yearlyEntitlement.update({
                         where: { id: entitlement.id },
-                        data: {
-                            carriedOverDays: 0,
-                        },
+                        data: isEncashment
+                            ? { carriedOverDays: 0, encashedDays: { increment: expiredCarryover }, encashmentAmount: { increment: encashmentAmount } }
+                            : { carriedOverDays: 0 },
                     });
 
                     totalForfeited += expiredCarryover;
                     totalProcessed++;
 
-                    logger.info(
-                        `[Carryover Expiry Job] Forfeited ${expiredCarryover.toFixed(2)} expired carryover days for ${entitlement.user.name} (${entitlement.user.employeeId})`
-                    );
-
-                    await createNotification(
-                        entitlement.policy.tenantId,
-                        entitlement.userId,
-                        "Carryover Leave Expired",
-                        `Your ${expiredCarryover.toFixed(2)} carryover leave days have expired and have been forfeited.`,
-                        "LEAVE",
-                        null
-                    );
+                    if (isEncashment) {
+                        logger.info(
+                            `[Carryover Expiry Job] Encashed ${expiredCarryover.toFixed(2)} expired carryover days for ${entitlement.user.name} (${entitlement.user.employeeId}) — amount: ${encashmentAmount.toFixed(2)}`
+                        );
+                        await createNotification(
+                            tenantId,
+                            entitlement.userId,
+                            "Carryover Leave Encashed",
+                            `Your ${expiredCarryover.toFixed(2)} carried-over day(s) have been encashed` +
+                            (encashmentAmount > 0 ? ` for ${encashmentAmount.toFixed(2)}` : "") +
+                            `. This will be reflected in your next payroll.`,
+                            "LEAVE",
+                            null
+                        );
+                    } else {
+                        logger.info(
+                            `[Carryover Expiry Job] Forfeited ${expiredCarryover.toFixed(2)} expired carryover days for ${entitlement.user.name} (${entitlement.user.employeeId})`
+                        );
+                        await createNotification(
+                            tenantId,
+                            entitlement.userId,
+                            "Carryover Leave Expired",
+                            `Your ${expiredCarryover.toFixed(2)} carried-over day(s) have expired and been forfeited.`,
+                            "LEAVE",
+                            null
+                        );
+                    }
                 } catch (error) {
                     totalErrors++;
                     logger.error(
@@ -762,10 +860,128 @@ export const startLeaveEndingNotificationJob = async () => {
     logger.info("[Leave Ending Notification Job] Scheduled to run daily at 8:00 AM");
 };
 
+/**
+ * Automation job for carryover expiry warnings
+ * Runs daily at 8:00 AM
+ * Warns employees at 30, 14, and 7 days before their carryover days expire
+ * Only fires for FULL/LIMITED carryover types that have an expiry date set
+ */
+export const startCarryoverExpiryReminderJob = async () => {
+    let cron;
+    try {
+        const cronModule = await import("node-cron");
+        cron = cronModule.default;
+    } catch (error) {
+        logger.warn("node-cron not installed. Carryover expiry reminder job will not run.");
+        return;
+    }
+
+    cron.schedule("0 8 * * *", async () => {
+        const startTime = Date.now();
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        logger.info(`[Carryover Reminder Job] Starting at ${now.toISOString()}`);
+
+        const WARN_AT_DAYS = [30, 14, 7];
+
+        try {
+            // Reminder for FULL and LIMITED carryover — days the employee carried over
+            // that will be forfeited if not used before the tenant-configured expiry date.
+            const entitlements = await prisma.yearlyEntitlement.findMany({
+                where: {
+                    carriedOverDays: { gt: 0 },
+                    carryoverExpiryDate: { not: null, gt: now },
+                    policy: { carryoverType: { in: ["FULL", "LIMITED"] } },
+                },
+                include: {
+                    user: {
+                        select: { id: true, name: true, employeeId: true, email: true },
+                    },
+                    policy: {
+                        select: { tenantId: true },
+                    },
+                },
+            });
+
+            logger.info(`[Carryover Reminder Job] Found ${entitlements.length} entitlements with active carryover`);
+
+            let totalNotified = 0;
+            let totalSkipped = 0;
+            let totalErrors = 0;
+
+            for (const entitlement of entitlements) {
+                try {
+                    const expiryDate = new Date(entitlement.carryoverExpiryDate);
+                    expiryDate.setHours(0, 0, 0, 0);
+                    const daysUntilExpiry = Math.round((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+                    if (!WARN_AT_DAYS.includes(daysUntilExpiry)) {
+                        totalSkipped++;
+                        continue;
+                    }
+
+                    const tenantId = entitlement.policy.tenantId;
+                    const employeeName = entitlement.user.name || entitlement.user.employeeId || "Employee";
+                    const carriedOverDays = entitlement.carriedOverDays;
+                    const formattedExpiryDate = expiryDate.toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                    });
+
+                    let urgencyLabel;
+                    if (daysUntilExpiry === 7) urgencyLabel = "7 days";
+                    else if (daysUntilExpiry === 14) urgencyLabel = "2 weeks";
+                    else urgencyLabel = "30 days";
+
+                    const inAppMessage =
+                        `You have ${carriedOverDays.toFixed(1)} carried-over day(s) expiring in ${urgencyLabel} on ${formattedExpiryDate}. ` +
+                        `Please submit a leave request to use them before they are forfeited.`;
+
+                    await createNotification(tenantId, entitlement.userId, "Carryover Leave Expiring Soon", inAppMessage, "LEAVE", null);
+
+                    if (entitlement.user.email) {
+                        await sendCarryoverExpiryReminderEmail({
+                            to: entitlement.user.email,
+                            employeeName,
+                            carriedOverDays,
+                            formattedExpiryDate,
+                            daysUntilExpiry,
+                        });
+                    }
+
+                    totalNotified++;
+                    logger.info(
+                        `[Carryover Reminder Job] Notified ${employeeName} (${entitlement.user.employeeId}) — ` +
+                        `${carriedOverDays.toFixed(1)} day(s) expire in ${daysUntilExpiry} days`
+                    );
+                } catch (error) {
+                    totalErrors++;
+                    logger.error(
+                        `[Carryover Reminder Job] Error processing entitlement ${entitlement.id} for user ${entitlement.userId}: ${error.message}`,
+                        { error: error.stack, entitlementId: entitlement.id, userId: entitlement.userId }
+                    );
+                }
+            }
+
+            const duration = Date.now() - startTime;
+            logger.info(
+                `[Carryover Reminder Job] Completed in ${duration}ms. Notified: ${totalNotified}, Skipped: ${totalSkipped}, Errors: ${totalErrors}`
+            );
+        } catch (error) {
+            logger.error(`[Carryover Reminder Job] Fatal error: ${error.message}`, { error: error.stack });
+        }
+    });
+
+    logger.info("[Carryover Reminder Job] Scheduled to run daily at 8:00 AM");
+};
+
 export const startAllLeaveAutomationJobs = async () => {
     await startLeaveAccrualJob();
     await startYearEndJob();
     await startCarryoverExpiryJob();
     await startLeaveEndingNotificationJob();
+    await startCarryoverExpiryReminderJob();
     logger.info("All leave automation jobs started");
 };
