@@ -15,9 +15,8 @@ const templatePath =
     process.env.GRA_PAYE_SCHEDULE_TEMPLATE_PATH || join(__dirname, "../templates/gra-paye-schedule.html");
 const logoPath = process.env.GRA_LOGO_PATH || join(__dirname, "../images/gra-logo.png");
 
-/** Used on the PDF only when the tenant has no `employerTin` (and optional env override). */
-const EMPLOYER_TIN_FALLBACK =
-    process.env.GRA_EMPLOYER_TIN_PLACEHOLDER?.trim() || "[EMPLOYER TIN — set in company settings or GRA_EMPLOYER_TIN_PLACEHOLDER]";
+/** Used on the PDF only when the tenant has no `employerTin`. */
+const EMPLOYER_TIN_FALLBACK = "—";
 
 /** Tight margins so one A4 page fits for typical headcounts before scaling. */
 const GRA_PDF_MARGIN_MM = 8;
