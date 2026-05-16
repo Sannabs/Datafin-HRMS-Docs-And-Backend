@@ -1283,7 +1283,7 @@ export const submitEmployeeWarningForReview = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
       const subjectName =
         (await prisma.user.findFirst({
@@ -1649,7 +1649,7 @@ export const acknowledgeEmployeeWarning = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       const actionUrl = `${frontend}/dashboard/employee/${targetUserId}`;
       if (warning.issuedById) {
         await createNotification(
@@ -1751,7 +1751,7 @@ export const refuseEmployeeWarningAcknowledgement = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await notifyHRForWarningEvent(
         tenantId,
         "Employee refused warning acknowledgement",
@@ -1873,7 +1873,7 @@ export const submitEmployeeWarningAppeal = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await notifyHRForWarningEvent(
         tenantId,
         "Warning appeal submitted",
@@ -2097,7 +2097,7 @@ export const decideEmployeeWarningAppeal = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await createNotification(
         tenantId,
         targetUserId,
@@ -2206,7 +2206,7 @@ export const resolveEmployeeWarning = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await createNotification(
         tenantId,
         targetUserId,
@@ -2316,7 +2316,7 @@ export const voidEmployeeWarning = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await createNotification(
         tenantId,
         targetUserId,
@@ -2424,7 +2424,7 @@ export const escalateEmployeeWarning = async (req, res) => {
     );
 
     try {
-      const frontend = process.env.FRONTEND_URL || "http://localhost:3000";
+      const frontend = process.env.CLIENT_URL || "http://localhost:3000";
       await notifyHRForWarningEvent(
         tenantId,
         "Warning escalated",

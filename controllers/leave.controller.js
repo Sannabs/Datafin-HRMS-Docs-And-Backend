@@ -1747,7 +1747,7 @@ export const createLeaveRequest = async (req, res) => {
       })
 
       const isTwoTier = !policy || policy.requireManagerApproval;
-      const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`
+      const requestUrl = `${process.env.CLIENT_URL || "http://localhost:3000"}/leave`
 
       if (isTwoTier) {
         // Two-tier: notify the assigned manager
@@ -2007,7 +2007,7 @@ export const managerApproveLeaveRequest = async (req, res, next) => {
         select: { id: true, name: true, email: true },
       });
 
-      const requestUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/leave`;
+      const requestUrl = `${process.env.CLIENT_URL || "http://localhost:3000"}/leave`;
 
       for (const hrUser of hrUsers) {
         await createNotification(
