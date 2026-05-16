@@ -113,6 +113,7 @@ export const getAllEmployees = async (req, res) => {
             search,
             departmentId,
             status,
+            role,
             page = 1,
             limit = 10,
         } = req.query;
@@ -144,6 +145,14 @@ export const getAllEmployees = async (req, res) => {
                 where.status = { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK };
             } else if (VALID_EMPLOYMENT_STATUSES.includes(normalizedStatus)) {
                 where.status = normalizedStatus;
+            }
+        }
+
+        if (role) {
+            const validRoles = ["HR_ADMIN", "HR_STAFF", "STAFF", "DEPARTMENT_ADMIN"];
+            const normalizedRole = String(role).toUpperCase();
+            if (validRoles.includes(normalizedRole)) {
+                where.role = normalizedRole;
             }
         }
 
@@ -1041,6 +1050,36 @@ export const updateEmployee = async (req, res) => {
         logger.info(`Updated employee with ID: ${id}`);
         const changes = getChangesDiff(existingEmployee, updatedEmployee);
         await addLog(actorId, tenantId, "UPDATE", "Employee", id, changes, req);
+
+        // If the employee was demoted from DEPARTMENT_ADMIN, clear them as
+        // manager from any departments they were managing (possibly multiple).
+        const wasDemotedFromDeptAdmin =
+            existingEmployee.role === "DEPARTMENT_ADMIN" &&
+            filteredData.role !== undefined &&
+            filteredData.role !== "DEPARTMENT_ADMIN";
+
+        if (wasDemotedFromDeptAdmin) {
+            try {
+                const cleared = await prisma.department.updateMany({
+                    where: {
+                        tenantId,
+                        managerId: id,
+                        deletedAt: null,
+                    },
+                    data: { managerId: null },
+                });
+                if (cleared.count > 0) {
+                    logger.info(
+                        `Cleared ${id} as manager from ${cleared.count} department(s) after role demotion from DEPARTMENT_ADMIN`
+                    );
+                }
+            } catch (clearError) {
+                logger.error(
+                    `Failed to clear ${id} as manager after role demotion: ${clearError.message}`,
+                    { stack: clearError.stack }
+                );
+            }
+        }
 
         // If the employee was promoted to DEPARTMENT_ADMIN, try to assign them as
         // the manager of their department (when the department has no active manager).
