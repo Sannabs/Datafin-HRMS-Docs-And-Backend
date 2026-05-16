@@ -29,6 +29,7 @@ import {
     EMPLOYEE_STATUSES_ACTIVE_FOR_WORK,
     isEmployeeActiveForWork,
 } from "../utils/employee-status.util.js";
+import { getDepartmentFilter } from "../utils/access-control.utils.js";
 
 /** Map breakdown rows to a safe JSON shape for payroll overview. */
 function toPayrollOverviewLines(rows) {
@@ -125,7 +126,14 @@ export const getAllEmployees = async (req, res) => {
             ...(tenantId && { tenantId }),
         };
 
-        if (departmentId) {
+        const deptFilter = await getDepartmentFilter(req.user);
+        const isDeptScoped = Object.keys(deptFilter).length > 0;
+
+        if (isDeptScoped) {
+            // DEPARTMENT_ADMIN: enforce managed-department scope; ignore query param
+            Object.assign(where, deptFilter);
+        } else if (departmentId) {
+            // HR roles: optional departmentId filter from query param
             where.departmentId = String(departmentId);
         }
 

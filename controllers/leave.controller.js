@@ -1123,7 +1123,7 @@ export const getAllLeaveRequests = async (req, res, next) => {
       search: searchParam,
     } = req.query;
 
-    const userDeptFilter = { ...getDepartmentFilter(req.user) };
+    const userDeptFilter = await getDepartmentFilter(req.user);
     const search =
       typeof searchParam === "string" && searchParam.trim()
         ? searchParam.trim()
