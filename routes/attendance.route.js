@@ -49,7 +49,11 @@ router.post("/clock-out/wifi", clockOutWiFi);
 router.post("/clock-out/qrcode", clockOutQRCode);
 
 // Attendance History & Stats
-router.get("/history", getAttendanceHistory);
+router.get(
+  "/history",
+  requireRole(["HR_ADMIN", "HR_STAFF", "DEPARTMENT_ADMIN"]),
+  getAttendanceHistory
+);
 router.get("/my-history", getMyAttendanceHistory);
 router.get("/today-status", getMyTodayStatus);
 router.get("/my-stats", getMyAttendanceStats);

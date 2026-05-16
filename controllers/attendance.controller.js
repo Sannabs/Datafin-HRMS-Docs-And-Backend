@@ -19,6 +19,7 @@ import {
 import logger from "../utils/logger.js";
 import { isEmployeeActiveForWork } from "../utils/employee-status.util.js";
 import { isEmployeeInDeptAdminScope } from "../utils/employee-warning-access.js";
+import { getDepartmentFilter } from "../utils/access-control.utils.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
@@ -1087,6 +1088,13 @@ export const getAttendanceHistory = async (req, res) => {
     const where = {
       tenantId,
     };
+
+    // Department-scope for DEPARTMENT_ADMIN: filter attendance by employees
+    // belonging to departments they manage. HR/SUPER_ADMIN see all.
+    const deptFilter = await getDepartmentFilter(req.user);
+    if (Object.keys(deptFilter).length > 0) {
+      where.user = { ...(where.user || {}), ...deptFilter };
+    }
 
     // Filter by user/employee
     if (userId) {
