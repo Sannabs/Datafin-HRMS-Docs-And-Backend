@@ -13,6 +13,7 @@ import {
 } from "./batch-salary-line.service.js";
 import { parseFlexibleDate } from "../utils/date-parser.js";
 import { recalculateSalary } from "../calculations/salary-calculations.js";
+import { VALID_EMPLOYMENT_STATUSES } from "../utils/employee-status.util.js";
 
 function pick(row, ...keys) {
     for (const k of keys) {
@@ -380,8 +381,7 @@ export async function processBatchJobById(batchJobId) {
                             data.employmentType = et;
                         } else if (field === "employment_status" || field === "status") {
                             const st = upperEnum(value, "");
-                            const allowed = ["INACTIVE", "ACTIVE", "ON_LEAVE"];
-                            if (!allowed.includes(st)) {
+                            if (!VALID_EMPLOYMENT_STATUSES.includes(st)) {
                                 errMsg = "Invalid employment_status";
                                 break;
                             }

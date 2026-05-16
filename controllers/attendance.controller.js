@@ -17,6 +17,7 @@ import {
   assertCanClockInToday,
 } from "../utils/attendance.util.js";
 import logger from "../utils/logger.js";
+import { isEmployeeActiveForWork } from "../utils/employee-status.util.js";
 import { recordRecentActivity } from "../utils/activity.util.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 
@@ -2642,7 +2643,7 @@ export const markExcusedAbsenceToday = async (req, res) => {
         message: "Employee not found",
       });
     }
-    if (employee.status !== "ACTIVE") {
+    if (!isEmployeeActiveForWork(employee.status)) {
       return res.status(400).json({
         success: false,
         error: "Employee must be active",

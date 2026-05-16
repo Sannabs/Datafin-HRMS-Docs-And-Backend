@@ -8,6 +8,7 @@ import { recalculateSalary } from "../calculations/salary-calculations.js";
 import { addLog, getChangesDiff } from "../utils/audit.utils.js";
 import { validateFormula } from "../services/formula-evaluator.service.js";
 import { calculateGambiaPAYE, GAMBIA_SSN_EMPLOYEE_RATE } from "../constants/gambia-payroll.defaults.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 
 /**
  * Add computed netSalary and totalDeductions to a salary structure for API response.
@@ -407,7 +408,7 @@ export const getAllSalaryStructures = async (req, res) => {
                 ? {
                     user: {
                         isDeleted: false,
-                        status: "ACTIVE",
+                        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
                     },
                 }
                 : {}),

@@ -27,6 +27,7 @@ enum EmployeeStatus {
   INACTIVE
   ACTIVE
   ON_LEAVE
+  PROBATION
 }
 
 enum TerminationReason {

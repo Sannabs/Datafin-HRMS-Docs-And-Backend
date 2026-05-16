@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import prisma from "../config/prisma.config.js";
 import logger from "../utils/logger.js";
+import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
 
 // run every 30 minutes
 cron.schedule("*/30 * * * *", async () => {
@@ -17,7 +18,7 @@ cron.schedule("*/30 * * * *", async () => {
     const employees = await prisma.user.findMany({
       where: {
         shiftId: { not: null },
-        status: "ACTIVE",
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
         isDeleted: false,
       },
       include: {
