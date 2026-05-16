@@ -266,10 +266,7 @@ export const startYearEndJob = async () => {
             const policies = await prisma.annualLeavePolicy.findMany({
                 include: {
                     tenant: {
-                        select: {
-                            id: true,
-                            name: true,
-                        },
+                        select: { id: true, name: true },
                     },
                 },
             });
@@ -332,7 +329,25 @@ export const startYearEndJob = async () => {
                                 continue;
                             }
 
-                            const carryoverResult = calculateCarryover(previousYearEntitlement, policy);
+                            let employeeDailyRate = null;
+                            if (policy.carryoverType === "ENCASHMENT") {
+                                const salaryStructure = await prisma.salaryStructure.findFirst({
+                                    where: {
+                                        userId: employee.id,
+                                        tenantId: policy.tenantId,
+                                        effectiveDate: { lte: now },
+                                        OR: [{ endDate: null }, { endDate: { gte: now } }],
+                                    },
+                                    orderBy: { effectiveDate: "desc" },
+                                    select: { baseSalary: true },
+                                });
+                                if (salaryStructure) {
+                                    const workingDays = policy.encashmentWorkingDays || 26;
+                                    employeeDailyRate = salaryStructure.baseSalary / workingDays;
+                                }
+                            }
+
+                            const carryoverResult = calculateCarryover(previousYearEntitlement, policy, employeeDailyRate);
 
                             const yearStartDate = new Date(newYear, 0, 1);
                             const yearEndDate = new Date(newYear, 11, 31, 23, 59, 59);
@@ -501,7 +516,7 @@ export const startYearEndJob = async () => {
 /**
  * Calculate carryover from previous year entitlement based on policy
  */
-function calculateCarryover(previousYearEntitlement, policy) {
+function calculateCarryover(previousYearEntitlement, policy, employeeDailyRate = null) {
     if (!previousYearEntitlement) {
         return {
             carriedOverDays: 0,
@@ -553,12 +568,14 @@ function calculateCarryover(previousYearEntitlement, policy) {
         }
 
         case "ENCASHMENT": {
-            const encashmentRate = policy.encashmentRate || 0;
-            const encashmentAmount = unusedDays * encashmentRate;
+            // Use employee's daily rate (baseSalary / workingDaysInMonth) when available.
+            // Falls back to the legacy flat encashmentRate if no salary structure exists.
+            const dailyRate = employeeDailyRate ?? policy.encashmentRate ?? 0;
+            const encashmentAmount = unusedDays * dailyRate;
             return {
                 carriedOverDays: 0,
                 encashedDays: unusedDays,
-                encashmentAmount: encashmentAmount,
+                encashmentAmount,
             };
         }
 
@@ -621,6 +638,7 @@ export const startCarryoverExpiryJob = async () => {
                             tenantId: true,
                             carryoverType: true,
                             encashmentRate: true,
+                            encashmentWorkingDays: true,
                         },
                     },
                 },
@@ -637,8 +655,25 @@ export const startCarryoverExpiryJob = async () => {
                     const expiredCarryover = entitlement.carriedOverDays;
                     const tenantId = entitlement.policy.tenantId;
                     const isEncashment = entitlement.policy.carryoverType === "ENCASHMENT";
-                    const encashmentRate = entitlement.policy.encashmentRate || 0;
-                    const encashmentAmount = isEncashment ? expiredCarryover * encashmentRate : 0;
+
+                    let encashmentAmount = 0;
+                    if (isEncashment) {
+                        const salaryStructure = await prisma.salaryStructure.findFirst({
+                            where: {
+                                userId: entitlement.userId,
+                                tenantId,
+                                effectiveDate: { lte: now },
+                                OR: [{ endDate: null }, { endDate: { gte: now } }],
+                            },
+                            orderBy: { effectiveDate: "desc" },
+                            select: { baseSalary: true },
+                        });
+                        const workingDays = entitlement.policy.encashmentWorkingDays || 26;
+                        const dailyRate = salaryStructure
+                            ? salaryStructure.baseSalary / workingDays
+                            : (entitlement.policy.encashmentRate || 0);
+                        encashmentAmount = expiredCarryover * dailyRate;
+                    }
 
                     await prisma.yearlyEntitlement.update({
                         where: { id: entitlement.id },

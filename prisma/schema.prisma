@@ -1490,7 +1490,8 @@ model AnnualLeavePolicy {
   carryoverType         CarryoverType @default(FULL)
   maxCarryoverDays      Float? // Only if carryoverType = LIMITED
   carryoverExpiryMonths Int? // Months after year-end when carryover expires
-  encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT
+  encashmentRate        Float? // Kept for backward compatibility — no longer used in calculation
+  encashmentWorkingDays Int?   // Working days per month divisor for encashment (22 = Mon–Fri, 26 = standard, 30 = calendar). Defaults to 26.
 
   // Request Constraints
   advanceNoticeDays      Int     @default(0)
