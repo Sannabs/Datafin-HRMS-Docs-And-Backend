@@ -278,6 +278,8 @@ model Tenant {
   website      String?
   /// Employer TIN for GRA statutory filings (e.g. PAYE schedule PDF). Optional; env fallback used when empty.
   employerTin  String?
+  /// Company logo URL for branding and PDF reports.
+  logo         String?
 
   // Weekend configuration: array of day numbers (0=Sunday, 6=Saturday)
   // Default: [0, 6] for Saturday/Sunday weekends
@@ -1491,8 +1493,7 @@ model AnnualLeavePolicy {
   carryoverType         CarryoverType @default(FULL)
   maxCarryoverDays      Float? // Only if carryoverType = LIMITED
   carryoverExpiryMonths Int? // Months after year-end when carryover expires
-  encashmentRate        Float? // Kept for backward compatibility — no longer used in calculation
-  encashmentWorkingDays Int?   // Working days per month divisor for encashment (22 = Mon–Fri, 26 = standard, 30 = calendar). Defaults to 26.
+  encashmentRate        Float? // Rate per day if carryoverType = ENCASHMENT
 
   // Request Constraints
   advanceNoticeDays      Int     @default(0)
