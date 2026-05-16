@@ -30,6 +30,7 @@ import {
     isEmployeeActiveForWork,
 } from "../utils/employee-status.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
+import { sendDepartmentManagerAssignedEmail } from "../views/sendDepartmentManagerAssignedEmail.js";
 
 /** Map breakdown rows to a safe JSON shape for payroll overview. */
 function toPayrollOverviewLines(rows) {
@@ -1040,6 +1041,87 @@ export const updateEmployee = async (req, res) => {
         logger.info(`Updated employee with ID: ${id}`);
         const changes = getChangesDiff(existingEmployee, updatedEmployee);
         await addLog(actorId, tenantId, "UPDATE", "Employee", id, changes, req);
+
+        // If the employee was promoted to DEPARTMENT_ADMIN, try to assign them as
+        // the manager of their department (when the department has no active manager).
+        const wasPromotedToDeptAdmin =
+            filteredData.role === "DEPARTMENT_ADMIN" &&
+            existingEmployee.role !== "DEPARTMENT_ADMIN";
+
+        if (wasPromotedToDeptAdmin && updatedEmployee.departmentId) {
+            let becameDepartmentManager = false;
+            try {
+                becameDepartmentManager = await prisma.$transaction(async (tx) => {
+                    const department = await tx.department.findFirst({
+                        where: {
+                            id: updatedEmployee.departmentId,
+                            tenantId,
+                            deletedAt: null,
+                        },
+                        include: {
+                            manager: {
+                                select: { id: true, status: true, isDeleted: true },
+                            },
+                        },
+                    });
+
+                    if (!department) {
+                        logger.warn(
+                            `Department ${updatedEmployee.departmentId} not found while promoting ${id} to DEPARTMENT_ADMIN`
+                        );
+                        return false;
+                    }
+
+                    if (department.managerId === id) return true;
+
+                    if (
+                        !department.managerId ||
+                        department.manager?.isDeleted ||
+                        !isEmployeeActiveForWork(department.manager?.status)
+                    ) {
+                        await tx.department.update({
+                            where: { id: updatedEmployee.departmentId },
+                            data: { managerId: id },
+                        });
+                        logger.info(
+                            `Assigned ${id} as manager to department ${updatedEmployee.departmentId} after role update`
+                        );
+                        return true;
+                    }
+
+                    logger.warn(
+                        `Department ${updatedEmployee.departmentId} already has an active manager, skipping manager assignment after role update for ${id}`
+                    );
+                    return false;
+                });
+            } catch (managerAssignError) {
+                logger.error(
+                    `Failed to assign ${id} as department manager after role update: ${managerAssignError.message}`,
+                    { stack: managerAssignError.stack }
+                );
+            }
+
+            if (
+                becameDepartmentManager &&
+                updatedEmployee.email &&
+                updatedEmployee.department?.name
+            ) {
+                try {
+                    await sendDepartmentManagerAssignedEmail({
+                        to: updatedEmployee.email,
+                        employeeName: updatedEmployee.name || "there",
+                        departmentName: updatedEmployee.department.name,
+                        tenantName:
+                            updatedEmployee.tenant?.name || "your organization",
+                    });
+                } catch (emailError) {
+                    logger.error(
+                        `Failed to send department manager assigned email to ${updatedEmployee.email}: ${emailError.message}`,
+                        { stack: emailError.stack }
+                    );
+                }
+            }
+        }
 
         return res.status(200).json({
             success: true,
