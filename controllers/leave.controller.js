@@ -55,7 +55,7 @@ export const getLeavePolicy = async (req, res) => {
     await addLog(
       userId,
       tenantId,
-      "READ",
+      "VIEW",
       "AnnualLeavePolicy",
       policy.id,
       null,
@@ -3090,7 +3090,7 @@ export const getEmployeeLeaveBalance = async (req, res) => {
     await addLog(
       hrUserId,
       tenantId,
-      "READ",
+      "VIEW",
       "YearlyEntitlement",
       entitlement.id,
       null,
@@ -3471,7 +3471,7 @@ export const getAllLeaveBalances = async (req, res) => {
     await addLog(
       hrUserId,
       tenantId,
-      "READ",
+      "VIEW",
       "YearlyEntitlement",
       null,
       { year: targetYear, count: balances.length },
