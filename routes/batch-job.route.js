@@ -16,6 +16,7 @@ import {
     createBulkUpdateBatch,
     createAllowanceAllocationBatch,
     createDeductionAllocationBatch,
+    createLeaveBalanceUpdateBatch,
     startBatchJob,
     retryBatchJob,
     getBatchJobStatus,
@@ -40,6 +41,7 @@ router.post("/send-invitations", createSendInvitationsBatch);
 router.post("/bulk-update", uploadCsvSingle, createBulkUpdateBatch);
 router.post("/allowance-allocation", createAllowanceAllocationBatch);
 router.post("/deduction-allocation", createDeductionAllocationBatch);
+router.post("/leave-balance-update", createLeaveBalanceUpdateBatch);
 
 router.get("/:id/status/stream", getBatchJobStatusStream);
 router.get("/:id/status", getBatchJobStatus);

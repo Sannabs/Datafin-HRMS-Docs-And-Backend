@@ -230,10 +230,10 @@ async function getAggregatedAllocationBatchRows({
 }
 
 /**
- * For bulk update jobs, return one logical row per employee with
- * comma-separated updated field names (for UI). Search `q` is applied after aggregation.
+ * For leave balance update jobs, return one logical row per employee with
+ * comma-separated leave type names (for UI). Search `q` is applied after aggregation.
  */
-async function getAggregatedBulkUpdateBatchRows({
+async function getAggregatedLeaveBalanceBatchRows({
     tenantId,
     jobId,
     status,
@@ -287,17 +287,41 @@ async function getAggregatedBulkUpdateBatchRows({
 
     const userById = new Map(users.map((u) => [u.id, u]));
 
+    // Get leave types for names
+    const leaveTypeIds = new Set();
+    for (const r of allRows) {
+        const payload = r.rawPayload && typeof r.rawPayload === "object" ? r.rawPayload : {};
+        const ltId = payload.leaveTypeId || payload.leave_type_id || payload.leavetypeid;
+        if (ltId) leaveTypeIds.add(String(ltId));
+    }
+
+    const leaveTypes = leaveTypeIds.size > 0
+        ? await prisma.leaveType.findMany({
+            where: {
+                id: { in: Array.from(leaveTypeIds) },
+                tenantId,
+            },
+            select: {
+                id: true,
+                name: true,
+            },
+        })
+        : [];
+
+    const leaveTypeById = new Map(leaveTypes.map((lt) => [lt.id, lt]));
+
     const enrichedRows = allRows.map((r) => {
         const payload = r.rawPayload && typeof r.rawPayload === "object" ? { ...r.rawPayload } : {};
         const uid = r.resultEntityId ?? payload.userId ?? payload.userid ?? payload.user_id;
         const lookupId = uid ? String(uid) : null;
         const u = lookupId ? userById.get(lookupId) : undefined;
 
-        const fieldName = payload.field || payload.field_name || payload.fieldName || "Unknown field";
+        const ltId = payload.leaveTypeId || payload.leave_type_id || payload.leavetypeid;
+        const leaveType = ltId ? leaveTypeById.get(String(ltId)) : undefined;
 
         const merged = {
             ...payload,
-            bulk_update_field_display_name: fieldName,
+            leaveTypeName: leaveType?.name || "Unknown leave type",
         };
         if (u) {
             merged.name = payload.name ?? u.name ?? u.email;
@@ -309,7 +333,7 @@ async function getAggregatedBulkUpdateBatchRows({
         return { ...r, rawPayload: merged };
     });
 
-    /** @type {Map<string, { minRow: number, rows: typeof enrichedRows, seenFieldKeys: Set<string>, orderedFieldNames: string[], failures: { fieldName: string, message: string }[] }>} */
+    /** @type {Map<string, { minRow: number, rows: typeof enrichedRows, seenLeaveTypeIds: Set<string>, orderedLeaveTypeNames: string[], failures: { leaveTypeName: string, message: string }[] }>} */
     const byUser = new Map();
 
     for (const r of enrichedRows) {
@@ -321,8 +345,8 @@ async function getAggregatedBulkUpdateBatchRows({
             byUser.set(uid, {
                 minRow: r.rowNumber,
                 rows: [],
-                seenFieldKeys: new Set(),
-                orderedFieldNames: [],
+                seenLeaveTypeIds: new Set(),
+                orderedLeaveTypeNames: [],
                 failures: [],
             });
         }
@@ -330,16 +354,17 @@ async function getAggregatedBulkUpdateBatchRows({
         g.minRow = Math.min(g.minRow, r.rowNumber);
         g.rows.push(r);
 
-        const fieldKey = `f:${String(p.field || p.field_name || p.fieldName || "unknown")}`;
+        const ltId = p.leaveTypeId || p.leave_type_id || p.leavetypeid;
+        const ltKey = `lt:${String(ltId || "unknown")}`;
 
-        if (!g.seenFieldKeys.has(fieldKey)) {
-            g.seenFieldKeys.add(fieldKey);
-            g.orderedFieldNames.push(p.bulk_update_field_display_name || "Unknown field");
+        if (!g.seenLeaveTypeIds.has(ltKey)) {
+            g.seenLeaveTypeIds.add(ltKey);
+            g.orderedLeaveTypeNames.push(p.leaveTypeName || "Unknown leave type");
         }
 
         if (r.status === "FAILED" && r.errorMessage) {
             g.failures.push({
-                fieldName: p.bulk_update_field_display_name || "Unknown field",
+                leaveTypeName: p.leaveTypeName || "Unknown leave type",
                 message: r.errorMessage,
             });
         }
@@ -350,9 +375,9 @@ async function getAggregatedBulkUpdateBatchRows({
             cur.rowNumber < best.rowNumber ? cur : best
         );
         const p = representative.rawPayload || {};
-        const fieldNamesCsv = g.orderedFieldNames.join(", ");
+        const leaveTypeNamesCsv = g.orderedLeaveTypeNames.join(", ");
         const failureSummary =
-            g.failures.length > 0 ? g.failures.map((f) => `${f.fieldName}: ${f.message}`).join("\n") : "";
+            g.failures.length > 0 ? g.failures.map((f) => `${f.leaveTypeName}: ${f.message}`).join("\n") : "";
 
         // Determine overall status: if any row failed, the group is FAILED
         const hasFailure = g.rows.some((r) => r.status === "FAILED");
@@ -366,8 +391,8 @@ async function getAggregatedBulkUpdateBatchRows({
             rawPayload: {
                 ...p,
                 userId: uid === "__unknown__" ? undefined : uid,
-                bulk_update_field_names_csv: fieldNamesCsv,
-                bulk_update_failure_details: failureSummary || undefined,
+                leave_balance_leave_types_csv: leaveTypeNamesCsv,
+                leave_balance_failure_details: failureSummary || undefined,
             },
             errorMessage: g.failures.length === 1 ? g.failures[0].message : g.failures.length > 1 ? failureSummary : null,
             resultEntityId: uid === "__unknown__" ? null : uid,
@@ -385,7 +410,7 @@ async function getAggregatedBulkUpdateBatchRows({
                 p.name,
                 p.email,
                 p.department_name,
-                p.bulk_update_field_names_csv,
+                p.leave_balance_leave_types_csv,
                 row.errorMessage,
             ]
                 .filter(Boolean)
@@ -411,366 +436,9 @@ async function getAggregatedBulkUpdateBatchRows({
 }
 
 /**
- * Distinct employees with at least one SUCCESS / FAILED bulk update row (for tab badges).
+ * Process a batch job by executing its rows in parallel with configurable concurrency.
+ * Supports partial success: failed rows are marked FAILED and processing continues.
  */
-async function computeBulkUpdateEmployeeSummary(batchJobId) {
-    const rows = await prisma.batchJobRow.findMany({
-        where: {
-            batchJobId,
-            status: { in: ["SUCCESS", "FAILED"] },
-        },
-        select: { status: true, resultEntityId: true, rawPayload: true },
-        take: MAX_ALLOCATION_ROWS_FOR_AGGREGATE,
-    });
-    const successUsers = new Set();
-    const failedUsers = new Set();
-    for (const r of rows) {
-        const uid = r.resultEntityId ?? (r.rawPayload && typeof r.rawPayload === "object" ? (r.rawPayload.userId ?? r.rawPayload.userid ?? r.rawPayload.user_id) : null);
-        if (!uid) continue;
-        if (r.status === "SUCCESS") successUsers.add(String(uid));
-        if (r.status === "FAILED") failedUsers.add(String(uid));
-    }
-    return {
-        successEmployeeCount: successUsers.size,
-        failedEmployeeCount: failedUsers.size,
-    };
-}
-
-/**
- * Distinct employees with at least one SUCCESS / FAILED allocation row (for tab badges).
- */
-async function computeAllocationEmployeeSummary(batchJobId) {
-    const rows = await prisma.batchJobRow.findMany({
-        where: {
-            batchJobId,
-            status: { in: ["SUCCESS", "FAILED"] },
-        },
-        select: { status: true, rawPayload: true },
-        take: MAX_ALLOCATION_ROWS_FOR_AGGREGATE,
-    });
-    const successUsers = new Set();
-    const failedUsers = new Set();
-    for (const r of rows) {
-        const p = r.rawPayload && typeof r.rawPayload === "object" ? r.rawPayload : {};
-        const uid = p.userId ?? p.userid ?? p.user_id;
-        if (!uid) continue;
-        if (r.status === "SUCCESS") successUsers.add(String(uid));
-        if (r.status === "FAILED") failedUsers.add(String(uid));
-    }
-    return {
-        successEmployeeCount: successUsers.size,
-        failedEmployeeCount: failedUsers.size,
-    };
-}
-
-function csvTextForBatchJobRows(_job, rows) {
-    const header = ["row_number", "status", "error_field", "error_message", "result_entity_id"];
-    const lines = [header.join(",")];
-    for (const r of rows) {
-        const cells = [
-            r.rowNumber,
-            r.status,
-            r.errorField || "",
-            (r.errorMessage || "").replace(/"/g, '""'),
-            r.resultEntityId || "",
-        ].map((c) => (typeof c === "string" && c.includes(",") ? `"${c}"` : c));
-        lines.push(cells.join(","));
-    }
-    return lines.join("\n");
-}
-
-function tenantIdFromReq(req) {
-    return req.effectiveTenantId ?? req.user?.tenantId;
-}
-
-function validateHeaders(headers, required) {
-    const hset = new Set(headers.map((h) => h.toLowerCase()));
-    const missing = required.filter((r) => !hset.has(r.toLowerCase()));
-    return { ok: missing.length === 0, missing };
-}
-
-function pickRow(row, ...keys) {
-    for (const k of keys) {
-        const v = row[k];
-        if (v != null && String(v).trim() !== "") return String(v).trim();
-    }
-    return "";
-}
-
-function dedupeAllocationLines(lines, typeField) {
-    const unique = [];
-    const seen = new Set();
-    for (const raw of lines) {
-        if (!raw || typeof raw !== "object") continue;
-        const userId = String(raw.userId ?? "").trim();
-        const typeId = String(raw[typeField] ?? "").trim();
-        if (!userId || !typeId) continue;
-        const key = `${userId}:${typeId}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        unique.push({
-            ...raw,
-            userId,
-            [typeField]: typeId,
-        });
-    }
-    return unique;
-}
-
-/**
- * CSV preflight: empty file + required headers only. Returns a result object to return immediately, or null to run deep validation.
- * @param {"EMPLOYEE_CREATION"|"EMPLOYEE_INVITATION"|"BULK_UPDATE"} batchType
- */
-function csvPreflightBatchCsv(batchType, headers, rows) {
-    if (rows.length === 0) {
-        return {
-            total_records: 0,
-            valid_records: 0,
-            invalid_records: 0,
-            errors: [{ row_number: 1, field: "file", message: "CSV has no data rows", value: "" }],
-        };
-    }
-
-    let required;
-    if (batchType === "EMPLOYEE_CREATION") required = ["name", "email", "base_salary"];
-    else if (batchType === "EMPLOYEE_INVITATION") required = ["email", "role"];
-    else if (batchType === "BULK_UPDATE") required = ["field", "value"];
-    else {
-        return {
-            total_records: rows.length,
-            valid_records: 0,
-            invalid_records: rows.length,
-            errors: [{ row_number: 0, field: "batchType", message: "Invalid batch type", value: String(batchType) }],
-        };
-    }
-
-    const hv = validateHeaders(headers, required);
-    if (!hv.ok) {
-        return {
-            total_records: rows.length,
-            valid_records: 0,
-            invalid_records: rows.length,
-            errors: [
-                {
-                    row_number: 1,
-                    field: "headers",
-                    message: `Missing required column(s): ${hv.missing.join(", ")}`,
-                    value: "",
-                },
-            ],
-            missingHeaders: hv.missing,
-        };
-    }
-
-    return null;
-}
-
-async function tryEnqueueOrInline(batchJobId) {
-    if (ENABLE_BULLMQ) {
-        try {
-            getBatchQueue();
-            await enqueueBatchJob(batchJobId);
-            return "queued";
-        } catch (e) {
-            logger.warn(`Batch queue unavailable, processing inline: ${e.message}`);
-        }
-    }
-    setImmediate(() => {
-        processBatchJobById(batchJobId).catch((err) => {
-            logger.error(`Inline batch process failed ${batchJobId}: ${err.message}`, { stack: err.stack });
-        });
-    });
-    return "inline";
-}
-
-async function beginBatchJobProcessing(batchJobId) {
-    await prisma.batchJob.update({
-        where: { id: batchJobId },
-        data: {
-            status: "PROCESSING",
-            processStartedAt: new Date(),
-            failureReason: null,
-        },
-    });
-    return tryEnqueueOrInline(batchJobId);
-}
-
-export const listBatchJobs = async (req, res) => {
-    try {
-        const tenantId = tenantIdFromReq(req);
-        if (!tenantId) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
-        }
-
-        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
-        const skip = (page - 1) * limit;
-        const statusFilter = req.query.status;
-        const q = req.query.q?.trim();
-        const createdByUserId = (req.query.createdBy ?? req.query.createdByUserId)?.trim();
-
-        const where = {
-            tenantId,
-            ...(statusFilter &&
-                ["pending", "processing", "completed", "failed"].includes(statusFilter) && {
-                    status: statusFilter.toUpperCase(),
-                }),
-            ...(q && {
-                OR: [{ batchCode: { contains: q, mode: "insensitive" } }],
-            }),
-            ...(createdByUserId && { createdByUserId }),
-        };
-
-        const sortByRaw =
-            typeof req.query.sortBy === "string" ? req.query.sortBy.trim() : "";
-        const sortOrderRaw =
-            typeof req.query.sortOrder === "string"
-                ? req.query.sortOrder.trim().toLowerCase()
-                : "";
-        const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
-
-        let orderBy;
-        if (sortByRaw === "type") {
-            orderBy = { type: sortOrder };
-        } else if (sortByRaw === "totalRows") {
-            orderBy = { totalRows: sortOrder };
-        } else {
-            orderBy = { createdAt: sortOrder };
-        }
-
-        const [jobs, total] = await Promise.all([
-            prisma.batchJob.findMany({
-                where,
-                skip,
-                take: limit,
-                orderBy,
-                include: {
-                    createdByUser: {
-                        select: { id: true, name: true, email: true, image: true, role: true },
-                    },
-                },
-            }),
-            prisma.batchJob.count({ where }),
-        ]);
-
-        return res.json({
-            success: true,
-            data: jobs.map((j) => mapBatchJobToListItem(j)),
-            pagination: {
-                page,
-                limit,
-                total,
-                totalPages: Math.max(1, Math.ceil(total / limit)),
-            },
-        });
-    } catch (e) {
-        logger.error(`listBatchJobs: ${e.message}`, { stack: e.stack });
-        return res.status(500).json({ success: false, message: "Failed to list batch jobs" });
-    }
-};
-
-export const listBatchJobCreators = async (req, res) => {
-    try {
-        const tenantId = tenantIdFromReq(req);
-        if (!tenantId) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
-        }
-
-        const rows = await prisma.batchJob.findMany({
-            where: { tenantId },
-            select: { createdByUserId: true },
-        });
-        const seen = new Set();
-        const ids = [];
-        for (const r of rows) {
-            if (r.createdByUserId && !seen.has(r.createdByUserId)) {
-                seen.add(r.createdByUserId);
-                ids.push(r.createdByUserId);
-            }
-        }
-        if (ids.length === 0) {
-            return res.json({ success: true, data: [] });
-        }
-
-        const users = await prisma.user.findMany({
-            where: { id: { in: ids } },
-            select: { id: true, name: true, email: true },
-            orderBy: [{ name: "asc" }, { email: "asc" }],
-        });
-        return res.json({ success: true, data: users });
-    } catch (e) {
-        logger.error(`listBatchJobCreators: ${e.message}`, { stack: e.stack });
-        return res.status(500).json({ success: false, message: "Failed to list creators" });
-    }
-};
-
-export const validateBatchCsv = async (req, res) => {
-    try {
-        if (!req.file?.buffer) {
-            return res.status(400).json({ success: false, message: "CSV file is required (field: file)" });
-        }
-        const raw = String(req.body?.batchType || req.body?.batch_type || "").trim();
-        const normalized = raw.toUpperCase().replace(/-/g, "_");
-        const allowed = ["EMPLOYEE_CREATION", "EMPLOYEE_INVITATION", "BULK_UPDATE"];
-        if (!allowed.includes(normalized)) {
-            return res.status(400).json({
-                success: false,
-                message: "batchType must be employee_creation, employee_invitation, or bulk_update",
-            });
-        }
-        const tenantId = tenantIdFromReq(req);
-        if (!tenantId) {
-            return res.status(401).json({ success: false, message: "Unauthorized" });
-        }
-        const { headers, rows } = parseCsvBuffer(req.file.buffer);
-        const pre = csvPreflightBatchCsv(normalized, headers, rows);
-        if (pre) {
-            return res.json({ success: true, data: pre });
-        }
-        const data = await deepValidateCsvRowsForBatch({
-            tenantId,
-            actorRole: req.user?.role,
-            batchType: normalized,
-            rows,
-        });
-        return res.json({ success: true, data });
-    } catch (e) {
-        logger.error(`validateBatchCsv: ${e.message}`, { stack: e.stack });
-        return res.status(500).json({ success: false, message: e.message || "Validation failed" });
-    }
-};
-
-export const getBatchJobById = async (req, res) => {
-    try {
-        const tenantId = tenantIdFromReq(req);
-        const { id } = req.params;
-        const job = await prisma.batchJob.findFirst({
-            where: { id, tenantId },
-            include: {
-                createdByUser: {
-                    select: { id: true, name: true, email: true, image: true, role: true },
-                },
-            },
-        });
-        if (!job) {
-            return res.status(404).json({ success: false, message: "Batch job not found" });
-        }
-        const base = mapBatchJobToListItem(job);
-        let data = base;
-        if (job.type === "ALLOWANCE_ALLOCATION" || job.type === "DEDUCTION_ALLOCATION") {
-            const allocationSummary = await computeAllocationEmployeeSummary(job.id);
-            data = { ...base, allocationSummary };
-        }
-        if (job.type === "BULK_UPDATE") {
-            const allocationSummary = await computeBulkUpdateEmployeeSummary(job.id);
-            data = { ...base, allocationSummary };
-        }
-        return res.json({ success: true, data });
-    } catch (e) {
-        logger.error(`getBatchJobById: ${e.message}`, { stack: e.stack });
-        return res.status(500).json({ success: false, message: "Failed to fetch batch job" });
-    }
-};
 
 export const getBatchJobRows = async (req, res) => {
     try {
@@ -1386,6 +1054,49 @@ export const createDeductionAllocationBatch = async (req, res) => {
         });
     } catch (e) {
         logger.error(`createDeductionAllocationBatch: ${e.message}`, { stack: e.stack });
+        return res.status(500).json({ success: false, message: "Failed to create batch" });
+    }
+};
+
+export const createLeaveBalanceUpdateBatch = async (req, res) => {
+    try {
+        const tenantId = tenantIdFromReq(req);
+        const { lines } = req.body || {};
+        const normalizedLines = Array.isArray(lines)
+            ? dedupeAllocationLines(lines, "leaveTypeId")
+            : [];
+        if (normalizedLines.length === 0) {
+            return res.status(400).json({ success: false, message: "lines[] is required" });
+        }
+
+        const batchCode = await generateBatchCode(tenantId);
+        const job = await prisma.batchJob.create({
+            data: {
+                tenantId,
+                createdByUserId: req.user.id,
+                type: "LEAVE_BALANCE_UPDATE",
+                status: "PENDING",
+                batchCode,
+                totalRows: normalizedLines.length,
+                inputJson: { actorRole: req.user.role },
+            },
+        });
+
+        const rowCreates = normalizedLines.map((line, i) => ({
+            batchJobId: job.id,
+            rowNumber: i + 1,
+            status: "PENDING",
+            rawPayload: line,
+        }));
+        await prisma.batchJobRow.createMany({ data: rowCreates });
+
+        const processingMode = await beginBatchJobProcessing(job.id);
+        return res.status(201).json({
+            success: true,
+            data: { id: job.id, batchCode: job.batchCode, totalRows: normalizedLines.length, processingMode },
+        });
+    } catch (e) {
+        logger.error(`createLeaveBalanceUpdateBatch: ${e.message}`, { stack: e.stack });
         return res.status(500).json({ success: false, message: "Failed to create batch" });
     }
 };

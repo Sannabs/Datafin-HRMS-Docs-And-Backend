@@ -271,6 +271,91 @@ export async function processBatchJobById(batchJobId) {
                         }
                         break;
                     }
+                    case "LEAVE_BALANCE_UPDATE": {
+                        const userId = pick(payload, "user_id", "userid", "userId");
+                        const leaveTypeId = pick(
+                            payload,
+                            "leave_type_id",
+                            "leavetypeid",
+                            "leaveTypeId"
+                        );
+                        const daysTaken = pick(payload, "days_taken", "daystaken", "daysTaken");
+
+                        if (!userId || !leaveTypeId) {
+                            errMsg = "user_id and leave_type_id are required";
+                            break;
+                        }
+
+                        const days = Number(daysTaken);
+                        if (Number.isNaN(days) || days < 0) {
+                            errMsg = "days_taken must be a non-negative number";
+                            break;
+                        }
+
+                        // Find the leave type to check which entitlement pool it affects
+                        const leaveType = await prisma.leaveType.findFirst({
+                            where: { id: leaveTypeId, tenantId: job.tenantId, isActive: true },
+                        });
+                        if (!leaveType) {
+                            errMsg = "Leave type not found or inactive";
+                            break;
+                        }
+
+                        // Get current year entitlement for user
+                        const currentYear = new Date().getFullYear();
+                        let entitlement = await prisma.yearlyEntitlement.findFirst({
+                            where: {
+                                userId,
+                                tenantId: job.tenantId,
+                                year: currentYear,
+                                isActive: true,
+                            },
+                        });
+
+                        // Create entitlement if doesn't exist
+                        if (!entitlement) {
+                            const user = await prisma.user.findFirst({
+                                where: { id: userId, tenantId: job.tenantId, isDeleted: false },
+                            });
+                            if (!user) {
+                                errMsg = "Employee not found";
+                                break;
+                            }
+                            entitlement = await prisma.yearlyEntitlement.create({
+                                data: {
+                                    userId,
+                                    tenantId: job.tenantId,
+                                    year: currentYear,
+                                    allocatedDays: 0,
+                                    usedDays: 0,
+                                    pendingDays: 0,
+                                    isActive: true,
+                                },
+                            });
+                        }
+
+                        // Update the appropriate field based on leave type configuration
+                        if (leaveType.deductsFromSickAllocation) {
+                            // Update sick leave pool
+                            await prisma.yearlyEntitlement.update({
+                                where: { id: entitlement.id },
+                                data: {
+                                    usedSickDays: days,
+                                },
+                            });
+                        } else {
+                            // Update annual leave pool
+                            await prisma.yearlyEntitlement.update({
+                                where: { id: entitlement.id },
+                                data: {
+                                    usedDays: days,
+                                },
+                            });
+                        }
+
+                        resultEntityId = entitlement.id;
+                        break;
+                    }
                     case "BULK_UPDATE": {
                         const employeeId = pick(payload, "employee_id", "employeeId", "employeeid");
                         const email = pick(payload, "email");

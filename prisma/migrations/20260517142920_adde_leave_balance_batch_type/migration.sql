@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "BatchJobType" ADD VALUE 'LEAVE_BALANCE_UPDATE';

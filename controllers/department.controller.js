@@ -22,7 +22,7 @@ export const getAllDepartments = async (req, res) => {
         ...(includeManager && {
           managerId: true,
           manager: {
-            select: { id: true, name: true, email: true, employeeId: true },
+            select: { id: true, name: true, email: true, employeeId: true, image: true },
           },
         }),
       },
