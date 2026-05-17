@@ -1,0 +1,27 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2 style="color: #333;">Your Leave Entitlement Summary — {{year}}</h2>
+    <p>Hello {{employeeName}},</p>
+    <p>Below is your leave entitlement and balance summary for {{year}}.</p>
+
+    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <h3 style="color: #333; margin-top: 0;">Annual Leave</h3>
+        <p><strong>Allocated:</strong> {{allocatedDays}} days</p>
+        <p><strong>Used:</strong> {{usedDays}} days</p>
+        <p><strong>Pending approval:</strong> {{pendingDays}} days</p>
+        <p style="font-weight: bold; color: #FF790B;"><strong>Available:</strong> {{availableBalance}} days</p>
+    </div>
+
+    {{#if sickLeaveEnabled}}
+    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+        <h3 style="color: #333; margin-top: 0;">Sick Leave</h3>
+        <p><strong>Allocated:</strong> {{allocatedSickDays}} days</p>
+        <p><strong>Used:</strong> {{usedSickDays}} days</p>
+        <p><strong>Pending approval:</strong> {{pendingSickDays}} days</p>
+        <p style="font-weight: bold; color: #FF790B;"><strong>Available:</strong> {{availableSickBalance}} days</p>
+    </div>
+    {{/if}}
+
+    <p style="color: #666; margin-top: 30px;">If you have any questions about your leave balance, please contact your HR department.</p>
+    <p>This is an automated message from StaffLedger.</p>
+    <p style="color: #666; font-size: 12px;">Please do not reply to this email.</p>
+</div>

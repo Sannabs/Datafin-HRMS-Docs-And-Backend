@@ -3381,16 +3381,6 @@ export const getAllLeaveBalances = async (req, res) => {
       },
     });
 
-    await addLog(
-      hrUserId,
-      tenantId,
-      "VIEW",
-      "YearlyEntitlement",
-      null,
-      { year: targetYear, count: balances.length },
-      req
-    );
-
     res.status(200).json({
       success: true,
       message: "Leave balances fetched successfully",
@@ -3726,5 +3716,462 @@ export const getLeaveStats = async (req, res) => {
       error: "Something went wrong",
       message: "Failed to get leave stats",
     });
+  }
+};
+
+export const recomputeEntitlements = async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const { year, dryRun = true } = req.body;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID is required",
+      });
+    }
+
+    if (!year || typeof year !== "number" || year < 2020) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Year must be a number >= 2020",
+      });
+    }
+
+    const policy = await prisma.annualLeavePolicy.findFirst({
+      where: { tenantId },
+    });
+
+    if (!policy) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "Leave policy not configured for this tenant",
+      });
+    }
+
+    const activeEmployees = await prisma.user.findMany({
+      where: {
+        tenantId,
+        isDeleted: false,
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        name: true,
+        hireDate: true,
+      },
+    });
+
+    const yearStartDate = new Date(year, 0, 1);
+    const yearEndDate = new Date(year, 11, 31);
+
+    const employees = [];
+    let created = 0;
+    let updated = 0;
+    let noop = 0;
+    let flooredAnnual = 0;
+    let flooredSick = 0;
+    let ineligible = 0;
+
+    const updates = [];
+
+    for (const emp of activeEmployees) {
+      let entitlement = await prisma.yearlyEntitlement.findFirst({
+        where: {
+          tenantId,
+          userId: emp.id,
+          year,
+        },
+      });
+
+      const alloc = computeInitialAllocation({
+        user: emp,
+        policy,
+        year,
+      });
+
+      if (!alloc.eligible) {
+        if (entitlement) {
+          employees.push({
+            userId: emp.id,
+            employeeId: emp.employeeId,
+            name: emp.name,
+            before: {
+              allocatedDays: entitlement.allocatedDays,
+              allocatedSickDays: entitlement.allocatedSickDays ?? 0,
+            },
+            after: { allocatedDays: 0, allocatedSickDays: 0 },
+            action: "ineligible-null-hiredate",
+          });
+          ineligible++;
+        }
+        continue;
+      }
+
+      if (!entitlement) {
+        let carryoverExpiryDate = null;
+        if (policy.carryoverExpiryMonths != null) {
+          carryoverExpiryDate = new Date(year, policy.carryoverExpiryMonths, 0);
+        }
+
+        entitlement = {
+          id: null,
+          tenantId,
+          userId: emp.id,
+          policyId: policy.id,
+          year,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        };
+
+        employees.push({
+          userId: emp.id,
+          employeeId: emp.employeeId,
+          name: emp.name,
+          before: null,
+          after: {
+            allocatedDays: alloc.allocatedDays,
+            allocatedSickDays: alloc.allocatedSickDays,
+          },
+          action: "create",
+        });
+
+        if (!dryRun) {
+          updates.push({
+            action: "create",
+            data: entitlement,
+          });
+        }
+        created++;
+        continue;
+      }
+
+      const annualFloor = entitlement.usedDays + entitlement.pendingDays;
+      const sickFloor = (entitlement.usedSickDays ?? 0) + (entitlement.pendingSickDays ?? 0);
+
+      let nextAllocatedDays = alloc.allocatedDays;
+      let nextAllocatedSickDays = alloc.allocatedSickDays;
+      let didFloorAnnual = false;
+      let didFloorSick = false;
+
+      if (nextAllocatedDays < annualFloor) {
+        nextAllocatedDays = annualFloor;
+        didFloorAnnual = true;
+      }
+      if (nextAllocatedSickDays < sickFloor) {
+        nextAllocatedSickDays = sickFloor;
+        didFloorSick = true;
+      }
+
+      const noChange =
+        nextAllocatedDays === entitlement.allocatedDays &&
+        nextAllocatedSickDays === (entitlement.allocatedSickDays ?? 0);
+
+      if (noChange) {
+        noop++;
+        continue;
+      }
+
+      employees.push({
+        userId: emp.id,
+        employeeId: emp.employeeId,
+        name: emp.name,
+        before: {
+          allocatedDays: entitlement.allocatedDays,
+          allocatedSickDays: entitlement.allocatedSickDays ?? 0,
+        },
+        after: {
+          allocatedDays: nextAllocatedDays,
+          allocatedSickDays: nextAllocatedSickDays,
+        },
+        action: "update",
+        flooredAnnual: didFloorAnnual,
+        flooredSick: didFloorSick,
+      });
+
+      if (!dryRun) {
+        updates.push({
+          action: "update",
+          id: entitlement.id,
+          data: {
+            allocatedDays: nextAllocatedDays,
+            allocatedSickDays: nextAllocatedSickDays,
+          },
+        });
+      }
+
+      updated++;
+      if (didFloorAnnual) flooredAnnual++;
+      if (didFloorSick) flooredSick++;
+    }
+
+    if (!dryRun && updates.length > 0) {
+      await prisma.$transaction(
+        async (tx) => {
+          for (const update of updates) {
+            if (update.action === "create") {
+              await tx.yearlyEntitlement.create({ data: update.data });
+            } else {
+              await tx.yearlyEntitlement.update({
+                where: { id: update.id },
+                data: update.data,
+              });
+            }
+          }
+        },
+        { timeout: 60_000, maxWait: 10_000 }
+      );
+
+      await addLog(
+        userId,
+        tenantId,
+        "UPDATE",
+        "YearlyEntitlement",
+        null,
+        {
+          year,
+          action: "bulk-recompute",
+          created,
+          updated,
+          flooredAnnual,
+          flooredSick,
+          affectedEmployees: employees,
+        },
+        req
+      );
+
+      logger.info(
+        `Bulk recompute entitlements for tenant ${tenantId}, year ${year}: ` +
+          `created ${created}, updated ${updated}, floored annual ${flooredAnnual}, floored sick ${flooredSick}`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: dryRun ? "Dry run completed" : "Entitlements recomputed successfully",
+      data: {
+        summary: {
+          totalEmployees: activeEmployees.length,
+          created,
+          updated,
+          noop,
+          ineligible,
+          flooredAnnual,
+          flooredSick,
+        },
+        employees: employees.slice(0, 100), // Return first 100 for preview
+        totalAffected: employees.length,
+      },
+    });
+  } catch (error) {
+    logger.error(`Error recomputing entitlements: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+    next(error);
+  }
+};
+
+export const emailLeaveEntitlementSummary = async (req, res, next) => {
+  try {
+    const { id: hrUserId } = req.user;
+    const tenantId = req.effectiveTenantId ?? req.user.tenantId;
+    const { userId, year } = req.body;
+
+    if (!tenantId || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Tenant ID and User ID are required",
+      });
+    }
+
+    const targetYear = year || new Date().getFullYear();
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "User not found",
+      });
+    }
+
+    let entitlement = await prisma.yearlyEntitlement.findFirst({
+      where: {
+        tenantId,
+        userId,
+        year: targetYear,
+      },
+      include: { policy: true, user: true },
+    });
+
+    // If no entitlement exists, create it lazily
+    if (!entitlement) {
+      const policy = await prisma.annualLeavePolicy.findFirst({
+        where: { tenantId },
+      });
+
+      if (!policy) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Leave policy not configured for this tenant",
+        });
+      }
+
+      const yearStartDate = new Date(targetYear, 0, 1);
+      const yearEndDate = new Date(targetYear, 11, 31);
+      let carryoverExpiryDate = null;
+      if (policy.carryoverExpiryMonths != null) {
+        carryoverExpiryDate = new Date(targetYear, policy.carryoverExpiryMonths, 0);
+      }
+
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { hireDate: true, name: true },
+      });
+
+      const alloc = computeInitialAllocation({
+        user: userRecord,
+        policy,
+        year: targetYear,
+      });
+
+      entitlement = await prisma.yearlyEntitlement.create({
+        data: {
+          tenantId,
+          userId,
+          policyId: policy.id,
+          year: targetYear,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
+          carriedOverDays: 0,
+          adjustmentDays: 0,
+          usedDays: 0,
+          pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
+          encashedDays: 0,
+          encashmentAmount: 0,
+          yearStartDate,
+          yearEndDate,
+          lastAccrualDate: null,
+          carryoverExpiryDate,
+        },
+        include: { policy: true, user: true },
+      });
+
+      logger.info(
+        `Created yearly entitlement for user ${userId} (email request), year ${targetYear}`
+      );
+    }
+
+    // Calculate available balances
+    const balances = computeAvailableBalance(entitlement);
+    const sickLeaveEnabled = entitlement.policy?.sickLeaveAllocationEnabled ?? false;
+
+    // Read and render email template
+    const { readFileSync } = await import("fs");
+    const { fileURLToPath } = await import("url");
+    const { dirname, join } = await import("path");
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+
+    let htmlTemplate = readFileSync(
+      join(__dirname, "../templates/email-leave-entitlement-summary.html"),
+      "utf-8"
+    );
+
+    // Simple template replacement (for Handlebars-style {{variable}})
+    const replacements = {
+      employeeName: user.name || "Employee",
+      year: targetYear,
+      allocatedDays: entitlement.allocatedDays,
+      usedDays: entitlement.usedDays,
+      pendingDays: entitlement.pendingDays,
+      availableBalance: Math.max(0, balances.annual).toFixed(1),
+      allocatedSickDays: entitlement.allocatedSickDays ?? 0,
+      usedSickDays: entitlement.usedSickDays ?? 0,
+      pendingSickDays: entitlement.pendingSickDays ?? 0,
+      availableSickBalance: Math.max(0, balances.sick).toFixed(1),
+      sickLeaveEnabled: sickLeaveEnabled,
+    };
+
+    let html = htmlTemplate;
+    Object.keys(replacements).forEach((key) => {
+      const regex = new RegExp(`{{${key}}}`, "g");
+      html = html.replace(regex, replacements[key]);
+    });
+
+    // Handle conditional sick leave section
+    if (!sickLeaveEnabled) {
+      html = html.replace(/{{#if sickLeaveEnabled}}[\s\S]*?{{\/if}}/g, "");
+    } else {
+      html = html.replace(/{{#if sickLeaveEnabled}}/g, "").replace(/{{\/if}}/g, "");
+    }
+
+    // Send email
+    const { sendEmail } = await import("../services/resend.service.js");
+    await sendEmail({
+      to: user.email,
+      subject: `Your Leave Entitlement Summary — ${targetYear}`,
+      html,
+    });
+
+    logger.info(
+      `Emailed leave entitlement summary to ${user.email} for year ${targetYear}`
+    );
+
+    if (entitlement?.id) {
+      await addLog(
+        hrUserId,
+        tenantId,
+        "VIEW",
+        "YearlyEntitlement",
+        entitlement.id,
+        {
+          action: "email-entitlement-summary",
+          recipientEmail: user.email,
+          year: targetYear,
+        },
+        req
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Entitlement summary emailed to ${user.email}`,
+    });
+  } catch (error) {
+    logger.error(`Error emailing entitlement summary: ${error.message}`, {
+      stack: error.stack,
+      tenantId: req.user?.tenantId,
+    });
+    next(error);
   }
 };

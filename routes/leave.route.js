@@ -27,6 +27,8 @@ import {
   adjustLeaveBalance,
   initializeLeaveEntitlement,
   getLeaveStats,
+  recomputeEntitlements,
+  emailLeaveEntitlementSummary,
 } from "../controllers/leave.controller.js";
 
 const router = express.Router();
@@ -105,6 +107,16 @@ router.post(
   "/balance/:userId/initialize",
   requireRole(["HR_ADMIN"]),
   initializeLeaveEntitlement
+);
+router.post(
+  "/balance/recompute-entitlements",
+  requireRole(["HR_ADMIN"]),
+  recomputeEntitlements
+);
+router.post(
+  "/email-entitlement-summary",
+  requireRole(["HR_ADMIN", "HR_STAFF"]),
+  emailLeaveEntitlementSummary
 );
 
 export default router;
