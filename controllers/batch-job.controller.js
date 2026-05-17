@@ -1464,7 +1464,8 @@ export const createLeaveBalanceUpdateBatch = async (req, res) => {
 
         const rowCreates = validLines.map((line) => ({
             batchJobId: job.id,
-            lineNumber: line.lineNumber,
+            rowNumber: line.lineNumber,
+            status: "PENDING",
             rawPayload: {
                 userId: line.userId,
                 leaveTypeId: line.leaveTypeId,

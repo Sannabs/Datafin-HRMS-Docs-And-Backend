@@ -308,7 +308,6 @@ export async function processBatchJobById(batchJobId) {
                                 userId,
                                 tenantId: job.tenantId,
                                 year: currentYear,
-                                isActive: true,
                             },
                         });
 
@@ -321,34 +320,50 @@ export async function processBatchJobById(batchJobId) {
                                 errMsg = "Employee not found";
                                 break;
                             }
+                            const policy = await prisma.annualLeavePolicy.findFirst({
+                                where: { tenantId: job.tenantId },
+                            });
+                            if (!policy) {
+                                errMsg = "Leave policy not configured for this tenant";
+                                break;
+                            }
                             entitlement = await prisma.yearlyEntitlement.create({
                                 data: {
                                     userId,
                                     tenantId: job.tenantId,
+                                    policyId: policy.id,
                                     year: currentYear,
                                     allocatedDays: 0,
+                                    accruedDays: 0,
+                                    carriedOverDays: 0,
+                                    adjustmentDays: 0,
                                     usedDays: 0,
                                     pendingDays: 0,
-                                    isActive: true,
+                                    allocatedSickDays: 0,
+                                    usedSickDays: 0,
+                                    pendingSickDays: 0,
+                                    sickAdjustmentDays: 0,
+                                    encashedDays: 0,
+                                    encashmentAmount: 0,
+                                    yearStartDate: new Date(currentYear, 0, 1),
+                                    yearEndDate: new Date(currentYear, 11, 31),
                                 },
                             });
                         }
 
-                        // Update the appropriate field based on leave type configuration
+                        // Increment the appropriate field based on leave type configuration
                         if (leaveType.deductsFromSickAllocation) {
-                            // Update sick leave pool
                             await prisma.yearlyEntitlement.update({
                                 where: { id: entitlement.id },
                                 data: {
-                                    usedSickDays: days,
+                                    usedSickDays: { increment: days },
                                 },
                             });
                         } else {
-                            // Update annual leave pool
                             await prisma.yearlyEntitlement.update({
                                 where: { id: entitlement.id },
                                 data: {
-                                    usedDays: days,
+                                    usedDays: { increment: days },
                                 },
                             });
                         }
