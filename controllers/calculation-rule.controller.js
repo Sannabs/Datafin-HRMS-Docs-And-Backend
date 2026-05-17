@@ -662,7 +662,7 @@ export const testCalculationRule = async (req, res) => {
             matches: { before: null, after: matches },
             calculatedAmount: { before: null, after: calculatedAmount },
         };
-        await addLog(userId, tenantId, "READ", "CalculationRuleTest", id, changes, req);
+        await addLog(userId, tenantId, "VIEW", "CalculationRuleTest", id, changes, req);
 
         return res.status(200).json({
             success: true,
