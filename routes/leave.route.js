@@ -10,7 +10,6 @@ import {
   getAllLeaveTypes,
   createLeaveType,
   updateLeaveType,
-  deleteLeaveType,
   // Requests
   getAllLeaveRequests,
   getMyLeaveRequests,
@@ -47,7 +46,6 @@ router.patch("/policy", requireRole(["HR_ADMIN"]), updateLeavePolicy);
 router.get("/types", getAllLeaveTypes);
 router.post("/types", requireRole(["HR_ADMIN"]), createLeaveType);
 router.patch("/types/:id", requireRole(["HR_ADMIN"]), updateLeaveType);
-router.delete("/types/:id", requireRole(["HR_ADMIN"]), deleteLeaveType);
 
 // ============================================
 // LEAVE REQUEST ROUTES
