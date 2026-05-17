@@ -4,6 +4,7 @@ import { createNotification } from "../services/notification.service.js";
 import { sendLeaveEndingReminderEmail } from "../views/sendLeaveEndingReminderEmail.js";
 import { sendCarryoverExpiryReminderEmail } from "../views/sendCarryoverExpiryReminderEmail.js";
 import { sendLeaveEncashmentProcessedEmail } from "../views/sendLeaveEncashmentProcessedEmail.js";
+import { computeInitialAllocation } from "../services/leave-allocation.service.js";
 
 /**
  * Automation job to process leave accruals
@@ -289,6 +290,7 @@ export const startYearEndJob = async () => {
                             name: true,
                             employeeId: true,
                             email: true,
+                            hireDate: true,
                         },
                     });
 
@@ -352,16 +354,13 @@ export const startYearEndJob = async () => {
                             const yearStartDate = new Date(newYear, 0, 1);
                             const yearEndDate = new Date(newYear, 11, 31, 23, 59, 59);
 
-                            let allocatedDays = 0;
-                            let accruedDays = 0;
-
-                            if (policy.accrualMethod === "FRONT_LOADED") {
-                                allocatedDays = policy.defaultDaysPerYear;
-                                accruedDays = 0;
-                            } else {
-                                allocatedDays = 0;
-                                accruedDays = 0;
-                            }
+                            // Apply tenure gate to both annual and sick pools for the new year.
+                            // Sick days do not carry over — they always reset to the policy default (gated).
+                            const alloc = computeInitialAllocation({
+                                user: { hireDate: employee.hireDate },
+                                policy,
+                                year: newYear,
+                            });
 
                             let carryoverExpiryDate = null;
                             if (policy.carryoverExpiryMonths && carryoverResult.carriedOverDays > 0) {
@@ -381,12 +380,16 @@ export const startYearEndJob = async () => {
                                     userId: employee.id,
                                     policyId: policy.id,
                                     year: newYear,
-                                    allocatedDays,
-                                    accruedDays,
+                                    allocatedDays: alloc.allocatedDays,
+                                    accruedDays: 0,
                                     carriedOverDays: carryoverResult.carriedOverDays,
                                     adjustmentDays: 0,
                                     usedDays: 0,
                                     pendingDays: 0,
+                                    allocatedSickDays: alloc.allocatedSickDays,
+                                    usedSickDays: 0,
+                                    pendingSickDays: 0,
+                                    sickAdjustmentDays: 0,
                                     encashedDays: carryoverResult.encashedDays,
                                     encashmentAmount: carryoverResult.encashmentAmount,
                                     yearStartDate,

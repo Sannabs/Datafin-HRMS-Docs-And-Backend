@@ -1484,6 +1484,12 @@ model AnnualLeavePolicy {
   // Default allocation (can be overridden per employee)
   defaultDaysPerYear Float @default(21)
 
+  // Sick leave allocation (opt-in per tenant). When enabled, leave types flagged
+  // `deductsFromSickAllocation` draw from this separate pool instead of the annual pool.
+  // Sick days reset annually (no carryover) and are gated by the same 12-month tenure rule as annual.
+  sickLeaveAllocationEnabled Boolean @default(false)
+  allocatedSickDaysPerYear   Float   @default(0)
+
   // Accrual Configuration
   accrualMethod        AccrualMethod     @default(FRONT_LOADED)
   accrualFrequency     AccrualFrequency? // Only if accrualMethod = ACCRUAL
@@ -1520,10 +1526,12 @@ model LeaveType {
   description String?
   color       String? // For calendar display
 
-  // Behavior
-  isPaid            Boolean @default(true)
-  deductsFromAnnual Boolean @default(true) // Does this deduct from annual pool?
-  requiresDocument  Boolean @default(false) // e.g., medical certificate
+  // Behavior. A leave type deducts from the annual pool, the sick pool, or neither (unbounded).
+  // Annual and sick are mutually exclusive — enforced in the controllers and by a DB CHECK constraint.
+  isPaid                    Boolean @default(true)
+  deductsFromAnnual         Boolean @default(true) // Does this deduct from annual pool?
+  deductsFromSickAllocation Boolean @default(false) // Does this deduct from the sick allocation pool?
+  requiresDocument          Boolean @default(false) // e.g., medical certificate
 
   // Status
   isActive  Boolean   @default(true)
@@ -1560,6 +1568,13 @@ model YearlyEntitlement {
   // Usage tracking
   usedDays    Float @default(0) // Approved leaves
   pendingDays Float @default(0) // Pending requests
+
+  // Sick leave pool (parallel to annual). Only populated when policy.sickLeaveAllocationEnabled
+  // and the employee has met the 12-month tenure threshold. Sick days do not carry over.
+  allocatedSickDays  Float @default(0)
+  usedSickDays       Float @default(0)
+  pendingSickDays    Float @default(0)
+  sickAdjustmentDays Float @default(0)
 
   // Encashment tracking (if carryoverType = ENCASHMENT)
   encashedDays     Float @default(0)

@@ -14,6 +14,11 @@ import { recordRecentActivity } from "../utils/activity.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
 import { requestOverlapsBlackout, getBlackoutSegmentsForYear, getBlackoutWindowLabel } from "../utils/leave.util.js";
 import { EMPLOYEE_STATUSES_ACTIVE_FOR_WORK } from "../utils/employee-status.util.js";
+import {
+  computeInitialAllocation,
+  computeAvailableBalance,
+  leaveTypePool,
+} from "../services/leave-allocation.service.js";
 
 // ============================================
 // LEAVE POLICY CONTROLLERS
@@ -95,6 +100,9 @@ export const updateLeavePolicy = async (req, res, next) => {
       blackoutStartDay,
       blackoutEndMonth,
       blackoutEndDay,
+      sickLeaveAllocationEnabled,
+      allocatedSickDaysPerYear,
+      applyToExistingEntitlements,
     } = req.body;
 
     if (!tenantId) {
@@ -401,6 +409,33 @@ export const updateLeavePolicy = async (req, res, next) => {
       updateData.blackoutEndDay = blackoutEndDay;
     }
 
+    // Validate and set sickLeaveAllocationEnabled
+    if (sickLeaveAllocationEnabled !== undefined) {
+      if (typeof sickLeaveAllocationEnabled !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "sickLeaveAllocationEnabled must be a boolean value",
+        });
+      }
+      updateData.sickLeaveAllocationEnabled = sickLeaveAllocationEnabled;
+    }
+
+    // Validate and set allocatedSickDaysPerYear
+    if (allocatedSickDaysPerYear !== undefined) {
+      if (
+        typeof allocatedSickDaysPerYear !== "number" ||
+        allocatedSickDaysPerYear < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "allocatedSickDaysPerYear must be a non-negative number",
+        });
+      }
+      updateData.allocatedSickDaysPerYear = allocatedSickDaysPerYear;
+    }
+
     // Check if there's anything to update
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
@@ -418,8 +453,27 @@ export const updateLeavePolicy = async (req, res, next) => {
       data: updateData,
     });
 
+    // Optional bulk propagation: re-derive allocations for current+future year entitlements
+    // when allocation-affecting fields changed and HR explicitly opts in.
+    let propagationSummary = null;
+    const allocationFieldsChanged =
+      updateData.defaultDaysPerYear !== undefined ||
+      updateData.allocatedSickDaysPerYear !== undefined ||
+      updateData.sickLeaveAllocationEnabled !== undefined ||
+      updateData.accrualMethod !== undefined;
+
+    if (applyToExistingEntitlements === true && allocationFieldsChanged) {
+      propagationSummary = await propagateAllocationToEntitlements({
+        tenantId,
+        policy: updatedPolicy,
+      });
+    }
+
     // Audit logging
     const changes = getChangesDiff(existingPolicy, updatedPolicy);
+    if (propagationSummary) {
+      changes.propagation = propagationSummary;
+    }
     await addLog(
       userId,
       tenantId,
@@ -431,13 +485,17 @@ export const updateLeavePolicy = async (req, res, next) => {
     );
 
     logger.info(
-      `Leave policy updated for tenant ${tenantId} by user ${userId}`
+      `Leave policy updated for tenant ${tenantId} by user ${userId}` +
+        (propagationSummary
+          ? ` — propagated to ${propagationSummary.updated} entitlement(s)`
+          : "")
     );
 
     res.status(200).json({
       success: true,
       message: "Leave policy updated successfully",
       data: updatedPolicy,
+      propagation: propagationSummary,
     });
   } catch (error) {
     logger.error(`Error updating leave policy: ${error.message}`, {
@@ -448,6 +506,113 @@ export const updateLeavePolicy = async (req, res, next) => {
     next(error); // Let global error handler deal with it
   }
 };
+
+/**
+ * Recompute allocatedDays/allocatedSickDays for current and future year entitlements
+ * after an allocation-affecting policy update.
+ *
+ * Rules:
+ * - Only touches current year and future years (past years are locked).
+ * - Only updates entitlements for employees with an active employment status.
+ * - Floors `allocatedDays` at `usedDays + pendingDays` (no negative available).
+ * - Floors `allocatedSickDays` at `usedSickDays + pendingSickDays`.
+ * - Preserves `adjustmentDays` and `sickAdjustmentDays` (manual HR overrides).
+ * - Re-applies the tenure gate via the allocation helper — employees still in their
+ *   first 12 months keep 0 even if the policy default changes.
+ */
+async function propagateAllocationToEntitlements({ tenantId, policy }) {
+  const currentYear = new Date().getFullYear();
+
+  const entitlements = await prisma.yearlyEntitlement.findMany({
+    where: {
+      tenantId,
+      year: { gte: currentYear },
+      user: {
+        isDeleted: false,
+        status: { in: EMPLOYEE_STATUSES_ACTIVE_FOR_WORK },
+      },
+    },
+    include: {
+      user: { select: { id: true, employeeId: true, hireDate: true } },
+    },
+  });
+
+  const affected = [];
+  let updated = 0;
+  let flooredAnnual = 0;
+  let flooredSick = 0;
+  let skippedIneligible = 0;
+
+  for (const ent of entitlements) {
+    const alloc = computeInitialAllocation({
+      user: { hireDate: ent.user.hireDate },
+      policy,
+      year: ent.year,
+    });
+
+    const annualFloor = ent.usedDays + ent.pendingDays;
+    const sickFloor = (ent.usedSickDays ?? 0) + (ent.pendingSickDays ?? 0);
+
+    let nextAllocatedDays = alloc.allocatedDays;
+    let nextAllocatedSickDays = alloc.allocatedSickDays;
+    let didFloorAnnual = false;
+    let didFloorSick = false;
+
+    if (nextAllocatedDays < annualFloor) {
+      nextAllocatedDays = annualFloor;
+      didFloorAnnual = true;
+    }
+    if (nextAllocatedSickDays < sickFloor) {
+      nextAllocatedSickDays = sickFloor;
+      didFloorSick = true;
+    }
+
+    const noChange =
+      nextAllocatedDays === ent.allocatedDays &&
+      nextAllocatedSickDays === (ent.allocatedSickDays ?? 0);
+
+    if (noChange) {
+      if (!alloc.eligible) skippedIneligible++;
+      continue;
+    }
+
+    await prisma.yearlyEntitlement.update({
+      where: { id: ent.id },
+      data: {
+        allocatedDays: nextAllocatedDays,
+        allocatedSickDays: nextAllocatedSickDays,
+      },
+    });
+
+    updated++;
+    if (didFloorAnnual) flooredAnnual++;
+    if (didFloorSick) flooredSick++;
+    affected.push({
+      userId: ent.user.id,
+      employeeId: ent.user.employeeId,
+      year: ent.year,
+      before: {
+        allocatedDays: ent.allocatedDays,
+        allocatedSickDays: ent.allocatedSickDays ?? 0,
+      },
+      after: {
+        allocatedDays: nextAllocatedDays,
+        allocatedSickDays: nextAllocatedSickDays,
+      },
+      flooredAnnual: didFloorAnnual,
+      flooredSick: didFloorSick,
+    });
+  }
+
+  return {
+    totalAffected: entitlements.length,
+    updated,
+    flooredAnnual,
+    flooredSick,
+    skippedIneligible,
+    affectedEmployees: affected,
+  };
+}
 
 // ============================================
 // LEAVE TYPE CONTROLLERS
@@ -520,6 +685,7 @@ export const createLeaveType = async (req, res, next) => {
       color,
       isPaid,
       deductsFromAnnual,
+      deductsFromSickAllocation,
       requiresDocument,
       isActive,
     } = req.body;
@@ -549,6 +715,32 @@ export const createLeaveType = async (req, res, next) => {
       });
     }
 
+    if (
+      deductsFromSickAllocation !== undefined &&
+      typeof deductsFromSickAllocation !== "boolean"
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "deductsFromSickAllocation must be a boolean value",
+      });
+    }
+
+    // A leave type deducts from annual XOR sick XOR neither. Default deductsFromAnnual is true,
+    // so callers enabling sick must explicitly disable annual.
+    const resolvedDeductsFromAnnual =
+      deductsFromAnnual !== undefined ? deductsFromAnnual : true;
+    const resolvedDeductsFromSick =
+      deductsFromSickAllocation !== undefined ? deductsFromSickAllocation : false;
+    if (resolvedDeductsFromAnnual && resolvedDeductsFromSick) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message:
+          "deductsFromAnnual and deductsFromSickAllocation are mutually exclusive",
+      });
+    }
+
     const leaveType = await prisma.leaveType.create({
       data: {
         tenantId,
@@ -556,8 +748,8 @@ export const createLeaveType = async (req, res, next) => {
         description: description?.trim() || null,
         color: color || null,
         isPaid: isPaid !== undefined ? isPaid : true,
-        deductsFromAnnual:
-          deductsFromAnnual !== undefined ? deductsFromAnnual : true,
+        deductsFromAnnual: resolvedDeductsFromAnnual,
+        deductsFromSickAllocation: resolvedDeductsFromSick,
         requiresDocument:
           requiresDocument !== undefined ? requiresDocument : false,
         isActive: isActive !== undefined ? isActive : true,
@@ -574,6 +766,10 @@ export const createLeaveType = async (req, res, next) => {
       color: { before: null, after: leaveType.color },
       isPaid: { before: null, after: leaveType.isPaid },
       deductsFromAnnual: { before: null, after: leaveType.deductsFromAnnual },
+      deductsFromSickAllocation: {
+        before: null,
+        after: leaveType.deductsFromSickAllocation,
+      },
       requiresDocument: { before: null, after: leaveType.requiresDocument },
       isActive: { before: null, after: leaveType.isActive },
     };
@@ -614,6 +810,7 @@ export const updateLeaveType = async (req, res, next) => {
       color,
       isPaid,
       deductsFromAnnual,
+      deductsFromSickAllocation,
       requiresDocument,
       isActive,
     } = req.body;
@@ -695,6 +892,35 @@ export const updateLeaveType = async (req, res, next) => {
         });
       }
       updateData.deductsFromAnnual = deductsFromAnnual;
+    }
+
+    if (deductsFromSickAllocation !== undefined) {
+      if (typeof deductsFromSickAllocation !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "deductsFromSickAllocation must be a boolean value",
+        });
+      }
+      updateData.deductsFromSickAllocation = deductsFromSickAllocation;
+    }
+
+    // Enforce mutual exclusion against the would-be final state (incoming or existing).
+    const nextDeductsFromAnnual =
+      updateData.deductsFromAnnual !== undefined
+        ? updateData.deductsFromAnnual
+        : existingLeaveType.deductsFromAnnual;
+    const nextDeductsFromSick =
+      updateData.deductsFromSickAllocation !== undefined
+        ? updateData.deductsFromSickAllocation
+        : existingLeaveType.deductsFromSickAllocation;
+    if (nextDeductsFromAnnual && nextDeductsFromSick) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message:
+          "deductsFromAnnual and deductsFromSickAllocation are mutually exclusive",
+      });
     }
 
     if (requiresDocument !== undefined) {
@@ -1575,20 +1801,19 @@ export const createLeaveRequest = async (req, res) => {
         })
       }
 
-      const currentDate = new Date()
       const yearStartDate = new Date(currentYear, 0, 1)
       const yearEndDate = new Date(currentYear, 11, 31)
 
-      let allocatedDays = 0
-      let accruedDays = 0
+      const userRecord = await prisma.user.findUnique({
+        where: { id },
+        select: { hireDate: true },
+      })
 
-      if (policy.accrualMethod === "FRONT_LOADED") {
-        allocatedDays = policy.defaultDaysPerYear
-        accruedDays = 0
-      } else {
-        allocatedDays = 0
-        accruedDays = 0
-      }
+      const alloc = computeInitialAllocation({
+        user: userRecord,
+        policy,
+        year: currentYear,
+      })
 
       let carryoverExpiryDate = null
       if (policy.carryoverExpiryMonths) {
@@ -1605,12 +1830,16 @@ export const createLeaveRequest = async (req, res) => {
           userId: id,
           policyId: policy.id,
           year: currentYear,
-          allocatedDays,
-          accruedDays,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
           yearStartDate,
@@ -1629,22 +1858,19 @@ export const createLeaveRequest = async (req, res) => {
     // Calculate working days
     const totalDays = await calculateWorkingDays(start, end, tenantId)
 
-    // Check available balance if leave type deducts from annual
-    if (leaveType.deductsFromAnnual) {
-      const availableBalance =
-        entitlement.allocatedDays +
-        entitlement.accruedDays +
-        entitlement.carriedOverDays +
-        entitlement.adjustmentDays -
-        entitlement.usedDays -
-        entitlement.pendingDays
-
+    // Check available balance against the pool this leave type draws from.
+    // Pools are mutually exclusive at the LeaveType level (annual XOR sick XOR neither).
+    const pool = leaveTypePool(leaveType)
+    if (pool !== "none") {
+      const balances = computeAvailableBalance(entitlement, leaveType)
+      const availableBalance = balances.forLeaveType
       if (totalDays > availableBalance) {
-        logger.error(`Insufficient leave balance: requested ${totalDays}, available ${availableBalance}`)
+        const poolLabel = pool === "sick" ? "sick leave" : "leave"
+        logger.error(`Insufficient ${poolLabel} balance: requested ${totalDays}, available ${availableBalance}`)
         return res.status(400).json({
           success: false,
           error: "Bad Request",
-          message: `Insufficient leave balance. Available: ${availableBalance.toFixed(1)} days, Requested: ${totalDays.toFixed(1)} days`,
+          message: `Insufficient ${poolLabel} balance. Available: ${availableBalance.toFixed(1)} days, Requested: ${totalDays.toFixed(1)} days`,
         })
       }
     }
@@ -1717,18 +1943,19 @@ export const createLeaveRequest = async (req, res) => {
       },
     })
 
-    // Update entitlement pendingDays if deductsFromAnnual
-    if (leaveType.deductsFromAnnual) {
+    // Increment pending days on the pool this leave type targets.
+    if (pool === "annual") {
       await prisma.yearlyEntitlement.update({
         where: { id: entitlement.id },
-        data: {
-          pendingDays: {
-            increment: totalDays,
-          },
-        },
+        data: { pendingDays: { increment: totalDays } },
       })
-
       logger.info(`Updated pendingDays for entitlement ${entitlement.id}: +${totalDays}`)
+    } else if (pool === "sick") {
+      await prisma.yearlyEntitlement.update({
+        where: { id: entitlement.id },
+        data: { pendingSickDays: { increment: totalDays } },
+      })
+      logger.info(`Updated pendingSickDays for entitlement ${entitlement.id}: +${totalDays}`)
     }
 
     // Send notifications (email + in-app)
@@ -2131,12 +2358,12 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
         },
       });
 
-      // Update leave balance if leave type deducts from annual
-      if (leaveRequest.leaveType.deductsFromAnnual) {
+      // Move days from pending to used on the pool this leave type targets.
+      const approvalPool = leaveTypePool(leaveRequest.leaveType);
+      if (approvalPool !== "none") {
         const currentYear = new Date().getFullYear();
 
-        // Get or create entitlement for current year
-        let entitlement = await tx.yearlyEntitlement.findUnique({
+        const entitlement = await tx.yearlyEntitlement.findUnique({
           where: {
             tenantId_userId_year: {
               tenantId,
@@ -2147,17 +2374,19 @@ export const hrApproveLeaveRequest = async (req, res, next) => {
         });
 
         if (entitlement) {
-          // Update used days and pending days
+          const updateData =
+            approvalPool === "sick"
+              ? {
+                  usedSickDays: { increment: leaveRequest.totalDays },
+                  pendingSickDays: { decrement: leaveRequest.totalDays },
+                }
+              : {
+                  usedDays: { increment: leaveRequest.totalDays },
+                  pendingDays: { decrement: leaveRequest.totalDays },
+                };
           await tx.yearlyEntitlement.update({
             where: { id: entitlement.id },
-            data: {
-              usedDays: {
-                increment: leaveRequest.totalDays,
-              },
-              pendingDays: {
-                decrement: leaveRequest.totalDays,
-              },
-            },
+            data: updateData,
           });
         }
       }
@@ -2330,11 +2559,11 @@ export const rejectLeaveRequest = async (req, res, next) => {
         },
       });
 
-      // If request was PENDING or MANAGER_APPROVED and deducts from annual,
-      // we need to adjust balance (pendingDays was incremented at create)
+      // Release pending days from the pool this leave type targets (they were booked at create).
+      const rejectPool = leaveTypePool(leaveRequest.leaveType);
       if (
         ["PENDING", "MANAGER_APPROVED"].includes(leaveRequest.status) &&
-        leaveRequest.leaveType.deductsFromAnnual
+        rejectPool !== "none"
       ) {
         const currentYear = new Date().getFullYear();
 
@@ -2349,14 +2578,13 @@ export const rejectLeaveRequest = async (req, res, next) => {
         });
 
         if (entitlement) {
-          // Decrease pending days since it's being rejected
+          const updateData =
+            rejectPool === "sick"
+              ? { pendingSickDays: { decrement: leaveRequest.totalDays } }
+              : { pendingDays: { decrement: leaveRequest.totalDays } };
           await tx.yearlyEntitlement.update({
             where: { id: entitlement.id },
-            data: {
-              pendingDays: {
-                decrement: leaveRequest.totalDays,
-              },
-            },
+            data: updateData,
           });
         }
       }
@@ -2510,10 +2738,11 @@ export const cancelLeaveRequest = async (req, res, next) => {
         },
       });
 
-      // If request was pending and deducts from annual, update balance
+      // Release pending days from the pool this leave type targets (cancellation).
+      const cancelPool = leaveTypePool(leaveRequest.leaveType);
       if (
         ["PENDING", "MANAGER_APPROVED"].includes(leaveRequest.status) &&
-        leaveRequest.leaveType.deductsFromAnnual
+        cancelPool !== "none"
       ) {
         const currentYear = new Date().getFullYear();
 
@@ -2528,14 +2757,13 @@ export const cancelLeaveRequest = async (req, res, next) => {
         });
 
         if (entitlement) {
-          // Decrease pending days since it's being cancelled
+          const updateData =
+            cancelPool === "sick"
+              ? { pendingSickDays: { decrement: leaveRequest.totalDays } }
+              : { pendingDays: { decrement: leaveRequest.totalDays } };
           await tx.yearlyEntitlement.update({
             where: { id: entitlement.id },
-            data: {
-              pendingDays: {
-                decrement: leaveRequest.totalDays,
-              },
-            },
+            data: updateData,
           });
         }
       }
@@ -2620,20 +2848,19 @@ export const getMyLeaveBalance = async (req, res) => {
         });
       }
 
-      const currentDate = new Date();
       const yearStartDate = new Date(currentYear, 0, 1);
       const yearEndDate = new Date(currentYear, 11, 31);
 
-      let allocatedDays = 0;
-      let accruedDays = 0;
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { hireDate: true },
+      });
 
-      if (policy.accrualMethod === "FRONT_LOADED") {
-        allocatedDays = policy.defaultDaysPerYear;
-        accruedDays = 0;
-      } else {
-        allocatedDays = 0;
-        accruedDays = 0;
-      }
+      const alloc = computeInitialAllocation({
+        user: userRecord,
+        policy,
+        year: currentYear,
+      });
 
       let carryoverExpiryDate = null;
       if (policy.carryoverExpiryMonths) {
@@ -2650,12 +2877,16 @@ export const getMyLeaveBalance = async (req, res) => {
           userId,
           policyId: policy.id,
           year: currentYear,
-          allocatedDays,
-          accruedDays,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
           yearStartDate,
@@ -2678,21 +2909,15 @@ export const getMyLeaveBalance = async (req, res) => {
       logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
     }
 
-    // Calculate available balance
-    const availableBalance =
-      entitlement.allocatedDays +
-      entitlement.accruedDays +
-      entitlement.carriedOverDays +
-      entitlement.adjustmentDays -
-      entitlement.usedDays -
-      entitlement.pendingDays;
+    const balances = computeAvailableBalance(entitlement);
 
     res.status(200).json({
       success: true,
       message: "Leave balance fetched successfully",
       data: {
         ...entitlement,
-        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+        availableBalance: Math.max(0, balances.annual), // Annual pool (non-negative)
+        availableSickBalance: Math.max(0, balances.sick),
       },
     });
   } catch (error) {
@@ -2743,6 +2968,7 @@ export const getEmployeeLeaveBalance = async (req, res) => {
         name: true,
         employeeId: true,
         departmentId: true,
+        hireDate: true,
       },
     });
 
@@ -2802,20 +3028,14 @@ export const getEmployeeLeaveBalance = async (req, res) => {
         });
       }
 
-      const currentDate = new Date();
       const yearStartDate = new Date(currentYear, 0, 1);
       const yearEndDate = new Date(currentYear, 11, 31);
 
-      let allocatedDays = 0;
-      let accruedDays = 0;
-
-      if (policy.accrualMethod === "FRONT_LOADED") {
-        allocatedDays = policy.defaultDaysPerYear;
-        accruedDays = 0;
-      } else {
-        allocatedDays = 0;
-        accruedDays = 0;
-      }
+      const alloc = computeInitialAllocation({
+        user: { hireDate: employee.hireDate },
+        policy,
+        year: currentYear,
+      });
 
       let carryoverExpiryDate = null;
       if (policy.carryoverExpiryMonths) {
@@ -2832,12 +3052,16 @@ export const getEmployeeLeaveBalance = async (req, res) => {
           userId,
           policyId: policy.id,
           year: currentYear,
-          allocatedDays,
-          accruedDays,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
           yearStartDate,
@@ -2860,14 +3084,7 @@ export const getEmployeeLeaveBalance = async (req, res) => {
       logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
     }
 
-    // Calculate available balance
-    const availableBalance =
-      entitlement.allocatedDays +
-      entitlement.accruedDays +
-      entitlement.carriedOverDays +
-      entitlement.adjustmentDays -
-      entitlement.usedDays -
-      entitlement.pendingDays;
+    const balances = computeAvailableBalance(entitlement);
 
     // Audit log
     await addLog(
@@ -2885,7 +3102,8 @@ export const getEmployeeLeaveBalance = async (req, res) => {
       message: "Employee leave balance fetched successfully",
       data: {
         ...entitlement,
-        availableBalance: Math.max(0, availableBalance), // Ensure non-negative
+        availableBalance: Math.max(0, balances.annual),
+        availableSickBalance: Math.max(0, balances.sick),
       },
     });
   } catch (error) {
@@ -2952,6 +3170,7 @@ export const adjustLeaveBalance = async (req, res) => {
         id: true,
         name: true,
         employeeId: true,
+        hireDate: true,
       },
     });
 
@@ -2993,16 +3212,11 @@ export const adjustLeaveBalance = async (req, res) => {
       const yearStartDate = new Date(currentYear, 0, 1);
       const yearEndDate = new Date(currentYear, 11, 31);
 
-      let allocatedDays = 0;
-      let accruedDays = 0;
-
-      if (policy.accrualMethod === "FRONT_LOADED") {
-        allocatedDays = policy.defaultDaysPerYear;
-        accruedDays = 0;
-      } else {
-        allocatedDays = 0;
-        accruedDays = 0;
-      }
+      const alloc = computeInitialAllocation({
+        user: { hireDate: employee.hireDate },
+        policy,
+        year: currentYear,
+      });
 
       let carryoverExpiryDate = null;
       if (policy.carryoverExpiryMonths) {
@@ -3019,12 +3233,16 @@ export const adjustLeaveBalance = async (req, res) => {
           userId,
           policyId: policy.id,
           year: currentYear,
-          allocatedDays,
-          accruedDays,
+          allocatedDays: alloc.allocatedDays,
+          accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
           yearStartDate,
@@ -3062,14 +3280,7 @@ export const adjustLeaveBalance = async (req, res) => {
       },
     });
 
-    // Calculate new available balance
-    const availableBalance =
-      updatedEntitlement.allocatedDays +
-      updatedEntitlement.accruedDays +
-      updatedEntitlement.carriedOverDays +
-      updatedEntitlement.adjustmentDays -
-      updatedEntitlement.usedDays -
-      updatedEntitlement.pendingDays;
+    const balances = computeAvailableBalance(updatedEntitlement);
 
     // Audit log
     await addLog(
@@ -3098,7 +3309,8 @@ export const adjustLeaveBalance = async (req, res) => {
       message: "Leave balance adjusted successfully",
       data: {
         ...updatedEntitlement,
-        availableBalance: Math.max(0, availableBalance),
+        availableBalance: Math.max(0, balances.annual),
+        availableSickBalance: Math.max(0, balances.sick),
         adjustment: {
           previousAdjustmentDays: oldAdjustmentDays,
           adjustmentAmount: adjustmentDays,
@@ -3202,24 +3414,23 @@ export const getAllLeaveBalances = async (req, res) => {
           year: targetYear,
           entitlement: null,
           availableBalance: 0,
+          availableSickBalance: 0,
           allocatedDays: 0,
           accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: 0,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
         };
       }
 
-      const availableBalance =
-        entitlement.allocatedDays +
-        entitlement.accruedDays +
-        entitlement.carriedOverDays +
-        entitlement.adjustmentDays -
-        entitlement.usedDays -
-        entitlement.pendingDays;
+      const poolBalances = computeAvailableBalance(entitlement);
 
       return {
         userId: employee.id,
@@ -3233,13 +3444,18 @@ export const getAllLeaveBalances = async (req, res) => {
           lastAccrualDate: entitlement.lastAccrualDate,
           carryoverExpiryDate: entitlement.carryoverExpiryDate,
         },
-        availableBalance: Math.max(0, availableBalance),
+        availableBalance: Math.max(0, poolBalances.annual),
+        availableSickBalance: Math.max(0, poolBalances.sick),
         allocatedDays: entitlement.allocatedDays,
         accruedDays: entitlement.accruedDays,
         carriedOverDays: entitlement.carriedOverDays,
         adjustmentDays: entitlement.adjustmentDays,
         usedDays: entitlement.usedDays,
         pendingDays: entitlement.pendingDays,
+        allocatedSickDays: entitlement.allocatedSickDays ?? 0,
+        usedSickDays: entitlement.usedSickDays ?? 0,
+        pendingSickDays: entitlement.pendingSickDays ?? 0,
+        sickAdjustmentDays: entitlement.sickAdjustmentDays ?? 0,
         encashedDays: entitlement.encashedDays,
         encashmentAmount: entitlement.encashmentAmount,
       };
@@ -3322,7 +3538,7 @@ export const initializeLeaveEntitlement = async (req, res) => {
         id: true,
         name: true,
         employeeId: true,
-        createdAt: true,
+        hireDate: true,
       },
     });
 
@@ -3363,32 +3579,14 @@ export const initializeLeaveEntitlement = async (req, res) => {
       });
     }
 
-    const employeeJoinDate = new Date(employee.createdAt);
-    const joinYear = employeeJoinDate.getFullYear();
     const yearStartDate = new Date(targetYear, 0, 1);
     const yearEndDate = new Date(targetYear, 11, 31);
 
-    let allocatedDays = 0;
-    let accruedDays = 0;
-    let actualYearStartDate = yearStartDate;
-
-    if (policy.accrualMethod === "FRONT_LOADED") {
-      allocatedDays = policy.defaultDaysPerYear;
-      accruedDays = 0;
-
-      if (joinYear === targetYear) {
-        const monthsRemaining = 12 - employeeJoinDate.getMonth();
-        allocatedDays = (policy.defaultDaysPerYear / 12) * monthsRemaining;
-        actualYearStartDate = employeeJoinDate;
-      }
-    } else {
-      allocatedDays = 0;
-      accruedDays = 0;
-
-      if (joinYear === targetYear) {
-        actualYearStartDate = employeeJoinDate;
-      }
-    }
+    const alloc = computeInitialAllocation({
+      user: { hireDate: employee.hireDate },
+      policy,
+      year: targetYear,
+    });
 
     let carryoverExpiryDate = null;
     if (policy.carryoverExpiryMonths) {
@@ -3405,15 +3603,19 @@ export const initializeLeaveEntitlement = async (req, res) => {
         userId,
         policyId: policy.id,
         year: targetYear,
-        allocatedDays,
-        accruedDays,
+        allocatedDays: alloc.allocatedDays,
+        accruedDays: 0,
         carriedOverDays: 0,
         adjustmentDays: 0,
         usedDays: 0,
         pendingDays: 0,
+        allocatedSickDays: alloc.allocatedSickDays,
+        usedSickDays: 0,
+        pendingSickDays: 0,
+        sickAdjustmentDays: 0,
         encashedDays: 0,
         encashmentAmount: 0,
-        yearStartDate: actualYearStartDate,
+        yearStartDate,
         yearEndDate,
         lastAccrualDate: null,
         carryoverExpiryDate,
@@ -3430,13 +3632,7 @@ export const initializeLeaveEntitlement = async (req, res) => {
       },
     });
 
-    const availableBalance =
-      entitlement.allocatedDays +
-      entitlement.accruedDays +
-      entitlement.carriedOverDays +
-      entitlement.adjustmentDays -
-      entitlement.usedDays -
-      entitlement.pendingDays;
+    const balances = computeAvailableBalance(entitlement);
 
     await addLog(
       hrUserId,
@@ -3447,7 +3643,9 @@ export const initializeLeaveEntitlement = async (req, res) => {
       {
         userId,
         year: targetYear,
-        allocatedDays,
+        allocatedDays: alloc.allocatedDays,
+        allocatedSickDays: alloc.allocatedSickDays,
+        eligibleForAnnual: alloc.eligible,
         accrualMethod: policy.accrualMethod,
         reason: "Manual initialization by HR",
       },
@@ -3463,7 +3661,8 @@ export const initializeLeaveEntitlement = async (req, res) => {
       message: "Leave entitlement initialized successfully",
       data: {
         ...entitlement,
-        availableBalance: Math.max(0, availableBalance),
+        availableBalance: Math.max(0, balances.annual),
+        availableSickBalance: Math.max(0, balances.sick),
       },
     });
   } catch (error) {
@@ -3510,20 +3709,34 @@ export const getLeaveStats = async (req, res) => {
       if (policy.carryoverExpiryMonths != null) {
         carryoverExpiryDate = new Date(currentYear, policy.carryoverExpiryMonths, 0);
       }
-      const allocatedDays =
-        policy.accrualMethod === "FRONT_LOADED" ? policy.defaultDaysPerYear : 0;
+
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { hireDate: true },
+      });
+
+      const alloc = computeInitialAllocation({
+        user: userRecord,
+        policy,
+        year: currentYear,
+      });
+
       entitlement = await prisma.yearlyEntitlement.create({
         data: {
           tenantId,
           userId,
           policyId: policy.id,
           year: currentYear,
-          allocatedDays,
+          allocatedDays: alloc.allocatedDays,
           accruedDays: 0,
           carriedOverDays: 0,
           adjustmentDays: 0,
           usedDays: 0,
           pendingDays: 0,
+          allocatedSickDays: alloc.allocatedSickDays,
+          usedSickDays: 0,
+          pendingSickDays: 0,
+          sickAdjustmentDays: 0,
           encashedDays: 0,
           encashmentAmount: 0,
           yearStartDate,
@@ -3542,6 +3755,9 @@ export const getLeaveStats = async (req, res) => {
       entitlement.carriedOverDays +
       entitlement.adjustmentDays;
     const daysTaken = entitlement.usedDays;
+    const totalSickDays =
+      (entitlement.allocatedSickDays ?? 0) + (entitlement.sickAdjustmentDays ?? 0);
+    const sickDaysTaken = entitlement.usedSickDays ?? 0;
 
     const [pendingCount, approvedCount] = await Promise.all([
       prisma.leaveRequest.count({
@@ -3566,6 +3782,8 @@ export const getLeaveStats = async (req, res) => {
     const defaultDaysPerYear = policy?.defaultDaysPerYear ?? 21;
     const accrualMethod = policy?.accrualMethod ?? "FRONT_LOADED";
     const carryoverType = policy?.carryoverType ?? "LIMITED";
+    const sickLeaveAllocationEnabled = policy?.sickLeaveAllocationEnabled ?? false;
+    const allocatedSickDaysPerYear = policy?.allocatedSickDaysPerYear ?? 0;
 
     return res.status(200).json({
       success: true,
@@ -3573,11 +3791,15 @@ export const getLeaveStats = async (req, res) => {
       data: {
         totalDays,
         daysTaken,
+        totalSickDays,
+        sickDaysTaken,
         pendingCount,
         approvedCount,
         defaultDaysPerYear,
         accrualMethod,
         carryoverType,
+        sickLeaveAllocationEnabled,
+        allocatedSickDaysPerYear,
       },
     });
   } catch (error) {

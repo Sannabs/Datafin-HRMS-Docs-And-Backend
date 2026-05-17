@@ -13,6 +13,7 @@ import {
 } from "../utils/loginCredentials.util.js";
 import { resolveTenantEmployeeShiftId } from "../utils/resolveTenantEmployeeShift.util.js";
 import { VALID_EMPLOYMENT_STATUSES, isEmployeeActiveForWork } from "../utils/employee-status.util.js";
+import { computeInitialAllocation } from "../services/leave-allocation.service.js";
 
 /**
  * Send an invitation to a user
@@ -878,43 +879,16 @@ export const acceptInvitation = async (req, res, next) => {
 
       if (companyLeavePolicy) {
         const currentYear = new Date().getFullYear();
-        const currentDate = new Date();
+        const yearStartDate = new Date(currentYear, 0, 1);
+        const yearEndDate = new Date(currentYear, 11, 31);
 
-        // Use invitation createdAt for pro-rata calculation (hireDate might be empty)
-        const invitationDate = new Date(invitation.createdAt);
-        const invitationYear = invitationDate.getFullYear();
+        // Tenure gate + pro-rata are owned by the shared helper. Null hireDate → 0.
+        const alloc = computeInitialAllocation({
+          user: { hireDate: newUser.hireDate },
+          policy: companyLeavePolicy,
+          year: currentYear,
+        });
 
-        // Calculate allocation based on accrual method
-        let allocatedDays = 0;
-        let accruedDays = 0;
-        let yearStartDate = new Date(currentYear, 0, 1); // Jan 1
-        let yearEndDate = new Date(currentYear, 11, 31); // Dec 31
-
-        if (companyLeavePolicy.accrualMethod === "FRONT_LOADED") {
-          // FRONT_LOADED: All days allocated at year start
-          allocatedDays = companyLeavePolicy.defaultDaysPerYear;
-          accruedDays = 0;
-
-          // Pro-rata calculation if invited mid-year
-          if (invitationYear === currentYear) {
-            // Invited this year - calculate pro-rata
-            const monthsRemaining = 12 - invitationDate.getMonth();
-            allocatedDays =
-              (companyLeavePolicy.defaultDaysPerYear / 12) * monthsRemaining;
-            yearStartDate = invitationDate; // Start from invitation date
-          }
-        } else {
-          // ACCRUAL: allocatedDays stays 0, accruedDays will grow over time
-          allocatedDays = 0;
-          accruedDays = 0;
-
-          // For mid-year invites with ACCRUAL, set yearStartDate to invitation date
-          if (invitationYear === currentYear) {
-            yearStartDate = invitationDate;
-          }
-        }
-
-        // Calculate carryover expiry date if applicable
         let carryoverExpiryDate = null;
         if (companyLeavePolicy.carryoverExpiryMonths) {
           carryoverExpiryDate = new Date(
@@ -928,25 +902,29 @@ export const acceptInvitation = async (req, res, next) => {
           data: {
             tenantId: invitation.tenantId,
             userId: newUser.id,
-            policyId: companyLeavePolicy.id, // Required field
+            policyId: companyLeavePolicy.id,
             year: currentYear,
-            allocatedDays,
-            accruedDays: 0, // Explicit
-            carriedOverDays: 0, // New employee, no carryover
+            allocatedDays: alloc.allocatedDays,
+            accruedDays: 0,
+            carriedOverDays: 0,
             adjustmentDays: 0,
             usedDays: 0,
             pendingDays: 0,
+            allocatedSickDays: alloc.allocatedSickDays,
+            usedSickDays: 0,
+            pendingSickDays: 0,
+            sickAdjustmentDays: 0,
             encashedDays: 0,
             encashmentAmount: 0,
             yearStartDate,
             yearEndDate,
-            lastAccrualDate: null, // Will be set when accrual runs
+            lastAccrualDate: null,
             carryoverExpiryDate,
           },
         });
 
         logger.info(
-          `Created yearly entitlement for user ${newUser.id}, year ${currentYear}, allocatedDays: ${allocatedDays}`
+          `Created yearly entitlement for user ${newUser.id}, year ${currentYear}, allocatedDays: ${alloc.allocatedDays}, allocatedSickDays: ${alloc.allocatedSickDays}, eligibleForAnnual: ${alloc.eligible}`
         );
       } else {
         logger.warn(

@@ -31,6 +31,10 @@ import {
 } from "../utils/employee-status.util.js";
 import { getDepartmentFilter } from "../utils/access-control.utils.js";
 import { sendDepartmentManagerAssignedEmail } from "../views/sendDepartmentManagerAssignedEmail.js";
+import {
+    computeInitialAllocation,
+    computeAvailableBalance,
+} from "../services/leave-allocation.service.js";
 
 /** Map breakdown rows to a safe JSON shape for payroll overview. */
 function toPayrollOverviewLines(rows) {
@@ -2010,6 +2014,10 @@ export const getHomeStats = async (req, res) => {
                 adjustmentDays: true,
                 usedDays: true,
                 pendingDays: true,
+                allocatedSickDays: true,
+                usedSickDays: true,
+                pendingSickDays: true,
+                sickAdjustmentDays: true,
             },
         });
 
@@ -2029,12 +2037,16 @@ export const getHomeStats = async (req, res) => {
             const yearStartDate = new Date(currentYear, 0, 1);
             const yearEndDate = new Date(currentYear, 11, 31);
 
-            let allocatedDays = 0;
-            let accruedDays = 0;
+            const userRecord = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { hireDate: true },
+            });
 
-            if (policy.accrualMethod === "FRONT_LOADED") {
-                allocatedDays = policy.defaultDaysPerYear;
-            }
+            const alloc = computeInitialAllocation({
+                user: userRecord,
+                policy,
+                year: currentYear,
+            });
 
             let carryoverExpiryDate = null;
             if (policy.carryoverExpiryMonths != null) {
@@ -2048,12 +2060,16 @@ export const getHomeStats = async (req, res) => {
                     userId,
                     policyId: policy.id,
                     year: currentYear,
-                    allocatedDays,
-                    accruedDays,
+                    allocatedDays: alloc.allocatedDays,
+                    accruedDays: 0,
                     carriedOverDays: 0,
                     adjustmentDays: 0,
                     usedDays: 0,
                     pendingDays: 0,
+                    allocatedSickDays: alloc.allocatedSickDays,
+                    usedSickDays: 0,
+                    pendingSickDays: 0,
+                    sickAdjustmentDays: 0,
                     encashedDays: 0,
                     encashmentAmount: 0,
                     yearStartDate,
@@ -2068,19 +2084,18 @@ export const getHomeStats = async (req, res) => {
                     adjustmentDays: true,
                     usedDays: true,
                     pendingDays: true,
+                    allocatedSickDays: true,
+                    usedSickDays: true,
+                    pendingSickDays: true,
+                    sickAdjustmentDays: true,
                 },
             });
 
             logger.info(`Created yearly entitlement for user ${userId}, year ${currentYear}`);
         }
 
-        const availableBalance =
-            entitlement.allocatedDays +
-            entitlement.accruedDays +
-            entitlement.carriedOverDays +
-            entitlement.adjustmentDays -
-            entitlement.usedDays -
-            entitlement.pendingDays;
+        const balances = computeAvailableBalance(entitlement);
+        const availableBalance = balances.annual;
 
         const [payslip, holiday] = await Promise.all([
             prisma.payslip.findFirst({
@@ -2119,6 +2134,7 @@ export const getHomeStats = async (req, res) => {
             success: true,
             data: {
                 leaveBalance: availableBalance,
+                sickLeaveBalance: balances.sick,
                 latestPayslip: latestNetPay,
                 nextHoliday: holiday?.date ?? null,
                 pendingReviews: null,
