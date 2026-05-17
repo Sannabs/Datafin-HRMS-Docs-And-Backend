@@ -21,13 +21,22 @@ export const TENURE_THRESHOLD_MONTHS = 12;
  * Tenure rule applies to BOTH annual and sick pools: employee must have a non-null hireDate
  * and have served 12 calendar months by year-end. Otherwise both pools are 0.
  *
- * Pro-rata: when the eligibility date (hireDate + 12 months) falls inside the leave year,
- * allocation is `(daysPerYear / 12) * monthsRemaining`, where monthsRemaining counts the
- * eligibility month as a full month (matches the existing convention at invitations.controller
- * line ~901 and leave.controller line ~3381).
+ * Annual leave allocation is tiered by years of service (Gambia Labour Act §50):
+ *   - 1-3 years: 14 days
+ *   - 3-7 years: 21 days
+ *   - 7+ years: 30 days
+ *
+ * Sick leave allocation is tiered by years of service (working days per 12-month period):
+ *   - 1-3 years: 14 days
+ *   - 3-5 years: 28 days
+ *   - 5-10 years: 42 days
+ *   - 10+ years: 63 days
+ *
+ * Tier is determined based on years of service as of year-end. If employee crosses the
+ * 12-month eligibility threshold mid-year, allocation is pro-rata: (daysPerYear / 12) * monthsRemaining.
  *
  * For ACCRUAL policies, `allocatedDays` is always 0 (accrual builds `accruedDays` separately);
- * the sick pool still follows the tenure-gated FRONT_LOADED logic above when enabled.
+ * the sick pool still follows the tenure-gated allocation logic when enabled.
  *
  * @param {{
  *   user: { hireDate: Date | string | null },
@@ -61,18 +70,22 @@ export const computeInitialAllocation = ({ user, policy, year }) => {
     };
   }
 
+  // Calculate years of service as of year-end to determine tier
+  const yearsOfServiceAtYearEnd = yearEnd.diff(hire, "years").years;
+  const annualPerYear = getTieredAnnualAllocation(yearsOfServiceAtYearEnd, policy);
+
   const sickEnabled = policy.sickLeaveAllocationEnabled === true;
-  const sickPerYear = sickEnabled ? policy.allocatedSickDaysPerYear : 0;
-  const annualPerYear = policy.accrualMethod === "FRONT_LOADED" ? policy.defaultDaysPerYear : 0;
+  const sickPerYear = sickEnabled ? getTieredSickAllocation(yearsOfServiceAtYearEnd) : 0;
 
   let annualAllocated;
   let sickAllocated;
 
   if (eligibilityDate <= yearStart) {
+    // Eligible before year started: full allocation
     annualAllocated = annualPerYear;
     sickAllocated = sickPerYear;
   } else {
-    // Eligibility falls mid-year: count from the eligibility month to year-end inclusive.
+    // Eligibility falls mid-year: pro-rata from eligibility month to year-end inclusive.
     const monthsRemaining = 13 - eligibilityDate.month;
     annualAllocated = (annualPerYear / 12) * monthsRemaining;
     sickAllocated = (sickPerYear / 12) * monthsRemaining;
@@ -85,6 +98,39 @@ export const computeInitialAllocation = ({ user, policy, year }) => {
     eligibilityDate: eligibilityDate.toJSDate(),
   };
 };
+
+/**
+ * Determine annual leave allocation (in days) based on years of service tier.
+ * Tiered per Gambia Labour Act §50.
+ *
+ * @param {number} yearsOfService
+ * @param {{accrualMethod?: string}} policy - only used to check if ACCRUAL method (returns 0)
+ * @returns {number} days per year
+ */
+function getTieredAnnualAllocation(yearsOfService, policy) {
+  // ACCRUAL method doesn't front-load any allocation
+  if (policy?.accrualMethod === "ACCRUAL") return 0;
+
+  if (yearsOfService < 1) return 0;
+  if (yearsOfService < 3) return 14;
+  if (yearsOfService < 7) return 21;
+  return 30;
+}
+
+/**
+ * Determine sick leave allocation (in working days) based on years of service tier.
+ * Tiered per Gambia Labour Act (working days per 12-month period).
+ *
+ * @param {number} yearsOfService
+ * @returns {number} working days per year
+ */
+function getTieredSickAllocation(yearsOfService) {
+  if (yearsOfService < 1) return 0;
+  if (yearsOfService < 3) return 14;
+  if (yearsOfService < 5) return 28;
+  if (yearsOfService < 10) return 42;
+  return 63;
+}
 
 /**
  * Compute available balances for an entitlement, branched by pool. Pure.
