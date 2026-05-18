@@ -254,6 +254,8 @@ export const getMe = async (req, res, next) => {
         SSN: true,
         tinNumber: true,
         emailVerified: true,
+        bankName: true,
+        accountNumber: true,
         lastLogin: true,
         isDeleted: true,
         createdAt: true,
